@@ -270,6 +270,10 @@ test('S9. MCP: an agent undoes its own confirmed order across modules, and what 
   assert.equal((await c.rec(made.json.id)).status, 'draft')
   assert.equal((await pickingsOf(made.json.id)).length, 0, 'the picking went back with it')
   assert.equal((await c.events(made.json.id)).at(-1).event_type, 'Reverted')
+  const st = (await call('erp_read', { saga: corr })).json
+  assert.equal(st.pending, false)
+  assert.ok(st.net.length > 0, 'the work moved reservations or stock')
+  assert.deepEqual(st.net.filter((n) => Number(n.amount) !== 0), [], 'after the undo everything nets to zero')
 })
 
 test('accounting turned on last gives the same books as accounting from the start, on the real modules', async () => {

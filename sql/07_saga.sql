@@ -139,6 +139,16 @@ begin
     'documents', (select coalesce(jsonb_agg(jsonb_build_object('id', r.id, 'type', r.type, 'label', c.doc ->> 'label', 'name', r.name, 'status', r.status, 'deleted', r.deleted) order by r.created_at), '[]'::jsonb)
                     from erp.records r join erp.catalog c on c.type = r.type
                    where r.type = any (readable) and r.id in (select e.stream_id from erp.events e where e.correlation_id = any (ids))),
+    -- What the work changed in total, read from the ledger's own effects: stock by place, books by account.
+    -- After a correct undo every amount here is zero, and that is what an agent shows instead of its word.
+    'net', (select coalesce(jsonb_agg(jsonb_build_object('kind', n.kind, 'key', n.key_, 'name', n.name_, 'amount', n.amount) order by n.kind, n.name_), '[]'::jsonb) from (
+              select t.kind, jsonb_strip_nulls(jsonb_build_object('account_id', row_ -> 'account_id', 'variant_id', row_ -> 'variant_id', 'location_id', row_ -> 'location_id', 'lot_id', row_ -> 'lot_id')) as key_,
+                     max(a.name) as name_,
+                     sum(case when row_ ? 'debit' or row_ ? 'credit' then coalesce(erp.num(row_ -> 'debit'), 0) - coalesce(erp.num(row_ -> 'credit'), 0) else coalesce(erp.num(row_ -> 'qty'), 0) end) as amount
+                from erp.events e, jsonb_each(e.data -> 'effects') as t(kind, arr), jsonb_array_elements(t.arr) row_
+                left join erp.records a on a.id = coalesce(row_ ->> 'account_id', row_ ->> 'variant_id')::uuid
+               where e.correlation_id = any (ids) and (row_ ? 'qty' or row_ ? 'debit' or row_ ? 'credit')
+               group by 1, 2) n),
     'pending', exists (select 1 from erp.subscriptions s join erp.events e on e.correlation_id = any (ids) and (e.txid, e.seq) > (s.last_txid, s.last_seq)
                         where s.active and (s.event_types is null or e.event_type = any (s.event_types)) and (s.since is null or e.occurred_at >= s.since)),
     'stuck', (select coalesce(jsonb_agg(jsonb_build_object('subscription', s.name, 'error', s.last_error)), '[]'::jsonb) from erp.subscriptions s
