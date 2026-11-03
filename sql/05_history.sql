@@ -29,7 +29,13 @@ begin
 end $$;
 
 -- The whole company as it stood at a moment: every screen can run read-only against this.
-create or replace function public.erp_records_at(p_type text, p_at timestamptz, p_limit int default 100, p_offset int default 0)
+-- Only the requested page is replayed; replaying every stream to fill one page took 8.9 s at 200,000 events.
+create index if not exists events_deleted_flag_idx on erp.events (stream_id, version)
+  where (data -> 'set') ? 'deleted' or (data -> 'unset') ? 'deleted';
+create index if not exists events_state_flag_idx on erp.events (stream_id, version)
+  where (data -> 'set') ? 'state' or (data -> 'unset') ? 'state';
+
+create or replace function public.erp_records_at(p_type text, p_at timestamptz, p_limit int default 100, p_offset int default 0, p_status text default null)
 returns jsonb language plpgsql stable security definer set search_path = erp, pg_temp as $$
 declare out_ jsonb;
 begin
@@ -37,19 +43,38 @@ begin
   with latest as (
     select stream_id, max(version) as version, min(occurred_at) as created_at, max(occurred_at) as updated_at
       from erp.events where stream_type = p_type and occurred_at <= p_at group by stream_id
-  ), folded as (
-    select l.stream_id, l.version, l.created_at, l.updated_at, erp.fold(l.stream_id, p_at) as s from latest l
+  ), removed as (
+    select stream_id from (
+      select distinct on (stream_id) stream_id, coalesce((data -> 'set' ->> 'deleted')::boolean, false) as d
+        from erp.events
+       where stream_type = p_type and occurred_at <= p_at and ((data -> 'set') ? 'deleted' or (data -> 'unset') ? 'deleted')
+       order by stream_id, version desc) x
+     where d
+  ), status_at as (
+    select distinct on (stream_id) stream_id, data -> 'set' ->> 'state' as status
+      from erp.events
+     where p_status is not null and stream_type = p_type and occurred_at <= p_at and ((data -> 'set') ? 'state' or (data -> 'unset') ? 'state')
+     order by stream_id, version desc
   ), visible as (
-    select * from folded where not coalesce((s ->> 'deleted')::boolean, false)
+    select l.* from latest l
+     where not exists (select 1 from removed r where r.stream_id = l.stream_id)
+       and (p_status is null or exists (select 1 from status_at st where st.stream_id = l.stream_id and st.status = p_status))
+  ), page as (
+    select * from visible order by created_at desc, stream_id limit p_limit offset p_offset
+  ), folded as (
+    select p.*, erp.fold(p.stream_id, p_at) as s from page p
   )
   select jsonb_build_object('total', (select count(*) from visible), 'at', p_at, 'rows', coalesce((
     select jsonb_agg(jsonb_build_object('id', stream_id, 'type', p_type, 'version', version, 'name', coalesce(s ->> 'number', s ->> 'name'),
              'status', s ->> 'state', 'active', coalesce((s ->> 'active')::boolean, true), 'state', s,
              'created_at', created_at, 'updated_at', updated_at) order by created_at desc, stream_id)
-      from (select * from visible order by created_at desc, stream_id limit p_limit offset p_offset) v), '[]'::jsonb))
+      from folded), '[]'::jsonb))
   into out_;
   return out_;
 end $$;
+
+-- Replaces the earlier four-argument form on upgrade.
+drop function if exists public.erp_records_at(text, timestamptz, int, int);
 
 -- Sums one kind of effect up to a moment, e.g. stock on hand or an account balance as it stood then.
 create or replace function erp.effects_at(p_kind text, p_at timestamptz) returns setof jsonb
@@ -116,6 +141,9 @@ declare
   warnings jsonb := '[]'::jsonb;
   effects jsonb;
   cascade_ jsonb;
+  chk record;
+  combined jsonb;
+  messages jsonb;
 begin
   for r in
     select e.stream_id, e.stream_type, min(e.version) as first_version, count(*) as event_count,
@@ -157,6 +185,20 @@ begin
     streams := streams || jsonb_build_object('id', r.stream_id, 'type', r.stream_type, 'label', doc ->> 'label', 'name', r.name,
       'from_version', r.current_version, 'to_version', r.first_version - 1, 'events', r.event_count,
       'from_status', r.status, 'to_status', target ->> 'state', 'removes', target = '{}'::jsonb, 'effects', effects);
+  end loop;
+
+  -- Undoing a receipt whose goods have since shipped on another order is causally clean but leaves stock
+  -- negative. The stream closure cannot see that, so each total gets to veto the combined change.
+  for chk in
+    select k.kind, k.check_fn from erp.effect_kinds k where k.check_fn is not null
+  loop
+    select coalesce(jsonb_agg(row_), '[]'::jsonb) into combined
+      from jsonb_array_elements(streams) st, jsonb_array_elements(erp.negate_effects(st -> 'effects') -> chk.kind) row_;
+    if jsonb_array_length(combined) > 0 then
+      execute format('select %s($1)', chk.check_fn) into messages using combined;
+      select blocked || coalesce(jsonb_agg(jsonb_build_object('type', chk.kind, 'reason', m)), '[]'::jsonb) into blocked
+        from jsonb_array_elements_text(coalesce(messages, '[]'::jsonb)) m;
+    end if;
   end loop;
 
   select coalesce(jsonb_agg(jsonb_build_object('correlation_id', c.cid, 'at', c.at, 'actor', c.actor, 'events', c.n, 'first_event', c.first_event) order by c.at), '[]'::jsonb)

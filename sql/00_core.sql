@@ -227,17 +227,22 @@ $$;
 create table if not exists erp.effect_kinds (
   kind text primary key,
   apply_fn text not null,
-  reset_fn text
+  reset_fn text,
+  check_fn text
 );
+alter table erp.effect_kinds add column if not exists check_fn text;
 alter table erp.effect_kinds enable row level security;
 
 create table if not exists erp.derived_resets (reset_fn text primary key);
 alter table erp.derived_resets enable row level security;
 
-create or replace function erp.register_effect(p_kind text, p_apply_fn text, p_reset_fn text default null) returns void
+-- check_fn(rows jsonb) returns jsonb: an array of messages for changes the totals cannot absorb. Streams are
+-- causally independent even when they share a total, so a rollback asks this before it goes ahead.
+drop function if exists erp.register_effect(text, text, text);
+create or replace function erp.register_effect(p_kind text, p_apply_fn text, p_reset_fn text default null, p_check_fn text default null) returns void
 language sql as $$
-  insert into erp.effect_kinds(kind, apply_fn, reset_fn) values (p_kind, p_apply_fn, p_reset_fn)
-  on conflict (kind) do update set apply_fn = excluded.apply_fn, reset_fn = excluded.reset_fn
+  insert into erp.effect_kinds(kind, apply_fn, reset_fn, check_fn) values (p_kind, p_apply_fn, p_reset_fn, p_check_fn)
+  on conflict (kind) do update set apply_fn = excluded.apply_fn, reset_fn = excluded.reset_fn, check_fn = excluded.check_fn
 $$;
 
 create or replace function erp.apply_effects(ev erp.events) returns void

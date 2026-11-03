@@ -12,7 +12,14 @@ const DOMAIN = `
     on conflict (sku) do update set on_hand = erp.t_stock.on_hand + excluded.on_hand, reserved = erp.t_stock.reserved + excluded.reserved
   $f$;
   create function erp.t_stock_reset() returns void language sql as $f$ truncate erp.t_stock $f$;
-  select erp.register_effect('t_stock', 'erp.t_stock_apply', 'erp.t_stock_reset');
+  create function erp.t_stock_check(p_rows jsonb) returns jsonb language sql stable as $f$
+    select coalesce(jsonb_agg(format('%s 재고가 %s 로 음수가 됩니다', sku, after_)), '[]'::jsonb) from (
+      select d.sku, s.on_hand + d.delta as after_
+        from (select r ->> 'sku' as sku, sum(coalesce((r ->> 'on_hand')::numeric, 0)) as delta from jsonb_array_elements(p_rows) r group by 1) d
+        join erp.t_stock s on s.sku = d.sku
+       where s.on_hand + d.delta < 0) x
+  $f$;
+  select erp.register_effect('t_stock', 'erp.t_stock_apply', 'erp.t_stock_reset', 'erp.t_stock_check');
 
   select erp.catalog_put('{"type":"t_item","module":"test","label":"품목",
     "fields":[{"name":"name","label":"이름","type":"text"},{"name":"on_hand","label":"재고","type":"number"}],
@@ -248,6 +255,33 @@ test('causal safety: goods already shipped means undoing the confirmation must a
   assert.equal((await c.rec(o.id)).status, 'draft')
   assert.deepEqual(await stock(), start, 'stock on hand and reservation both come back')
   assert.deepEqual(await c.verifyProjection(), [])
+})
+
+test('shared totals: undoing a receipt whose goods already shipped on another order is refused, not left negative', async () => {
+  const receipt = await c.admin('t_item', null, 'create', { name: 'SHARED', on_hand: 10 })
+  const o = await c.admin('t_order', null, 'create', { sku: 'SHARED', qty: 10 })
+  await c.admin('t_order', o.id, 'confirm')
+  const ship = (await shipsOf(o.id))[0]
+  await c.admin('t_ship', ship.id, 'validate')
+  assert.equal((await stock('SHARED')).on_hand, 0)
+
+  const target = { correlation_id: receipt.correlation_id }
+  const plan = await preview('correlation', target)
+  assert.deepEqual(plan.cascade, [], 'the streams really are causally independent')
+  assert.equal(plan.blocked.length, 1)
+  assert.match(plan.blocked[0].reason, /SHARED 재고가 -10/)
+  await rejects(applyPlan('correlation', target, plan.hash, true), 'ERP_ROLLBACK_BLOCKED')
+  assert.equal((await stock('SHARED')).on_hand, 0)
+})
+
+test('shared totals: the same undo is allowed once enough stock has come back', async () => {
+  const receipt = await c.admin('t_item', null, 'create', { name: 'REFILL', on_hand: 10 })
+  await c.db.query(`select erp.emit('t_item', gen_random_uuid(), 'ItemCreated', jsonb_build_object('set', '{"name":"REFILL2"}'::jsonb,
+    'effects', '{"t_stock":[{"sku":"REFILL","on_hand":5}]}'::jsonb))`)
+  const plan = await preview('correlation', { correlation_id: receipt.correlation_id })
+  assert.deepEqual(plan.blocked, [])
+  await applyPlan('correlation', { correlation_id: receipt.correlation_id }, plan.hash)
+  assert.equal((await stock('REFILL')).on_hand, 5)
 })
 
 test('record rollback: a document goes back to a chosen version', async () => {

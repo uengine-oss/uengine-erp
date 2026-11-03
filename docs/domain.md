@@ -28,6 +28,8 @@
 | `erp.require_state(id, type)` | 상태를 읽고 없으면 `ERP_NOT_FOUND` |
 
 규칙:
+- **효과(effects).** 파생 합계(재고, 총계정원장)는 이벤트의 `data.effects = {"<kind>": [{문자열 차원..., 숫자 측정값...}]}` 로만 바뀐다. `erp.register_effect(kind, apply_fn(ev, row), reset_fn(), check_fn(rows))` 로 등록한다. 차원은 반드시 문자열, 측정값은 반드시 숫자다(되돌리기는 숫자를 부호 반전한다). 시점 합계는 `erp.effects_at(kind, at)`.
+- **되돌리기 호환.** 처리기와 훅은 이벤트 이름이 아니라 `state`·`effects` 로 파생 값을 만든다. `Reverted` 이벤트는 react 를 일으키지 않는다. 합계가 음수가 되면 안 되는 kind 는 `check_fn` 을 둔다. 되돌리면 안 되는 상태는 카탈로그 `revert_blocked_states`·`revert_blocked_reason`, 외부에 알려진 이벤트는 `external_events`, 아예 되돌리지 않는 유형은 `revertible:false`.
 - **동시성.** `erp.dispatch` 가 처리기 호출 전에 그 애그리거트 행을 잠근다. 처리기는 잠금 뒤 상태를 읽고 규칙을 확인하고 emit 한다. 다른 애그리거트나 파생 표의 값으로 판단할 때(재고 예약 등)는 그 행도 잠근다: `select ... for update` 또는 `update ... where qty - reserved >= n` 후 행 수 확인. 처리기와 판단 함수는 `stable` 로 선언하지 않는다(안정 함수는 호출 시점 스냅샷을 써서 잠금 뒤 최신 값을 못 본다). `erp.require_state` 처럼 읽기만 하는 도우미는 예외다.
 - **읽기 권한.** 카탈로그에 `read_roles` 가 있는 유형은 그 역할과 admin 만 읽는다. `security definer` 로 데이터를 돌려주는 공개 함수는 RLS 를 우회하므로 `erp.require_readable(id)` 나 `erp.readable_types()` 또는 `erp.has_role(...)` 로 직접 확인한다.
 - **이벤트는 사실이다.** 나중에 재생해도 결과가 같도록, 계산 결과(단가·세액·합계)를 이벤트에 그대로 싣는다. 리듀서는 다른 표를 읽지 않는다.
@@ -79,20 +81,34 @@
 | `location` | `name, parent_id, usage(view/internal/customer/supplier/inventory/transit), scrap` |
 
 - 속성 없는 제품도 기본 변형 한 줄이 생긴다. 주문·재고는 언제나 `variant_id` 를 쓴다.
-- 파생 표 `erp.variants(id, product_id, sku, barcode, name, active)` 를 project 훅으로 유지한다.
-- 함수 `erp.variant(variant_id) returns jsonb`: 변형 + 제품 필드 + `list_price`(제품 가격 + `price_extra`), 없으면 `ERP_NOT_FOUND`.
-- 함수 `erp.uom_convert(qty, from_uom, to_uom)`: 다른 분류면 `ERP_UOM`.
-- `dynamic` 은 주문 줄에서 처음 쓸 때 변형을 만든다: `erp.variant_ensure(product_id, value_ids) returns variant_id`.
-- 기본 시드(`erp.default_seeds`): 단위, 세금(부가세 10% 매출·매입, 영세율, 면세), 결제 조건(즉시/15일/30일/30%선금+잔금 60일), 계정과목, 기본 분류, 창고 `WH`, 위치(재고·공급사·고객·재고조정·폐기). 시드의 ID 는 `erp.seed_id('이름')`(이름에서 만든 고정 uuid)으로 얻는다.
-- 회사 설정의 기본 세금 `default_sale_tax_id`, `default_purchase_tax_id` 는 새 제품의 기본값이다.
+- 파생 표 `erp.variants(id, product_id, sku, barcode, name, active)` 를 project 훅으로 유지한다. 화면은 뷰 `public.erp_variants` 로 읽는다.
+- 함수 `erp.variant(variant_id) returns jsonb`: 변형 + 제품 필드 + `variant_id, product_id, product_name, list_price`(제품 가격 + `price_extra`), `standard_price`(변형 원가, 없으면 제품 원가), `active`(변형과 제품이 모두 사용 중), 없으면 `ERP_NOT_FOUND`. 보관된 변형도 읽힌다(옛 문서용).
+- 함수 `erp.uom_convert(qty, from_uom, to_uom)`: 대상 단위의 `rounding` 으로 반올림(반은 올림). 다른 분류면 `ERP_UOM`.
+- `dynamic` 은 주문 줄에서 처음 쓸 때 변형을 만든다: `erp.variant_ensure(product_id, value_ids jsonb) returns variant_id`. 변형을 만드는 속성마다 값이 정확히 하나 필요하고 아니면 `ERP_INVALID`. `no_variant` 값은 섞여 있어도 무시한다. 보관된 변형이면 되살린다. 제품을 잠그므로 동시에 불러도 하나만 생긴다.
+- 변형 생성: `always` 는 조합 전체(최대 1000개, 넘으면 `ERP_VARIANT_LIMIT`). `dynamic` 이 하나라도 있으면 미리 만들지 않는다. `no_variant` 는 변형을 늘리지 않고, 그 `extras` 는 변형 가격에 들어가지 않는다. 값이 빠지면 변형은 `active=false` 로 남고, 값이 돌아오면 같은 id 로 되살아난다. 값이 하나뿐인 속성을 더하면 기존 변형이 그대로 이어지고, 그 값은 변형 이름에 나오지 않는다.
+- 화면이 변형 줄에서 고칠 수 있는 것은 `sku, barcode, standard_price, active` 뿐이다. 줄을 넣거나 뺄 수 없다.
+- 줄 이벤트: 처리기가 차이를 계산해 `<유형><줄>Added/Changed/Removed/Reordered` 를 종류별로 하나씩 낸다. `PaymentTermLine*`, `FiscalPositionTaxMap*`, `AttributeValue*`, `ProductAttribute*`, `ProductVendor*`. 변형은 `ProductVariantAdded/Changed/Archived/Reactivated` 이고 `ProductCreated` 바로 뒤의 `ProductVariantAdded` 에 실린다.
+- 줄 컬럼의 추가 속성: `ref: "variant"` 는 `erp_variants` 에서 고른다. `options_from: {field, path}` 는 같은 줄의 `field` 가 가리키는 레코드의 `path` 목록에서 값을 고른다(제품 속성의 `value_ids`).
+- 결제 조건 계산: `erp.payment_term_schedule(term_id, amount, invoice_date) returns jsonb` → `[{due_date, amount}]`. `percent` 는 합계의 비율, `fixed` 는 그 금액(남은 금액까지만), `balance` 는 나머지이므로 합이 정확히 맞는다. 환불은 부호를 유지한다. 0원 할부는 뺀다. `term_id` 가 없으면 청구일 한 줄.
+- `merge{into}`: 원본은 `merged_into` + `active=false` 로 남고 더 고칠 수 없다(`ERP_MERGED`). 대상의 빈 칸을 원본 값으로 채우고 태그를 합치며, 하위 연락처와 제품 `vendors` 는 대상으로 옮긴다. 발행된 문서의 `partner_id` 는 사실이므로 바꾸지 않는다. 문서를 옮겨야 하는 모듈은 `PartnerMerged` 에 react 한다. 자신의 하위 연락처로는 합칠 수 없다.
+- 기본 시드(`erp.default_seeds`). ID 는 `erp.seed_id('이름')`(이름에서 만든 고정 uuid)으로 얻는다. 이름은 아래 그대로다.
+  - 단위: `개`, `다스`, `g`, `kg`, `톤`, `시간`, `일`, `cm`, `m`, `km`, `mL`, `L`
+  - 세금: `부가세 10% 매출`, `부가세 10% 매입`, `영세율 매출`, `영세율 매입`, `면세 매출`, `면세 매입`
+  - 결제 조건: `즉시`, `15일`, `30일`, `30%선금+잔금 60일`
+  - 계정과목: `현금`, `보통예금`, `외상매출금`, `선급금`, `부가세대급금`, `상품`, `비품`, `외상매입금`, `부가세예수금`, `선수금`, `자본금`, `이월이익잉여금`, `상품매출`, `잡이익`, `상품매출원가`, `대손상각비`, `재고자산감모손실`, `잡손실`
+  - 분류: `기본 분류`. 창고: `WH`. 위치: `재고`, `공급사`, `고객`, `재고조정`, `폐기`. 가격표: `기본 가격표`
+- 회사 설정의 기본 세금 `default_sale_tax_id`, `default_purchase_tax_id` 는 새 제품의 기본값이다. 이 두 필드는 `10_master.sql` 이 회사 카탈로그에 더한다. 새 제품의 단위와 분류 기본값은 시드 `개`, `기본 분류` 다.
 
 ## 3. 가격 (`sql/20_pricing.sql`)
 
 `pricelist`: `name, currency, sort, country_group, rules[{id, apply_on(all/category/product/variant), category_id, product_id, variant_id, min_qty, date_start, date_end, price_type(discount/formula/fixed), discount, fixed_price, base(list_price/standard_price/pricelist), base_pricelist_id, formula_discount, round_to, surcharge, min_margin, max_margin}]`
 
-- `erp.price_for(pricelist_id, variant_id, qty, on_date, uom_id) returns jsonb` → `{price_unit, list_price, discount, rule_id}`. 선택 순서: 구체적인 대상(변형 > 제품 > 분류(가까운 쪽) > 전체), 그다음 기준 수량이 큰 쪽. `discount` 유형은 할인율을 줄의 `discount` 로 보여 주고, `formula`·`fixed` 는 단가에 녹인다.
-- `erp.tax_compute(price_unit, qty, discount, tax_ids jsonb, fiscal_position_id) returns jsonb` → `{subtotal, tax, total, taxes:[{tax_id, name, base, amount, account_id}], tax_ids}`. 줄 단위 반올림. `price_include` 세금은 단가에서 뺀다. 고정 금액 세금은 수량을 곱한다.
-- `public.erp_price(...)`는 화면이 호출한다.
+- `erp.price_for(pricelist_id, variant_id, qty, on_date, uom_id) returns jsonb` → `{price_unit, list_price, discount, rule_id}`. 선택 순서: 구체적인 대상(변형 > 제품 > 분류 > 전체), 그다음 기준 수량이 큰 쪽, 그다음 가까운 분류, 그래도 같으면 나중에 넣은 규칙. 기준 수량은 제품 단위로 재고, 시작일과 종료일 모두 그날을 포함한다. 맞는 규칙이 없거나 가격표가 `null` 이면 정가.
+- `discount` 유형은 할인율을 줄의 `discount` 로 보여 주고, `formula`·`fixed` 는 단가에 녹인다. `formula` 순서: 기준 가격에서 `formula_discount`(음수면 할증) → `round_to` 반올림(반은 올림) → `surcharge` → `기준 + min_margin` 이상, `기준 + max_margin` 이하(0 이면 그 한도 없음). 최소 마진을 넣으려면 그보다 큰 최대 마진도 넣어야 한다. `base=pricelist` 의 기준 가격은 그 가격표의 할인까지 뺀 값이다. 가격과 추가금·마진은 요청 단위로 바꿔서 계산한다.
+- `price_unit`, `list_price` 는 단가이므로 통화 자릿수로 자르지 않는다(자릿수 + 4). 금액은 `tax_compute` 가 줄 합계에서 반올림한다.
+- `erp.tax_compute(price_unit, qty, discount, tax_ids jsonb, fiscal_position_id) returns jsonb` → `{subtotal, tax, total, taxes:[{tax_id, name, base, amount, account_id}], tax_ids, price_unit}`. 줄 단위 반올림: 줄 합계(`단가 × 수량 × (1 - 할인)`)를 먼저 반올림한다. `price_include` 세금은 그 합계에서 뺀다. 비율은 합쳐서 한 번에 나누고 세금마다 반올림하며, `subtotal` 은 남은 금액이다. 별도 세금은 `subtotal` 에 매긴다. 고정 금액 세금은 수량을 곱하고 할인과 무관하다. 세금끼리 곱해지지 않는다.
+- 세금 조정은 `tax_ids` 를 바꾼다(대상이 비면 제거, 한 세금이 여럿으로 갈 수 있음). 원래 세금이 **전부 포함 세금**일 때 조정으로 세금이 바뀌면 단가도 바뀐다: 원래 세금을 빼고 새 포함 세금을 더한다. 줄에는 결과의 `price_unit` 과 `tax_ids` 를 저장한다. 그 값으로 다시 계산해도 금액이 같다.
+- `public.erp_price(pricelist_id, variant_id, qty, date, uom_id)` 는 화면이 호출한다. 기본 가격표 시드는 `erp.seed_id('기본 가격표')`.
 
 ## 4. 판매 (`sql/30_sales.sql`)
 
