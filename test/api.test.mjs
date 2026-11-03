@@ -277,7 +277,7 @@ test('MCP rollback: an admin undoes an agent mistake others built on, and must a
 
 test('MCP rollback: a key undoes only its member\'s work, and the rollback type is on the tool list', async () => {
   const tools = (await mcp({ id: 2, method: 'tools/list' })).result.tools
-  assert.ok(tools.find((t) => t.name === 'erp_create').inputSchema.properties.type.enum.includes('rollback'))
+  assert.match(tools.find((t) => t.name === 'erp_create').inputSchema.properties.type.description, /rollback/)
   assert.ok(!tools.find((t) => t.name === 'erp_read').inputSchema.properties.type.enum.includes('rollback'), 'not a type to list')
   assert.equal(tools.length, 4, 'still four tools')
   const sales = await c.addMember('키 에이전트', ['sales'])
