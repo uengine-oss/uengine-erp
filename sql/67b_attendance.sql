@@ -14,11 +14,12 @@ language sql stable as $$
   select state from erp.records where id = erp.attendance_person_id(p_employee) and type = 'attendance_person' and not deleted
 $$;
 
+-- Who is at the clock. Only building a demo, which only an admin can do and which plays everyone in the story, names anyone but the login.
 create or replace function erp.attendance_me() returns uuid
 language sql stable as $$
   select (r.state ->> 'employee_id')::uuid from erp.records r
    where r.type = 'attendance_person' and not r.deleted and r.status = 'active'
-     and r.state @> jsonb_build_object('user_id', erp.current_actor()) limit 1
+     and r.state @> jsonb_build_object('user_id', case when current_setting('erp.bus_inline', true) = 'on' then erp.event_actor() else erp.current_actor() end) limit 1
 $$;
 
 create or replace function erp.attendance_policy_id() returns uuid
@@ -205,7 +206,8 @@ declare
   std int := erp.num(p -> 'weekly_standard_minutes', 2400)::int;
   limit_ int := std + erp.num(p -> 'weekly_overtime_minutes', 720)::int;
 begin
-  if from_ > to_ then return null; end if;
+  -- Never on by then: it knows nothing about this month at all, and must not call every day in it unattended.
+  if erp.attendance_on_since(p_to) is null or from_ > to_ then return null; end if;
   rows_ := erp.attendance_day_rows(emp, from_, to_);
   -- A week counts in the month it ends, so nothing is counted twice across a close.
   ws := erp.attendance_week_start(p_from);
@@ -414,6 +416,7 @@ begin
   perform pg_advisory_xact_lock(hashtextextended('attendance:month', 0));
   if erp.attendance_month_closed(first_) then perform erp.fail('ERP_INVALID', format('%s 근태는 이미 마감했습니다', p ->> 'period')); end if;
   if last_ >= erp.today() then perform erp.fail('ERP_INVALID', '달이 끝난 뒤에 마감할 수 있습니다'); end if;
+  if erp.attendance_on_since(last_) is null then perform erp.fail('ERP_INVALID', '근태 모듈을 켜기 전의 달은 마감할 수 없습니다. 이 달의 기록이 없습니다'); end if;
   select count(*), string_agg(format('%s %s', x.state ->> 'employee_name', x.state ->> 'date'), ', ' order by x.state ->> 'date')
     into n, open_ from (select * from erp.records r where r.type = 'attendance_day' and not r.deleted and r.status = 'open' and r.state ->> 'date' between first_::text and last_::text limit 20) x;
   if n > 0 then
@@ -544,7 +547,7 @@ begin
     row_ := erp.attendance_month_person(who, first_, least(last_, erp.today() - 1));
     if row_ is not null then list_ := list_ || row_; end if;
   end loop;
-  return jsonb_build_object('period', to_char(first_, 'YYYY-MM'), 'from', first_, 'to', last_, 'closed', rec.status = 'closed', 'closed_at', rec.state -> 'closed_at', 'month_over', last_ < erp.today(),
+  return jsonb_build_object('period', to_char(first_, 'YYYY-MM'), 'from', first_, 'to', last_, 'closed', rec.status = 'closed', 'closed_at', rec.state -> 'closed_at', 'month_over', last_ < erp.today(), 'covered', erp.attendance_on_since(last_) is not null,
     'people', list_,
     'open_days', (select coalesce(jsonb_agg(jsonb_build_object('id', r.id, 'name', r.state -> 'employee_name', 'date', r.state -> 'date', 'check_in', r.state -> 'check_in') order by r.state ->> 'date'), '[]'::jsonb)
                     from erp.records r where r.type = 'attendance_day' and not r.deleted and r.status = 'open' and r.state ->> 'date' between first_::text and last_::text),

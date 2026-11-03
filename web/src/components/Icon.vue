@@ -4,6 +4,8 @@ withDefaults(defineProps<{ name: string; size?: number }>(), { size: 15 })
 // Monoline icons drawn on a 24-unit grid. Inline so the page needs no icon font or external file.
 const PATHS: Record<string, string> = {
   home: 'M3 11l9-7 9 7M5.5 9.5V20h13V9.5M10 20v-6h4v6',
+  timeoff: 'M4 6h16v14H4zM4 10h16M8 3v4M16 3v4M9 15l2 2 4-4',
+  attendance: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
   sales: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6',
   hr: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a7 7 0 0 1 14 0v1M16 3.5a4 4 0 0 1 0 7.5M22 21v-1a7 7 0 0 0-4-6.3',
   purchase: 'M3 4h2.5l2.2 11h10.1l2-8H6.5M9.5 20h.01M17 20h.01',

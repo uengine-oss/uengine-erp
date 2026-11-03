@@ -655,8 +655,8 @@ end $$;
 
 create or replace function erp.leave_decided_set(p_role text) returns jsonb
 language sql stable as $$
-  select jsonb_build_object('decided_at', erp.now(), 'decided_by', erp.current_actor(),
-    'decided_by_name', (select name from erp.members where user_id = erp.current_actor()), 'decided_role', p_role)
+  select jsonb_build_object('decided_at', erp.now(), 'decided_by', erp.event_actor(),
+    'decided_by_name', (select name from erp.members where user_id = erp.event_actor()), 'decided_role', p_role)
 $$;
 
 create or replace function erp.h_leave_request(p_id uuid, p_command text, p_p jsonb) returns uuid
@@ -716,7 +716,7 @@ begin
         perform erp.fail('ERP_FORBIDDEN', '본인, 상사, 인사 담당자만 취소할 수 있습니다');
       end if;
       perform erp.timeoff_lock((s ->> 'employee_id')::uuid);
-      set_ := jsonb_build_object('state', 'cancelled', 'cancelled_at', erp.now(), 'cancelled_by_name', (select name from erp.members where user_id = me));
+      set_ := jsonb_build_object('state', 'cancelled', 'cancelled_at', erp.now(), 'cancelled_by_name', (select name from erp.members where user_id = erp.event_actor()));
       perform erp.emit('leave_request', p_id, 'LeaveCancelled', jsonb_build_object('set', set_, 'was', was) || erp.leave_request_facts(s));
     when 'erase_private' then
       if p <> '{}'::jsonb then perform erp.fail('ERP_UNKNOWN_FIELD', '사유 지우기는 지우는 까닭만 받습니다'); end if;

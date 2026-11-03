@@ -42,6 +42,9 @@ export interface Transition {
   danger?: boolean
   confirm?: string
   params?: Field[]
+  /** Anything said with this command would stay in the ledger, and here it must not. The dialog does not offer it. */
+  no_reason?: boolean
+  reason_required?: boolean
 }
 
 export interface CommandDef {
@@ -52,6 +55,8 @@ export interface CommandDef {
   confirm?: string
   /** A screen of its own or another program sends this; it is not one of the form's menu items. */
   api_only?: boolean
+  no_reason?: boolean
+  reason_required?: boolean
 }
 
 export interface CatalogDoc {
@@ -160,6 +165,8 @@ export interface ModuleDoc {
   options?: Field[]
   /** Said out loud before turning on: what the past cannot give back (scenario M6). */
   not_rebuilt?: string
+  /** Modules that have to be on first. The database refuses otherwise; the card says so before anyone tries. */
+  requires?: string[]
   enabled: boolean
   enabled_at: string | null
   options_set: State

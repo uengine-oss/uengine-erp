@@ -376,7 +376,7 @@ function revert() {
   previewError.value = ''
 }
 
-async function runCommand(command: string, label: string, def: Pick<CommandDef, 'params' | 'danger' | 'confirm'> = {}, after?: () => void) {
+async function runCommand(command: string, label: string, def: Pick<CommandDef, 'params' | 'danger' | 'confirm' | 'no_reason' | 'reason_required'> = {}, after?: () => void) {
   if (!doc.value || !props.id) return
   const ui = screen.value?.commands?.[command]
   const danger = isDangerous(command, def)
@@ -390,7 +390,8 @@ async function runCommand(command: string, label: string, def: Pick<CommandDef, 
       message: def.confirm ?? (danger ? `"${label}" 작업을 진행할까요? 이 변경은 이력에 그대로 남습니다.` : undefined),
       fields: params,
       danger,
-      reason: danger,
+      reason: danger && !def.no_reason,
+      reasonRequired: !!def.reason_required,
       confirmLabel: label,
     })
     if (!answer) return

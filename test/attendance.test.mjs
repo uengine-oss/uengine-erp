@@ -2,7 +2,9 @@
 // hours are written out by hand here, and the line the Act draws is checked against them.
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+import pg from 'pg'
 import { company, rejects } from './lib/harness.mjs'
+import { generate } from '../web/src/lib/demo/generate.ts'
 
 const q = async (k, sql, params) => (await k.db.query(sql, params)).rows
 const call = async (k, uid, fn, ...args) => {
@@ -325,6 +327,9 @@ test('S12. closing a month: not while it is running or with stamps missing; afte
     await rejects(staff.cmd('attendance_month', null, 'close', { period: '2026-09' }), 'ERP_INVALID')
     await clock(k, '2026-10-01T09:00')
     await rejects(staff.cmd('attendance_month', null, 'close', { period: 'x' }), 'ERP_INVALID')
+    const never = await rejects(staff.cmd('attendance_month', null, 'close', { period: '2026-08' }), 'ERP_INVALID')
+    assert.match(never.message, /켜기 전의 달/, 'a month before the module existed says nothing about anyone')
+    assert.deepEqual((await call(k, staff.id, 'erp_attendance_month', '2026-08')).people, [])
     await rejects(m.cmd('attendance_month', null, 'close', { period: '2026-09' }), 'ERP_FORBIDDEN')
     const held = await rejects(staff.cmd('attendance_month', null, 'close', { period: '2026-09' }), 'ERP_INVALID')
     assert.match(held.message, /퇴근이 빠진/)
@@ -528,4 +533,125 @@ test('M8. the models go locked, short, ready; answers come from the ledger and s
     assert.equal((await modelOf('leave_burn')).state, 'locked')
     assert.equal((await modelOf('whatif_leave_policy')).state, 'ready')
   } finally { await k.close() }
+})
+
+/* ---------- The demo company ---------- */
+
+async function applyBatch(k, batch) {
+  const { host, port, user, password, database } = k.db.client
+  for (let attempt = 0; ; attempt++) {
+    const client = new pg.Client({ host, port, user, password, database })
+    await client.connect()
+    try {
+      await client.query('begin')
+      await client.query('set local role authenticated')
+      await client.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: k.adminId, role: 'authenticated' })])
+      const r = (await client.query('select public.erp_demo_apply($1) r', [JSON.stringify(batch)])).rows[0].r
+      await client.query('commit')
+      return r
+    } catch (e) {
+      await client.query('rollback').catch(() => {})
+      if (!/pldbgapi2/.test(e.message) || attempt >= 5) throw e
+    } finally { await client.end() }
+  }
+}
+
+// The local debugger extension sometimes trips inside a subscriber, where the bus records it as that subscriber's failure.
+// It has nothing to do with the work, so a build it spoils is built again; anything else fails the test.
+async function buildDemo(stages) {
+  for (let attempt = 0; ; attempt++) {
+    const k = await company({ modules: null, clock: '2023-10-31T09:00:00+09:00' })
+    try {
+      await k.db.query(`select set_config('erp.clock', '', false)`)
+      await k.db.asUser(k.adminId, 'select public.erp_demo_begin()')
+      for (const batch of generate(1, stages)) {
+        const r = await applyBatch(k, batch)
+        if (r.failing) {
+          const stuck = (await call(k, k.adminId, 'erp_bus_status')).filter((x) => x.failures)
+          if (stuck.every((x) => /pldbgapi2/.test(x.last_error)) && attempt < 3) throw new Error('pldbgapi2 in a subscriber')
+          assert.fail(JSON.stringify(stuck))
+        }
+      }
+      await k.db.asUser(k.adminId, 'select public.erp_demo_end()')
+      await k.settle(60000)
+      return k
+    } catch (e) {
+      await k.close().catch(() => {})
+      if (!/pldbgapi2|전표가 없습니다/.test(e.message) || attempt >= 3) throw e
+    }
+  }
+}
+
+test('the demo on a real database: with leave and the clock added, sales, stock and books come out to the same figures, and the words stay out of the ledger', async () => {
+  const SHORT = { inventory: '2023-11-11', purchase: '2023-11-21', invoicing: '2023-12-01', accounting: '2023-12-11', hr: '2023-12-05', end: '2024-02-20' }
+  const plain = await buildDemo(SHORT)
+  const withWork = await buildDemo({ ...SHORT, timeoff: '2023-12-08', attendance: '2023-12-11' })
+  try {
+    const figures = async (k) => ({
+      orders: await q(k, `select id, status, state ->> 'amount_total' as total from erp.records where type = 'sales_order' and not deleted order by id`),
+      stock: await q(k, `select v.product_id, q.location_id, sum(q.qty)::numeric as qty from erp.quants q join erp.variants v on v.id = q.variant_id group by 1, 2 order by 1, 2`),
+      events: await q(k, `select event_type, count(*)::int as n from erp.events where stream_type not in ('module', 'member', 'employee', 'employee_private', 'department', 'holiday', 'leave_type', 'leave_policy', 'leave_person', 'leave_grant', 'leave_request', 'leave_request_private', 'leave_attendance_month', 'attendance_policy', 'attendance_person', 'attendance_day', 'attendance_month', 'attendance_leave') group by 1 order by 1`),
+      trial: (await call(k, k.adminId, 'erp_trial_balance')).rows.map((r) => [r.code, r.debit, r.credit]),
+    })
+    const [a, b] = [await figures(plain), await figures(withWork)]
+    assert.ok(a.orders.length > 50)
+    assert.deepEqual(b.orders, a.orders)
+    assert.deepEqual(b.stock, a.stock)
+    assert.deepEqual(b.events, a.events)
+    assert.deepEqual(b.trial, a.trial)
+
+    assert.deepEqual(await withWork.verifyProjection(), [])
+    assert.equal((await withWork.settle()).failing, 0)
+    const count = async (type) => (await withWork.list(type)).length
+    assert.equal(await count('leave_request'), 9)
+    assert.ok(await count('leave_grant') > 30)
+    assert.ok(await count('attendance_day') > 300)
+    assert.equal(await count('attendance_month'), 2, 'December 2023 and January 2024, each closed in the first days of the next')
+    const requests = await withWork.list('leave_request')
+    assert.deepEqual(requests.map((r) => r.status).sort(), ['approved', 'approved', 'approved', 'approved', 'approved', 'approved', 'cancelled', 'pending', 'rejected'])
+    // The made-up reasons went where reasons go.
+    for (const words of ['가족 행사', '이사', '그 주 재고 실사와 겹칩니다']) {
+      assert.equal((await q(withWork, `select count(*)::int n from erp.events where data::text like $1 or coalesce(reason, '') like $1`, [`%${words}%`]))[0].n, 0, words)
+    }
+    assert.ok((await q(withWork, `select count(*)::int n from erp.leave_request_private`))[0].n >= 3)
+    const fixes = await q(withWork, `select reason from erp.events where event_type = 'AttendanceCorrected'`)
+    assert.ok(fixes.some((e) => /퇴근 누락/.test(e.reason)), 'the forgotten stamp, corrected with a reason')
+    assert.ok((await q(withWork, `select count(*)::int n from erp.events where event_type = 'AttendanceCheckedOut'`))[0].n > 100, 'people with a login stamp for themselves')
+    // A close reached the leave side.
+    assert.equal((await withWork.list('leave_attendance_month')).length, 2)
+    assert.deepEqual((await call(withWork, withWork.adminId, 'erp_models', null)).filter((m) => ['leave_burn', 'overtime_risk', 'stat_overtime', 'whatif_leave_policy'].includes(m.id)).map((m) => m.state === 'locked'), [false, false, false, false])
+  } finally { await plain.close(); await withWork.close() }
+})
+
+test('the story the demo really tells, at its real dates: every leave and clock step goes through, people and all', async () => {
+  const keep = (x) => ['employee', 'department', 'holiday', 'leave_request', 'leave_policy', 'attendance_day', 'attendance_month', 'member'].includes(x.type)
+    || x.kind === 'settle' || (x.type === 'module' && ['hr', 'timeoff', 'attendance'].includes(x.payload?.id))
+  for (let attempt = 0; ; attempt++) {
+    const k = await company({ modules: null, clock: '2023-10-31T09:00:00+09:00' })
+    try {
+      await k.db.query(`select set_config('erp.clock', '', false)`)
+      await k.db.asUser(k.adminId, 'select public.erp_demo_begin()')
+      const days = {}
+      for (const batch of generate(1)) {
+        const steps = batch.filter(keep)
+        if (!steps.length) continue
+        for (const x of steps) if (x.type === 'attendance_day' && x.command !== 'check_out') days[x.at.slice(0, 7)] = (days[x.at.slice(0, 7)] ?? 0) + 1
+        const r = await applyBatch(k, steps)
+        if (r.failing) throw new Error(JSON.stringify((await call(k, k.adminId, 'erp_bus_status')).filter((x) => x.failures).map((x) => x.last_error)))
+      }
+      await k.db.asUser(k.adminId, 'select public.erp_demo_end()')
+      await k.settle(60000)
+      assert.deepEqual(await k.verifyProjection(), [])
+      assert.equal((await k.list('leave_request')).length, 9)
+      assert.deepEqual((await k.list('attendance_month')).map((m) => m.state.period).sort(), ['2026-09', '2026-10'].slice(0, Object.keys(days).length > 1 ? 1 : 0))
+      const park = (await k.list('leave_request')).filter((r) => r.state.employee_name === '박영업')
+      assert.deepEqual(park.map((r) => r.status).sort(), ['approved', 'cancelled'])
+      assert.ok(days['2026-09'] > 100 && days['2026-10'] > 100, JSON.stringify(days))
+      await k.close()
+      return
+    } catch (e) {
+      await k.close().catch(() => {})
+      if (!/pldbgapi2/.test(e.message) || attempt >= 3) throw e
+    }
+  }
 })

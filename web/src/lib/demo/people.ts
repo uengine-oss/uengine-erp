@@ -31,6 +31,16 @@ const MOVER = { name: '서창고', to: '영업', movesIn: 45 }
 const id = (name: string) => uuid(`employee:${name}`)
 const dept = (name: string) => uuid(`department:${name}`)
 
+/** Who is here on which days, for the stories that follow people. Everyone was hired before `onDay` except the newcomer. */
+export function peopleStory(onDay: number) {
+  const names = [...STAFF.map((p) => p.name), LEAVER.name, JOINER.name]
+  return {
+    names,
+    joined: (name: string) => (name === JOINER.name ? onDay + JOINER.joinsIn : onDay - 1),
+    left: (name: string) => (name === LEAVER.name ? onDay + LEAVER.leavesIn : Number.MAX_SAFE_INTEGER),
+  }
+}
+
 /** Steps by business day. `end` is the first day that does not happen. */
 export function peopleSteps(seed: number, onDay: number, end: number): Map<number, DemoStep[]> {
   const r = rng(seed * 15485863 + 101)

@@ -272,6 +272,33 @@ export const NAV: NavModule[] = [
     ],
   },
   {
+    key: 'timeoff', label: '휴가', icon: 'timeoff',
+    screens: [
+      { label: '내 휴가', route: '/timeoff/me', needs: 'leave_request' },
+      { label: '승인함', route: '/timeoff/approvals', needs: 'leave_request' },
+      { label: '팀 달력', route: '/timeoff/calendar', needs: 'leave_request' },
+      { label: '잔여 현황', route: '/timeoff/balances', needs: 'leave_request', roles: ['hr'] },
+      { type: 'leave_request', roles: ['hr'], formPanel: loader('LeaveReasonPanel'), hideFields: ['has_reason'] },
+      { type: 'leave_grant', roles: ['hr'] },
+      { type: 'leave_type', roles: ['hr'] },
+      { type: 'leave_policy', roles: ['hr'], formPanel: loader('LawNotice') },
+      { type: 'leave_person', roles: ['hr'] },
+      { type: 'holiday', needs: 'leave_request', roles: ['hr'] },
+    ],
+  },
+  {
+    key: 'attendance', label: '근태', icon: 'attendance',
+    screens: [
+      { label: '내 근태', route: '/attendance/me', needs: 'attendance_day' },
+      { label: '주간 현황', route: '/attendance/week', needs: 'attendance_day', roles: ['hr'] },
+      { label: '월 마감', route: '/attendance/month', needs: 'attendance_day', roles: ['hr'] },
+      { type: 'attendance_day', roles: ['hr'] },
+      { type: 'attendance_month', roles: ['hr'] },
+      { type: 'attendance_policy', roles: ['hr'], formPanel: loader('LawNotice') },
+      { type: 'holiday', needs: 'attendance_day', roles: ['hr'] },
+    ],
+  },
+  {
     key: 'master', label: '기초데이터', icon: 'master',
     screens: [
       { type: 'uom' }, { type: 'product_category' }, { type: 'tag' }, { type: 'tax' },
