@@ -275,11 +275,11 @@ export const NAV: NavModule[] = [
     key: 'assets', label: '고정자산', icon: 'assets',
     screens: [
       {
-        type: 'asset', formPanel: loader('AssetPanel'), readonlyIn: ['active', 'fully', 'disposed'], hideFields: ['state'],
+        type: 'asset', roles: ['accounting'], formPanel: loader('AssetPanel'), readonlyIn: ['active', 'fully', 'disposed'], hideFields: ['state'],
         advanced: ['in_service_date', 'basis', 'residual_value', 'rate', 'opening_accumulated', 'opening_through', 'asset_account_id', 'accumulated_account_id', 'expense_account_id', 'counter_account_id', 'memo', 'rate_used', 'end_value', 'last_month', 'disposed_date', 'disposal_kind', 'proceeds', 'gain_loss'],
       },
       { label: '감가상각 실행', route: '/assets/run', needs: 'asset', roles: ['accounting'] },
-      { type: 'depreciation_run', label: '지난 실행', readonlyIn: ['posted'], hideFields: ['state'] },
+      { type: 'depreciation_run', label: '지난 실행', roles: ['accounting'], readonlyIn: ['posted'], hideFields: ['state'] },
     ],
   },
   {

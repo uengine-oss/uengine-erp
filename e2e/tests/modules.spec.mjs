@@ -307,7 +307,7 @@ test('모듈 정보를 읽지 못하면 오류와 다시 시도를 보여 주고
   await restoreRpc(page, 'erp_modules')
   await page.getByTestId('modules-retry').click()
   await expect(page.getByTestId('modules-error')).toHaveCount(0)
-  await expect(page.getByTestId('module-card')).toHaveCount(5)
+  await expect(page.getByTestId('module-card')).toHaveCount(6)
   await expect(page.getByTestId('module-unlocks')).toHaveCount(0)
 })
 

@@ -487,7 +487,7 @@ test('감가상각비 전망: 이력이 모자라면 일정만 범위로 말하�
   await human(page)
 
   // An older asset gives it a history. No purchase entry, so a locked year does not stand in its way.
-  await command(admin, 'asset', null, 'create', { name: '창고 설비', kind: 'machinery', acquisition_date: '2024-01-10', cost: 6000000, life_years: 5, register: true })
+  await command(admin, 'asset', null, 'create', { name: '창고 설비', kind: 'machinery', acquisition_date: '2023-06-10', cost: 6000000, life_years: 5, register: true })
   await page.reload()
   await expect(page.getByTestId('model-page-state')).toHaveText('사용 가능')
   await expect(page.getByTestId('outlook-totals')).toBeVisible({ timeout: 30_000 })
@@ -497,7 +497,7 @@ test('감가상각비 전망: 이력이 모자라면 일정만 범위로 말하�
   await human(page)
   await page.getByTestId('forecast-months').selectOption('24')
   await expect(page.getByTestId('outlook-month')).toHaveCount(24, { timeout: 30_000 })
-  await expect(page.getByTestId('outlook-ending-row').filter({ hasText: '창고 설비' })).toContainText('2028-12')
+  await expect(page.getByTestId('outlook-ending-row').filter({ hasText: '창고 설비' })).toContainText('2028-05')
 })
 
 test('회계 권한이 없으면 메뉴도 숫자도 없고, 좁은 화면에서도 넘치지 않는다', async ({ page, browser }) => {
