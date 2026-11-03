@@ -305,3 +305,18 @@ test('seeds can fill fields of a module that is off, and users cannot', async ()
     assert.equal(seeded.color, 'red')
   } finally { await fresh.db.query(`select set_config('erp.seeding', '', false)`); await fresh.close() }
 })
+
+test('a date picked when turning a module on is that day where the company is', async () => {
+  const k = await company({ modules: [], clock: '2026-11-04T00:30:00+09:00' })
+  try {
+    await k.db.query(`create schema p2; create table p2.seen (seq bigint primary key);
+      create function p2.h(ev erp.events) returns void language sql as $f$ insert into p2.seen values (ev.seq) $f$;
+      select erp.catalog_put('{"type":"t_x","module":"t_x","label":"문서","fields":[{"name":"name","label":"이름","type":"text"}],"commands":{"create":{"roles":["sales"]}}}'::jsonb);
+      select erp.module_put('{"id":"m2","label":"모듈","subscribes":[{"name":"m2.x","handler":"p2.h","events":["TXCreated"],"since_option":"import_since"}]}'::jsonb)`)
+    // Half past midnight in Seoul is still the day before in UTC.
+    await k.admin('t_x', null, 'create', { name: '자정 직후 문서' })
+    await k.admin('module', null, 'enable', { id: 'm2', options: { import_since: '2026-11-04' } })
+    await k.settle()
+    assert.equal((await k.db.query('select count(*)::int n from p2.seen')).rows[0].n, 1)
+  } finally { await k.db.query(`select set_config('erp.clock', '', false)`); await k.close() }
+})

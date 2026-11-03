@@ -117,6 +117,17 @@ language sql stable as $$
    order by e.txid desc, e.seq desc limit 1
 $$;
 
+-- A date someone picks means that day where the company is, not that day in UTC: read as UTC, an order placed
+-- just after midnight in Seoul falls before the date it was placed on.
+create or replace function erp.local_start(p_value text) returns timestamptz
+language plpgsql stable as $$
+begin
+  if p_value ~ '^\d{4}-\d{2}-\d{2}$' then
+    return (p_value::date)::timestamp at time zone coalesce(erp.setting('timezone'), 'Asia/Seoul');
+  end if;
+  return p_value::timestamptz;
+end $$;
+
 create or replace function erp.h_module(p_id uuid, p_command text, p_p jsonb) returns uuid
 language plpgsql as $$
 declare
@@ -141,7 +152,7 @@ begin
       select * into h from erp.bus_horizon();
       for s in select * from erp.subscriptions where module = mid for update loop
         if first_time and s.since_option is not null and opts ? s.since_option then
-          update erp.subscriptions set last_txid = '0', last_seq = 0, since = (opts ->> s.since_option)::timestamptz where name = s.name;
+          update erp.subscriptions set last_txid = '0', last_seq = 0, since = erp.local_start(opts ->> s.since_option) where name = s.name;
         elsif first_time and s.replay then
           update erp.subscriptions set last_txid = '0', last_seq = 0, since = null where name = s.name;
         elsif first_time or p_p ->> 'resume' = 'skip' then

@@ -6,6 +6,8 @@
 
 ### 추가
 
+uengine-erp 첫 공개판. 스펙은 `openspec/specs/erp-*`, 흐름은 `docs/scenario.md`, 시연은 https://www.uengine.org/contents/erp.html 에 있다.
+
 **설치와 보안**
 
 - 앱을 열고 Supabase 주소와 공개 키를 넣은 뒤, 화면이 주는 설치 SQL 을 실행하면 시작할 수 있다. 같은 SQL 을 다시 실행하면 데이터를 지우지 않고 업그레이드한다.

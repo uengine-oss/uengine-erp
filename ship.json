@@ -1,10 +1,143 @@
 {
-  "feature": "uengine-erp",
-  "repo": ".",
-  "plan": "docs/plan.md",
-  "scenario": "docs/scenario.md",
-  "tests": {
-    "sql": "node scripts/build-sql.mjs && node --test --test-concurrency=4 test/*.test.mjs",
-    "browser": "npm run test:e2e"
+ "feature": "uengine-erp",
+ "repo": "/Users/uengine/uengine-platform/uengine-erp",
+ "branch": "main",
+ "plan": "docs/plan.md",
+ "tests": {
+  "unit": [
+   "test/growth.test.mjs",
+   "test/bus.test.mjs",
+   "test/isolation.test.mjs",
+   "test/models.test.mjs",
+   "test/demo.test.mjs"
+  ],
+  "e2e": [
+   "test/api.e2e.mjs"
+  ],
+  "run": "node scripts/build-sql.mjs && node --test --test-force-exit --test-concurrency=4 test/*.test.mjs"
+ },
+ "regressions": [
+  {
+   "cases": "test/pricing-cases.json",
+   "runner": "test/pricing.test.mjs",
+   "playwright": "e2e/tests/growth.spec.mjs",
+   "catalog": "e2e/README.md",
+   "catalog_heading": "테스트 카탈로그"
   }
+ ],
+ "specs": [
+  {
+   "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
+   "id": "erp-ledger"
+  },
+  {
+   "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
+   "id": "erp-history"
+  },
+  {
+   "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
+   "id": "erp-modules"
+  },
+  {
+   "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
+   "id": "erp-master"
+  },
+  {
+   "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
+   "id": "erp-sales"
+  },
+  {
+   "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
+   "id": "erp-inventory"
+  },
+  {
+   "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
+   "id": "erp-purchase"
+  },
+  {
+   "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
+   "id": "erp-invoicing"
+  },
+  {
+   "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
+   "id": "erp-accounting"
+  },
+  {
+   "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
+   "id": "erp-analytics"
+  },
+  {
+   "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
+   "id": "erp-integration"
+  },
+  {
+   "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
+   "id": "erp-setup"
+  }
+ ],
+ "videos": [
+  {
+   "slug": "ind-erp-demo",
+   "demo": "/Users/uengine/uengine-platform/demo-industry",
+   "youtube": "j6lOUN284L4"
+  },
+  {
+   "slug": "erp-start",
+   "demo": "/Users/uengine/uengine-platform/demo-industry",
+   "youtube": "XUGfw1ZbFNY"
+  },
+  {
+   "slug": "erp-modules",
+   "demo": "/Users/uengine/uengine-platform/demo-industry",
+   "youtube": "D__yduicon4"
+  },
+  {
+   "slug": "erp-buy-books",
+   "demo": "/Users/uengine/uengine-platform/demo-industry",
+   "youtube": "u0GHfpj1YLA"
+  },
+  {
+   "slug": "erp-history",
+   "demo": "/Users/uengine/uengine-platform/demo-industry",
+   "youtube": "3TsEptyoehg"
+  },
+  {
+   "slug": "erp-whatif",
+   "demo": "/Users/uengine/uengine-platform/demo-industry",
+   "youtube": "Uedg3m0eMAI"
+  },
+  {
+   "slug": "erp-connect",
+   "demo": "/Users/uengine/uengine-platform/demo-industry",
+   "youtube": "00S6uQixUeM"
+  }
+ ],
+ "tutorial": {
+  "site": "/private/tmp/claude-501/-Users-uengine-uengine-platform/06b8313c-de91-4683-95e1-769a7951eb2a/scratchpad/site-wt",
+  "docs": "industry-docs/erp",
+  "out": "erp",
+  "chapters": [
+   "index",
+   "modules",
+   "buy-books",
+   "history",
+   "whatif",
+   "connect"
+  ]
+ },
+ "product_page": {
+  "file": "contents/erp.html",
+  "video_ids": [
+   "j6lOUN284L4",
+   "XUGfw1ZbFNY",
+   "D__yduicon4",
+   "u0GHfpj1YLA",
+   "3TsEptyoehg",
+   "Uedg3m0eMAI",
+   "00S6uQixUeM"
+  ],
+  "english": false
+ },
+ "changelog": "CHANGELOG.md",
+ "memory": "/Users/uengine/.claude/projects/-Users-uengine-uengine-platform/memory/uengine-erp.md"
 }

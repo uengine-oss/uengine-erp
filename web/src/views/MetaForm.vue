@@ -589,7 +589,9 @@ onLedgerEvent((ev) => {
     remoteNotice.value = `${who}이 이 문서를 변경했습니다. 지금 저장하면 충돌합니다. 새로 고치면 입력 중인 내용은 사라집니다.`
     return
   }
-  remoteNotice.value = `${who}이 방금 이 문서를 변경해 화면을 새로 고쳤습니다.`
+  // Your own work on a neighbouring document, such as registering a payment, is no surprise worth announcing.
+  const mine = ev.actor_id === session.me?.user_id && ev.source !== 'rollback' && !ev.source.startsWith('bus:')
+  remoteNotice.value = mine ? '' : `${who}이 방금 이 문서를 변경해 화면을 새로 고쳤습니다.`
   remoteStale.value = false
   void db().from('erp_records').select('*').eq('id', props.id!).maybeSingle().then(({ data }) => {
     if (data && !dirty.value) adoptRecord(data as ErpRecord)

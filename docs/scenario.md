@@ -43,10 +43,10 @@
 
 | 모듈 | 과거 이벤트로 다시 만드는 것 | 다시 만들 수 없는 것 | 켤 때 묻는 것 |
 |---|---|---|---|
-| 재고 | 없음 | 켜기 전의 재고 수량과 품절 여부 | 언제 이후의 미납품 주문을 출고 대기로 가져올지, 기초 재고 |
+| 재고 | 고른 날짜 이후의 미납품 주문의 출고 대기 | 켜기 전의 재고 수량과 품절 여부 | 언제 이후의 미납품 주문을 가져올지. 기초 재고는 켠 뒤 입력한다 |
 | 구매 | 없음 | 켜기 전의 납기 | 없음 |
 | 청구 | 청구 대상 수량 | 켜기 전의 입금 기록 | 언제 이후의 주문을 청구 대상으로 볼지 |
-| 회계 | 켠 뒤의 청구·입금뿐 아니라 그 전의 게시 청구서·입금 전표 전부 | 청구 모듈이 없던 기간의 전표 | 기초 잔액 |
+| 회계 | 고른 날짜 이후의 게시 청구서·입금과 입출고·조정·폐기 전표 | 청구 모듈이 없던 기간의 매출 전표 | 장부를 시작할 날짜. 그 전은 기초 잔액 전표로 넣는다 |
 
 ## 4. 예측과 what-if 의 상태
 
@@ -162,12 +162,12 @@
 
 | 시나리오 | 시험 |
 |---|---|
-| S1 | `test/growth.test.mjs`, `e2e/growth.spec.mjs` |
+| S1 | `test/growth.test.mjs`, `e2e/tests/growth.spec.mjs` |
 | S2 | `test/growth.test.mjs`, `test/isolation.test.mjs` |
-| S3 | `test/bus.test.mjs`, `e2e/modules.spec.mjs` |
+| S3 | `test/bus.test.mjs`, `e2e/tests/modules.spec.mjs` |
 | S4, S5 | `test/growth.test.mjs`, `test/rebuild-gl.test.mjs` |
-| S6 | `test/history.test.mjs`, `e2e/rollback.spec.mjs` |
-| S7, S8 | `test/models.test.mjs`, `e2e/whatif.spec.mjs` |
-| S9 | `test/plugin.test.mjs`, `test/rest.e2e.mjs`, `test/mcp.e2e.mjs` |
+| S6 | `test/history.test.mjs`, `e2e/tests/rollback.spec.mjs`, `e2e/tests/history.spec.mjs` |
+| S7, S8 | `test/models.test.mjs`, `e2e/tests/whatif.spec.mjs` |
+| S9 | `test/plugin.test.mjs`, `test/api.test.mjs`, `test/api.e2e.mjs`, `e2e/tests/integration.spec.mjs` |
 | M1 | `test/isolation.test.mjs` 정적 검사 |
 | M4 | `test/isolation.test.mjs` 32개 조합 |
