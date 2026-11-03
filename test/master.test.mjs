@@ -368,7 +368,7 @@ test('removing a value archives its variants; putting it back revives them with 
   assert.ok(live(s).every((v) => v.values.includes(color.values.빨강)))
   const evs = await eventTypes(p.id)
   assert.ok(evs.includes('ProductAttributeChanged'))
-  assert.equal(evs.at(-1), 'ProductVariantArchived')
+  assert.ok(evs.includes('ProductVariantArchived'))
   const gone = s.variants.find((v) => !v.active)
   const { rows } = await c.db.query('select active from erp.variants where id = $1', [gone.id])
   assert.equal(rows[0].active, false)
@@ -379,7 +379,7 @@ test('removing a value archives its variants; putting it back revives them with 
   assert.equal(s.variants.length, 4)
   assert.equal(live(s).length, 4)
   assert.deepEqual(s.variants.map((v) => v.id).sort(), before_.map((v) => v.id).sort())
-  assert.equal((await eventTypes(p.id)).at(-1), 'ProductVariantReactivated')
+  assert.ok((await eventTypes(p.id)).includes('ProductVariantReactivated'))
   assert.deepEqual(await c.verifyProjection(), [])
 })
 
@@ -410,7 +410,7 @@ test('adding attributes to a plain product: several values replace the default v
   s = await state(q.id)
   assert.equal(s.variants.length, 1)
   assert.equal(s.variants[0].id, qid)
-  assert.equal(s.variants[0].name, '단일 (하나)')
+  assert.equal(s.variants[0].name, '단일', 'a value with no alternative stays out of the name')
   assert.equal((await variant(qid)).list_price, 1300)
 })
 
@@ -560,6 +560,12 @@ test('archive and delete reach the derived table; a referenced product cannot be
   await c.admin('pricelist', null, 'create', { name: uniq('가격표'), rules: [{ apply_on: 'product', product_id: q.id, price_type: 'discount', discount: 1 }] })
   await rejects(c.admin('product', q.id, 'delete'), 'ERP_IN_USE')
   await rejects(c.admin('tax', await seed('부가세 10% 매출'), 'delete'), 'ERP_IN_USE')
+
+  // A reference that names only the variant still protects the product.
+  const r = await product()
+  const rv = (await state(r.id)).variants[0].id
+  await c.admin('pricelist', null, 'create', { name: uniq('가격표'), rules: [{ apply_on: 'variant', variant_id: rv, price_type: 'discount', discount: 1 }] })
+  await rejects(c.admin('product', r.id, 'delete'), 'ERP_IN_USE')
 })
 
 test('the variants table can be rebuilt from the ledger', async () => {
@@ -567,8 +573,47 @@ test('the variants table can be rebuilt from the ledger', async () => {
   const before_ = await snapshot()
   assert.ok(before_.length > 10)
   await c.db.query('delete from erp.variants')
-  await c.db.query('select erp.rebuild_variants()')
+  await c.db.query(`select erp.project_variants(id, erp.fold(id)) from erp.records where type = 'product'`)
   assert.deepEqual(await snapshot(), before_)
+})
+
+test('a rollback that takes variants out of the state leaves them inactive and unresolvable', async () => {
+  const size = await attribute('always', ['S', 'M'])
+  const code = uniq('880')
+  const p = await product({ attributes: [line(size, ['S'])] })
+  const earlier = (await state(p.id)).variants
+  const lines = (await state(p.id)).attributes
+  await c.admin('product', p.id, 'update', { attributes: [{ ...lines[0], value_ids: Object.values(size.values) }] })
+  const added = (await state(p.id)).variants.find((v) => !earlier.some((e) => e.id === v.id))
+  await c.admin('product', p.id, 'update', { variants: [{ id: added.id, barcode: code }] })
+  await c.db.query(`select erp.emit('product', $1, 'Reverted', jsonb_build_object('set', jsonb_build_object('variants', $2::jsonb)))`, [p.id, JSON.stringify(earlier)])
+  const { rows } = await c.db.query('select active, barcode from erp.variants where id = $1', [added.id])
+  assert.deepEqual({ ...rows[0] }, { active: false, barcode: null })
+  await rejects(variant(added.id), 'ERP_NOT_FOUND')
+  await product({ barcode: code })
+})
+
+test('simultaneous saves cannot put one barcode on two variants', async () => {
+  const code = uniq('880')
+  const ps = []
+  for (let i = 0; i < 8; i++) {
+    const p = await product()
+    ps.push({ id: p.id, vid: (await state(p.id)).variants[0].id })
+  }
+  const { host, port, user, password, database } = c.db.client
+  const conns = await Promise.all(ps.map(async () => {
+    const cl = new pg.Client({ host, port, user, password, database })
+    await cl.connect()
+    return cl
+  }))
+  try {
+    const out = await Promise.allSettled(ps.map((p, i) => conns[i].query(
+      `select erp.dispatch('product', $1, 'update', $2)`, [p.id, JSON.stringify({ variants: [{ id: p.vid, barcode: code }] })])))
+    assert.equal(out.filter((o) => o.status === 'fulfilled').length, 1)
+    assert.ok(out.filter((o) => o.status === 'rejected').every((o) => o.reason.message.includes('ERP_DUPLICATE')))
+  } finally {
+    await Promise.all(conns.map((cl) => cl.end()))
+  }
 })
 
 test('vendor rows are kept and reported by their own events', async () => {

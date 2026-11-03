@@ -538,7 +538,10 @@ declare
 begin
   for l in select value from jsonb_array_elements(coalesce(p_state -> 'attributes', '[]'::jsonb)) loop
     a := erp.state_of((l ->> 'attribute_id')::uuid);
-    names := names || coalesce((select jsonb_object_agg(v ->> 'id', v ->> 'name') from jsonb_array_elements(a -> 'values') v), '{}'::jsonb);
+    -- A value with no alternative says nothing about which variant this is, so it stays out of the name.
+    if jsonb_array_length(l -> 'value_ids') > 1 then
+      names := names || coalesce((select jsonb_object_agg(v ->> 'id', v ->> 'name') from jsonb_array_elements(a -> 'values') v), '{}'::jsonb);
+    end if;
     extras := extras || coalesce(l -> 'extras', '{}'::jsonb);
     on_product := on_product || (l -> 'value_ids');
     if a ->> 'create_variant' <> 'no_variant' then
@@ -705,10 +708,13 @@ begin
   end loop;
 end $$;
 
+-- Two products saving one barcode at once have no shared row to lock, so the value is locked until commit.
 create or replace function erp.check_barcodes(p_id uuid, p_state jsonb, p_rows jsonb) returns void
 language plpgsql as $$
 declare b text;
 begin
+  perform pg_advisory_xact_lock(hashtextextended('variant_barcode:' || x, 0))
+     from (select distinct value ->> 'barcode' as x from jsonb_array_elements(p_rows) where value ->> 'barcode' is not null order by 1) t;
   select value ->> 'barcode' into b from jsonb_array_elements(p_rows) where value ->> 'barcode' is not null
    group by value ->> 'barcode' having count(*) > 1 limit 1;
   if b is null then
@@ -747,7 +753,17 @@ declare
   vals jsonb;
   next_ jsonb;
   rows_ jsonb;
+  hit text;
 begin
+  if p_command = 'delete' then
+    -- Stock documents and rules can point at a variant without naming its product.
+    select r.type into hit from erp.records r
+     where not r.deleted and r.id <> p_id and r.state::text like any (
+       select '%' || (v ->> 'id') || '%' from jsonb_array_elements(erp.require_state(p_id, 'product') -> 'variants') v) limit 1;
+    if hit is not null then
+      perform erp.fail('ERP_IN_USE', format('다른 레코드(%s)에서 사용 중이라 삭제할 수 없습니다. 보관을 사용하세요', hit));
+    end if;
+  end if;
   if p_command not in ('create', 'update') then
     return erp.h_generic('product', p_id, p_command, p_p);
   end if;
@@ -825,6 +841,8 @@ begin
   return (row_ ->> 'id')::uuid;
 end $$;
 
+-- Only a rollback takes rows out of a product's state. Those stay here inactive, so an old id still resolves to its
+-- product, but give up their barcode.
 create or replace function erp.project_variants(p_id uuid, p_state jsonb) returns void
 language sql as $$
   insert into erp.variants(id, product_id, sku, barcode, name, active)
@@ -835,7 +853,9 @@ language sql as $$
          coalesce((v ->> 'active')::boolean, true) and coalesce((p_state ->> 'active')::boolean, true) and not coalesce((p_state ->> 'deleted')::boolean, false)
     from jsonb_array_elements(coalesce(p_state -> 'variants', '[]'::jsonb)) v,
          (select count(*) filter (where (value ->> 'active')::boolean) as live from jsonb_array_elements(coalesce(p_state -> 'variants', '[]'::jsonb))) n
-  on conflict (id) do update set sku = excluded.sku, barcode = excluded.barcode, name = excluded.name, active = excluded.active
+  on conflict (id) do update set sku = excluded.sku, barcode = excluded.barcode, name = excluded.name, active = excluded.active;
+  update erp.variants set active = false, barcode = null
+   where product_id = p_id and id not in (select (value ->> 'id')::uuid from jsonb_array_elements(coalesce(p_state -> 'variants', '[]'::jsonb)));
 $$;
 
 create or replace function erp.project_product(ev erp.events, before_state jsonb, after_state jsonb) returns void
@@ -850,19 +870,6 @@ begin
   end if;
 end $$;
 select erp.register_hook('project', 'product', 'erp.project_product');
-
-create or replace function erp.rebuild_variants() returns int
-language plpgsql as $$
-declare
-  r record;
-  n int := 0;
-begin
-  for r in select id from erp.records where type = 'product' loop
-    perform erp.project_variants(r.id, erp.fold(r.id));
-    n := n + 1;
-  end loop;
-  return n;
-end $$;
 
 -- Renaming or recolouring an attribute value renames the variants built from it.
 create or replace function erp.react_attribute(ev erp.events, before_state jsonb, after_state jsonb) returns void
@@ -890,6 +897,7 @@ begin
   if pid is null then perform erp.fail('ERP_NOT_FOUND', format('변형을 찾을 수 없습니다 (%s)', p_variant_id)); end if;
   s := erp.require_state(pid, 'product');
   select value into v from jsonb_array_elements(s -> 'variants') where value ->> 'id' = p_variant_id::text limit 1;
+  if v is null then perform erp.fail('ERP_NOT_FOUND', format('변형을 찾을 수 없습니다 (%s)', p_variant_id)); end if;
   return (s - 'variants') || v || jsonb_build_object(
     'variant_id', p_variant_id,
     'product_id', pid,

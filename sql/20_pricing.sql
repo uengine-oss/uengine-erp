@@ -17,8 +17,8 @@ begin
     if (r ->> 'date_end')::date < (r ->> 'date_start')::date then perform erp.fail('ERP_INVALID', '규칙의 종료일이 시작일보다 빠릅니다'); end if;
     if erp.num(r -> 'min_qty') < 0 or erp.num(r -> 'round_to') < 0 then perform erp.fail('ERP_INVALID', '기준 수량과 반올림 단위는 0 이상이어야 합니다'); end if;
     if erp.num(r -> 'discount') > 100 or erp.num(r -> 'formula_discount') > 100 then perform erp.fail('ERP_INVALID', '할인율은 100을 넘을 수 없습니다'); end if;
-    if erp.num(r -> 'min_margin') > 0 and erp.num(r -> 'max_margin') > 0 and erp.num(r -> 'min_margin') > erp.num(r -> 'max_margin') then
-      perform erp.fail('ERP_INVALID', '최소 마진이 최대 마진보다 큽니다');
+    if erp.num(r -> 'min_margin') > erp.num(r -> 'max_margin') then
+      perform erp.fail('ERP_INVALID', '최소 마진을 넣으려면 그보다 큰 최대 마진도 넣으세요');
     end if;
   end loop;
 
@@ -51,7 +51,7 @@ begin
   return out_;
 end $$;
 
--- Most specific target first, then the nearest category, then the largest quantity break.
+-- Most specific target first, then the largest quantity break, then the nearest category.
 -- Rules still tied: the one added last wins. min_qty is measured in the product's unit; both dates are inclusive.
 create or replace function erp.price_rule(p_pricelist jsonb, p_v jsonb, p_qty numeric, p_on date) returns jsonb
 language plpgsql stable as $$
@@ -70,18 +70,18 @@ begin
            when 'category' then chain ? (r ->> 'category_id')
            else true end
    order by case r ->> 'apply_on' when 'variant' then 0 when 'product' then 1 when 'category' then 2 else 3 end,
-            case when r ->> 'apply_on' = 'category' then (chain ->> (r ->> 'category_id'))::int else 0 end,
             erp.num(r -> 'min_qty') desc,
+            case when r ->> 'apply_on' = 'category' then (chain ->> (r ->> 'category_id'))::int else 0 end,
             i desc
    limit 1;
   return rule;
 end $$;
 
--- A unit smaller than the product's keeps extra digits: rounding 5.5 per gram up to 6 would overcharge
--- every line by 9%. The line total still rounds to the currency.
-create or replace function erp.price_round(p numeric, p_factor numeric) returns numeric
+-- A unit price keeps more digits than money: 5.5 per gram must not become 6, and 899.1 x 10 is 8991.
+-- Amounts round to the currency when the line total is computed.
+create or replace function erp.price_round(p numeric) returns numeric
 language sql stable as $$
-  select case when p_factor < 1 then trim_scale(round(p, coalesce(erp.setting('decimal_places')::int, 0) + 4)) else erp.money(p) end
+  select trim_scale(round(p, coalesce(erp.setting('decimal_places')::int, 0) + 4))
 $$;
 
 create or replace function erp.price_resolve(p_pricelist_id uuid, p_v jsonb, p_qty numeric, p_on date, p_uom uuid, p_depth int) returns jsonb
@@ -102,11 +102,11 @@ begin
     rule := erp.price_rule(erp.require_state(p_pricelist_id, 'pricelist'), p_v, erp.uom_convert(p_qty, uom_, product_uom), p_on);
   end if;
   if rule is null then
-    return jsonb_build_object('price_unit', erp.price_round(list_, f), 'list_price', erp.price_round(list_, f), 'discount', 0, 'rule_id', null);
+    return jsonb_build_object('price_unit', erp.price_round(list_), 'list_price', erp.price_round(list_), 'discount', 0, 'rule_id', null);
   end if;
 
   if rule ->> 'price_type' = 'fixed' then
-    return jsonb_build_object('price_unit', erp.price_round(erp.num(rule -> 'fixed_price') * f, f), 'list_price', erp.price_round(list_, f),
+    return jsonb_build_object('price_unit', erp.price_round(erp.num(rule -> 'fixed_price') * f), 'list_price', erp.price_round(list_),
                               'discount', 0, 'rule_id', rule ->> 'id');
   end if;
 
@@ -119,7 +119,7 @@ begin
   end case;
 
   if rule ->> 'price_type' = 'discount' then
-    return jsonb_build_object('price_unit', erp.price_round(base_, f), 'list_price', erp.price_round(list_, f),
+    return jsonb_build_object('price_unit', erp.price_round(base_), 'list_price', erp.price_round(list_),
                               'discount', erp.num(rule -> 'discount'), 'rule_id', rule ->> 'id');
   end if;
 
@@ -130,7 +130,7 @@ begin
   price := price + erp.num(rule -> 'surcharge') * f;
   if erp.num(rule -> 'min_margin') <> 0 then price := greatest(price, base_ + erp.num(rule -> 'min_margin') * f); end if;
   if erp.num(rule -> 'max_margin') <> 0 then price := least(price, base_ + erp.num(rule -> 'max_margin') * f); end if;
-  return jsonb_build_object('price_unit', erp.price_round(price, f), 'list_price', erp.price_round(list_, f),
+  return jsonb_build_object('price_unit', erp.price_round(price), 'list_price', erp.price_round(list_),
                             'discount', 0, 'rule_id', rule ->> 'id');
 end $$;
 
@@ -164,59 +164,71 @@ begin
   return out_;
 end $$;
 
--- Rounded per line. Included taxes come out of the price first: fixed amounts, then percent ones share one
--- divisor, so 10% + 5% included is price / 1.15. Taxes do not compound. The last included tax absorbs
--- rounding, so subtotal + included taxes always equals the rounded price on the line.
+create or replace function erp.tax_defs(p_ids jsonb) returns jsonb
+language sql stable as $$
+  select coalesce(jsonb_agg(erp.require_state(id_::uuid, 'tax') || jsonb_build_object('tax_id', id_) order by o), '[]'::jsonb)
+    from jsonb_array_elements_text(coalesce(p_ids, '[]'::jsonb)) with ordinality t(id_, o)
+$$;
+
+-- Included taxes of a list, per unit: the fixed amounts and the sum of the rates.
+create or replace function erp.tax_included(p_defs jsonb, out fixed numeric, out pct numeric)
+language sql stable as $$
+  select coalesce(sum(erp.num(value -> 'amount')) filter (where value ->> 'amount_type' = 'fixed'), 0),
+         coalesce(sum(erp.num(value -> 'amount')) filter (where value ->> 'amount_type' = 'percent'), 0)
+    from jsonb_array_elements(p_defs) where (value ->> 'price_include')::boolean
+$$;
+
+-- Rounded per line. The line total rounds first. Included taxes come out of it with one shared divisor
+-- (10% + 5% included is total / 1.15), each tax rounds on its own, and the subtotal is what remains.
+-- Excluded percent taxes apply to that rounded subtotal. Fixed taxes are per unit and ignore the discount.
+-- Taxes never compound.
+-- A fiscal position that replaces a list made only of included taxes also changes the price the customer
+-- sees: those taxes come off and the new included ones go on. price_unit in the result is the price to
+-- show and store on the line; calling again with the mapped tax_ids and that price gives the same amounts.
 create or replace function erp.tax_compute(p_price_unit numeric, p_qty numeric, p_discount numeric default 0,
                                            p_tax_ids jsonb default '[]'::jsonb, p_fiscal_position_id uuid default null) returns jsonb
 language plpgsql stable as $$
 declare
-  ids jsonb := erp.tax_map(p_tax_ids, p_fiscal_position_id);
+  given jsonb := coalesce(p_tax_ids, '[]'::jsonb);
+  ids jsonb := erp.tax_map(given, p_fiscal_position_id);
+  defs jsonb := erp.tax_defs(ids);
+  old_defs jsonb;
   qty numeric := coalesce(p_qty, 0);
-  gross numeric := coalesce(p_price_unit, 0) * qty * (1 - coalesce(p_discount, 0) / 100);
-  defs jsonb;
-  incl_fixed numeric;
-  incl_pct numeric;
+  price numeric := coalesce(p_price_unit, 0);
+  was record;
+  inc record;
+  line_total numeric;
   raw_base numeric;
   subtotal numeric;
   d jsonb;
   amt numeric;
-  incl_sum numeric := 0;
   tax_sum numeric := 0;
-  last_incl int := -1;
-  i int := 0;
   out_ jsonb := '[]'::jsonb;
-  residual numeric;
 begin
-  select coalesce(jsonb_agg(erp.require_state(id_::uuid, 'tax') || jsonb_build_object('id', id_) order by o), '[]'::jsonb) into defs
-    from jsonb_array_elements_text(ids) with ordinality t(id_, o);
-  select coalesce(sum(erp.num(value -> 'amount') * qty) filter (where value ->> 'amount_type' = 'fixed'), 0),
-         coalesce(sum(erp.num(value -> 'amount')) filter (where value ->> 'amount_type' = 'percent'), 0)
-    into incl_fixed, incl_pct
-    from jsonb_array_elements(defs) where (value ->> 'price_include')::boolean;
-  raw_base := (gross - incl_fixed) / (1 + incl_pct / 100);
-  subtotal := erp.money(raw_base);
+  select * into inc from erp.tax_included(defs);
+  if given <> '[]'::jsonb and not (given @> ids and ids @> given) then
+    old_defs := erp.tax_defs(given);
+    if not exists (select 1 from jsonb_array_elements(old_defs) where not coalesce((value ->> 'price_include')::boolean, false)) then
+      select * into was from erp.tax_included(old_defs);
+      price := (price - was.fixed) / (1 + was.pct / 100) * (1 + inc.pct / 100) + inc.fixed;
+    end if;
+  end if;
+
+  line_total := erp.money(price * qty * (1 - coalesce(p_discount, 0) / 100));
+  raw_base := (line_total - inc.fixed * qty) / (1 + inc.pct / 100);
+  select line_total - coalesce(sum(case when value ->> 'amount_type' = 'fixed' then erp.money(erp.num(value -> 'amount') * qty)
+                                        else erp.money(raw_base * erp.num(value -> 'amount') / 100) end), 0)
+    into subtotal from jsonb_array_elements(defs) where (value ->> 'price_include')::boolean;
 
   for d in select value from jsonb_array_elements(defs) loop
     amt := case when d ->> 'amount_type' = 'fixed' then erp.money(erp.num(d -> 'amount') * qty)
-                else erp.money(raw_base * erp.num(d -> 'amount') / 100) end;
-    if (d ->> 'price_include')::boolean then
-      incl_sum := incl_sum + amt;
-      last_incl := i;
-    end if;
+                when (d ->> 'price_include')::boolean then erp.money(raw_base * erp.num(d -> 'amount') / 100)
+                else erp.money(subtotal * erp.num(d -> 'amount') / 100) end;
     tax_sum := tax_sum + amt;
-    out_ := out_ || jsonb_build_object('tax_id', d ->> 'id', 'name', d ->> 'name', 'base', subtotal, 'amount', amt, 'account_id', d ->> 'account_id');
-    i := i + 1;
+    out_ := out_ || jsonb_build_object('tax_id', d ->> 'tax_id', 'name', d ->> 'name', 'base', subtotal, 'amount', amt, 'account_id', d ->> 'account_id');
   end loop;
-
-  if last_incl >= 0 then
-    residual := erp.money(gross) - subtotal - incl_sum;
-    if residual <> 0 then
-      out_ := jsonb_set(out_, array[last_incl::text, 'amount'], to_jsonb(erp.num(out_ -> last_incl -> 'amount') + residual));
-      tax_sum := tax_sum + residual;
-    end if;
-  end if;
-  return jsonb_build_object('subtotal', subtotal, 'tax', tax_sum, 'total', subtotal + tax_sum, 'taxes', out_, 'tax_ids', ids);
+  return jsonb_build_object('subtotal', subtotal, 'tax', tax_sum, 'total', subtotal + tax_sum, 'taxes', out_, 'tax_ids', ids,
+                            'price_unit', erp.price_round(price));
 end $$;
 
 create or replace function public.erp_price(p_pricelist_id uuid, p_variant_id uuid, p_qty numeric default 1,

@@ -93,6 +93,7 @@ async function runTax(ctx, k) {
   assert.ok(out.taxes.every((t) => t.name), 'each tax carries its name')
   if (k.expect.tax_ids) assert.deepEqual(out.tax_ids, k.expect.tax_ids.map((t) => ids[t]))
   else assert.deepEqual(out.tax_ids, inp.taxes.map((t) => ids[t]))
+  assert.equal(out.price_unit, k.expect.price_unit ?? inp.price_unit, 'price_unit')
 }
 
 async function runSchedule(ctx, k) {
@@ -162,6 +163,8 @@ test('rules are checked when saved', async () => {
   await rejects(save({ price_type: 'formula', formula_discount: 101 }), 'ERP_INVALID')
   await rejects(save({ price_type: 'formula', round_to: -1 }), 'ERP_INVALID')
   await rejects(save({ price_type: 'formula', min_margin: 10, max_margin: 5 }), 'ERP_INVALID')
+  await rejects(save({ price_type: 'formula', min_margin: 10 }), 'ERP_INVALID')
+  await save({ price_type: 'formula', max_margin: 5 })
   const same = await save({ date_start: '2026-02-01', date_end: '2026-02-01', hacker: 1, fixed_price: 10.4 })
   assert.equal(same.state.rules[0].hacker, undefined)
   assert.equal(same.state.rules[0].fixed_price, 10)
@@ -223,7 +226,7 @@ test('price and tax errors are business errors', async () => {
   await rejects(c.q1(`select erp.tax_compute(1, 1, 0, '[]', $1) as r`, [missing]), 'ERP_NOT_FOUND')
   await rejects(c.q1('select erp.payment_term_schedule($1, 1) as r', [missing]), 'ERP_NOT_FOUND')
   const empty = await c.q1(`select erp.tax_compute(100, 2) as r`)
-  assert.deepEqual(empty, { subtotal: 200, tax: 0, total: 200, taxes: [], tax_ids: [] })
+  assert.deepEqual(empty, { subtotal: 200, tax: 0, total: 200, taxes: [], tax_ids: [], price_unit: 100 })
 })
 
 test('seeded taxes compute as a Korean invoice expects', async () => {
