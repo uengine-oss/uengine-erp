@@ -1,4 +1,5 @@
 // One entry point for running a model by its id, so the app can do it on a worker thread.
+import { depreciationOutlook } from './assets.ts'
 import { cashIn, whatIfTerms } from './cash.ts'
 import { demandSales, demandTrue } from './forecast.ts'
 import { leadTime } from './lead.ts'
@@ -18,6 +19,7 @@ export function runModel(panel: Panel, id: ModelId, rawInput: Record<string, unk
     case 'reorder_plan': return reorderPlan(panel, input)
     case 'cash_in': return cashIn(panel, input)
     case 'pnl_outlook': return pnlOutlook(panel, input)
+    case 'depreciation_outlook': return depreciationOutlook(panel, input)
     case 'whatif_policy': return whatIfPolicy(panel, input as Parameters<typeof whatIfPolicy>[1])
     case 'whatif_realloc': return whatIfRealloc(panel, input as Parameters<typeof whatIfRealloc>[1])
     case 'whatif_drop': return whatIfDrop(panel, input as Parameters<typeof whatIfDrop>[1])

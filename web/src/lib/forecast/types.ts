@@ -3,7 +3,7 @@
 export type ModelId =
   | 'stat_sales' | 'quote_conversion' | 'demand_sales' | 'demand_true' | 'stockout_risk'
   | 'whatif_policy' | 'whatif_realloc' | 'whatif_drop' | 'lead_time' | 'whatif_lead'
-  | 'reorder_plan' | 'cash_in' | 'whatif_terms' | 'pnl_outlook'
+  | 'reorder_plan' | 'cash_in' | 'whatif_terms' | 'pnl_outlook' | 'depreciation_outlook'
 export type ModelKind = 'stat' | 'forecast' | 'whatif'
 export type ModelState = 'locked' | 'insufficient' | 'ready'
 
@@ -98,6 +98,21 @@ export interface ReorderRule {
   vendor_id: string | null
 }
 
+/** One calendar year of an asset's plan, as the ledger carries it. See sql/66_assets.sql. */
+export interface AssetPlanRow { year: number; first: string; last: string; months: number; annual: number; amount: number }
+
+export interface AssetHistoryRow {
+  asset_id: string
+  number: string
+  name: string
+  cost: number
+  acquired: string
+  in_service: string
+  opening: number
+  plan: AssetPlanRow[]
+  disposed_on: string | null
+}
+
 /** [month 'YYYY-MM', account_id, account_type, name, amount]: income as credit minus debit, expense as debit minus credit. */
 export type JournalRow = [string, string, string, string, number]
 
@@ -115,4 +130,6 @@ export interface LedgerData {
   invoices: InvoiceRow[]
   journal: JournalRow[]
   rules: ReorderRule[]
+  /** Registered fixed assets. Absent when no one has read them yet. */
+  assets?: { decimals: number; assets: AssetHistoryRow[] }
 }

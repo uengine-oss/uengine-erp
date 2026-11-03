@@ -32,10 +32,10 @@ after(async () => { await c.db.query(`select set_config('erp.clock', '', false)`
 test('S1. a new company starts with sales alone', async () => {
   const on = (await c.db.asUser(c.adminId, 'select public.erp_modules() r')).rows[0].r
   assert.deepEqual(on.filter((m) => m.enabled).map((m) => m.id), ['sales'])
-  assert.deepEqual(on.filter((m) => !m.enabled).map((m) => m.id).sort(), ['accounting', 'inventory', 'invoicing', 'purchase'])
+  assert.deepEqual(on.filter((m) => !m.enabled).map((m) => m.id).sort(), ['accounting', 'assets', 'inventory', 'invoicing', 'purchase'])
   const t = await types()
   for (const x of ['partner', 'product', 'pricelist', 'sales_order', 'quote_template']) assert.ok(t.includes(x), x)
-  for (const x of ['picking', 'warehouse', 'purchase_order', 'account_move', 'account', 'journal_entry']) assert.ok(!t.includes(x), x)
+  for (const x of ['picking', 'warehouse', 'purchase_order', 'account_move', 'account', 'journal_entry', 'asset', 'depreciation_run']) assert.ok(!t.includes(x), x)
   await rejects(c.admin('picking', null, 'create', {}), 'ERP_MODULE_OFF')
 
   customer = (await c.admin('partner', null, 'create', { name: '가온마트', region: '수도권' })).id

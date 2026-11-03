@@ -6,5 +6,6 @@ export { stockoutRisk, whatIfPolicy, whatIfRealloc, whatIfDrop, whatIfLead, reor
 export { leadTime } from './lead.ts'
 export { cashIn, whatIfTerms } from './cash.ts'
 export { pnlOutlook } from './pnl.ts'
+export { depreciationOutlook, cumulativeAt, type DepreciationOutcome } from './assets.ts'
 export { NEED } from './thresholds.ts'
 export type * from './types.ts'
