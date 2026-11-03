@@ -131,7 +131,7 @@ test('InvoicePosted states every fact the contract promises', async () => {
   for (const k of ['move_type', 'number', 'origin_type', 'origin_id', 'partner_id', 'partner_name', 'region', 'date', 'due_date', 'currency', 'amount_untaxed', 'amount_tax', 'amount_total', 'reversal_of', 'lines']) assert.ok(k in ev, k)
   const l = ev.lines[0]
   for (const k of ['line_id', 'origin_line_id', 'product_id', 'variant_id', 'name', 'qty', 'uom_id', 'price_unit', 'discount', 'subtotal', 'tax_amount', 'total', 'taxes', 'is_downpayment', 'account_id']) assert.ok(k in l, k)
-  assert.deepEqual(Object.keys(l.taxes[0]).sort(), ['account_id', 'amount', 'base', 'name', 'tax_id'])
+  assert.deepEqual(Object.keys(l.taxes[0]).sort(), ['account_id', 'amount', 'base', 'name', 'tax_id', 'vat_class'])
   assert.equal(ev.gl, undefined, 'this module never writes ledger lines')
   assert.equal((await c.db.query(`select count(*)::int n from erp.events where data -> 'effects' ? 'gl'`)).rows[0].n, 0)
 })

@@ -11,9 +11,10 @@ select erp.module_put('{
   "not_rebuilt": "켜기 전의 입금 기록은 다시 만들 수 없습니다.",
   "publishes": [
     {"event": "InvoiceDrafted", "fields": ["move_type", "origin_type", "origin_id", "partner_id", "reversal_of", "lines"]},
-    {"event": "InvoicePosted", "fields": ["move_type", "number", "origin_type", "origin_id", "partner_id", "partner_name", "region", "date", "invoice_date", "due_date", "currency", "fiscal_position_id", "journal_id", "journal_account_id", "amount_untaxed", "amount_tax", "amount_total", "reversal_of", "installments", "lines"]},
-    {"event": "InvoiceResetToDraft", "fields": ["move_type", "number", "origin_type", "origin_id", "partner_id", "lines"]},
-    {"event": "InvoiceCancelled", "fields": ["move_type", "number", "origin_type", "origin_id", "partner_id", "lines"]},
+    {"event": "InvoicePosted", "fields": ["move_type", "number", "origin_type", "origin_id", "partner_id", "partner_name", "region", "date", "invoice_date", "due_date", "currency", "fiscal_position_id", "journal_id", "journal_account_id", "amount_untaxed", "amount_tax", "amount_total", "reversal_of", "installments", "lines", "evidence", "partner_tax_id", "stock_reflect", "stock_warehouse_id"]},
+    {"event": "InvoiceResetToDraft", "fields": ["move_type", "number", "origin_type", "origin_id", "partner_id", "lines", "stock_reflect"]},
+    {"event": "InvoiceCancelled", "fields": ["move_type", "number", "origin_type", "origin_id", "partner_id", "lines", "stock_reflect"]},
+    {"event": "InvoiceEvidenceSet", "fields": ["move_type", "number", "date", "invoice_date", "partner_id", "partner_name", "partner_tax_id", "amount_untaxed", "amount_tax", "amount_total", "reversal_of", "lines", "evidence"]},
     {"event": "InvoicePaymentApplied", "fields": ["payment_id", "credit_move_id", "amount", "residual", "payment_state", "partner_id", "due_date", "date"]},
     {"event": "PaymentPosted", "fields": ["payment_type", "partner_type", "number", "partner_id", "amount", "date", "journal", "journal_id", "journal_account_id", "payment_method_id", "allocations", "unallocated", "writeoff_amount", "writeoff_account_id", "writeoff_label", "early_discount", "writeoff_taxes"]},
     {"event": "PaymentCancelled", "fields": ["payment_type", "partner_type", "number", "partner_id", "amount", "date", "journal", "allocations"]},
@@ -28,6 +29,7 @@ select erp.catalog_put('{
   "read_roles": ["accounting", "sales", "purchase"], "write_roles": ["accounting"],
   "revert_blocked_states": ["posted"],
   "revert_blocked_reason": "게시된 청구서는 되돌릴 수 없습니다. 대변 메모로 정정하세요",
+  "compensate": {"command": "compensate", "label": "대변 메모 게시", "warning": "수정세금계산서가 필요할 수 있습니다. 매출은 우리가 발급하고 매입은 공급자에게 요청합니다"},
   "lock_fn": "erp.inv_lock_problem",
   "fields": [
     {"name": "move_type", "label": "구분", "type": "enum", "required": true, "default": "out_invoice", "list": true, "create_only": true,
@@ -54,6 +56,35 @@ select erp.catalog_put('{
      "options": [{"value": "manual", "label": "내려받기"}, {"value": "email", "label": "메일"}, {"value": "post", "label": "우편"}]},
     {"name": "should_be_paid", "label": "지급 여부", "type": "enum",
      "options": [{"value": "yes", "label": "지급"}, {"value": "no", "label": "보류"}, {"value": "exception", "label": "예외"}]},
+    {"name": "evidence_type", "label": "증빙", "type": "enum", "list": true, "help": "세금 신고서의 칸을 정합니다",
+     "options": [{"value": "tax_invoice", "label": "세금계산서"}, {"value": "exempt_invoice", "label": "계산서"}, {"value": "credit_card", "label": "신용카드"},
+                 {"value": "cash_receipt", "label": "현금영수증"}, {"value": "other_receipt", "label": "그 밖의 영수증"}, {"value": "none", "label": "없음"}]},
+    {"name": "approval_no", "label": "승인번호", "type": "text", "search": true, "help": "홈택스에서 발급한 뒤 적습니다. 앱이 발급하지 않습니다"},
+    {"name": "deductible", "label": "매입세액 공제", "type": "boolean", "help": "게시 전에 정합니다. 안 받으면 세액이 비용이 됩니다"},
+    {"name": "non_deduct_reason", "label": "불공제 사유", "type": "enum",
+     "options": [{"value": "missing_fields", "label": "필요적 기재사항 누락 등"}, {"value": "unrelated", "label": "사업과 직접 관련 없는 지출"},
+                 {"value": "car", "label": "개별소비세 대상 자동차 구입·유지 및 임차"}, {"value": "entertainment", "label": "기업업무추진비 및 유사 비용"},
+                 {"value": "exempt_business", "label": "면세사업등 관련"}, {"value": "land", "label": "토지의 자본적 지출 관련"},
+                 {"value": "before_registration", "label": "사업자등록 전 매입세액"}, {"value": "scrap_account", "label": "금·구리 스크랩 거래계좌 미사용"}]},
+    {"name": "card_kind", "label": "카드 구분", "type": "enum", "help": "수령 명세의 칸을 정합니다. 카드번호는 저장하지 않습니다",
+     "options": [{"value": "business", "label": "사업용 신용카드"}, {"value": "other", "label": "그 밖의 신용카드"}]},
+    {"name": "amend_reason", "label": "수정 사유", "type": "enum", "help": "대변 메모에 고릅니다",
+     "options": [{"value": "returned", "label": "환입"}, {"value": "contract_cancelled", "label": "계약의 해제"}, {"value": "amount_changed", "label": "공급가액 변동"},
+                 {"value": "local_lc", "label": "내국신용장 사후 개설"}, {"value": "wrong_entry", "label": "필요적 기재사항 착오"}, {"value": "wrong_other", "label": "필요적 기재사항 착오 외"},
+                 {"value": "double_issued", "label": "착오로 이중 발급"}, {"value": "not_taxable", "label": "면세 등 발급 대상 아님"}, {"value": "wrong_rate", "label": "세율 착오"},
+                 {"value": "input_error", "label": "입력 실수(수정 발행 아님)"}]},
+    {"name": "compensation", "label": "상쇄 문서", "type": "boolean", "readonly": true, "hidden": true},
+    {"name": "original_date", "label": "처음 작성일", "type": "date", "readonly": true},
+    {"name": "original_approval_no", "label": "처음 승인번호", "type": "text", "readonly": true},
+    {"name": "stock_reflect", "label": "재고 반영", "type": "boolean", "help": "재고 모듈이 입출고 전표를 만듭니다"},
+    {"name": "stock_warehouse_id", "label": "재고 창고", "type": "ref", "ref": "warehouse", "module": "inventory"},
+    {"name": "voucher", "label": "전표 입력", "type": "boolean", "create_only": true, "hidden": true, "help": "true 면 한 번의 명령으로 만들고 게시하고 결제한다"},
+    {"name": "payment_way", "label": "결제방법", "type": "enum", "create_only": true, "hidden": true, "help": "voucher 일 때. credit 이면 입금을 만들지 않는다",
+     "options": [{"value": "credit", "label": "외상"}, {"value": "cash", "label": "현금"}, {"value": "bank", "label": "보통예금"}, {"value": "card", "label": "카드"}]},
+    {"name": "payment_date", "label": "결제일", "type": "date", "create_only": true, "hidden": true},
+    {"name": "payment_journal_id", "label": "결제 분개장", "type": "ref", "ref": "journal", "create_only": true, "hidden": true},
+    {"name": "allow_duplicate", "label": "중복 허용", "type": "boolean", "create_only": true, "hidden": true, "help": "승인번호가 없는 전표에서 거래처·날짜·금액이 같아도 넣는다"},
+    {"name": "voucher_payment_id", "label": "전표의 입금", "type": "text", "readonly": true, "hidden": true},
     {"name": "origin_type", "label": "원본 유형", "type": "text", "readonly": true, "hidden": true},
     {"name": "origin_id", "label": "원본 문서", "type": "text", "readonly": true, "hidden": true},
     {"name": "origin_name", "label": "원본", "type": "text", "readonly": true, "list": true},
@@ -79,6 +110,9 @@ select erp.catalog_put('{
       {"name": "discount", "label": "할인(%)", "type": "number", "default": 0},
       {"name": "tax_ids", "label": "세금", "type": "refs", "ref": "tax"},
       {"name": "account_id", "label": "계정", "type": "ref", "ref": "account", "module": "accounting"},
+      {"name": "tax_override", "label": "증빙의 세액", "type": "money", "hidden": true},
+      {"name": "fixed_asset", "label": "고정자산", "type": "boolean", "hidden": true},
+      {"name": "worked_tax", "label": "세율로 계산한 세액", "type": "money", "readonly": true, "hidden": true},
       {"name": "subtotal", "label": "공급가액", "type": "money", "readonly": true},
       {"name": "tax_amount", "label": "세액", "type": "money", "readonly": true},
       {"name": "total", "label": "합계", "type": "money", "readonly": true},
@@ -111,7 +145,16 @@ select erp.catalog_put('{
   "extra_commands": {
     "reverse": {"roles": ["accounting"], "label": "대변 메모", "params": [
       {"name": "mode", "label": "방식", "type": "enum", "options": [{"value": "reverse", "label": "대변 메모 초안"}, {"value": "reverse_and_create", "label": "전액 정정 후 새 초안"}]},
-      {"name": "reason", "label": "사유", "type": "text"}, {"name": "date", "label": "일자", "type": "date"}]},
+      {"name": "reason", "label": "사유", "type": "text"}, {"name": "date", "label": "일자", "type": "date"},
+      {"name": "amend_reason", "label": "수정 사유", "type": "enum", "options": [{"value": "returned", "label": "환입"}, {"value": "contract_cancelled", "label": "계약의 해제"}, {"value": "amount_changed", "label": "공급가액 변동"},
+        {"value": "local_lc", "label": "내국신용장 사후 개설"}, {"value": "wrong_entry", "label": "필요적 기재사항 착오"}, {"value": "wrong_other", "label": "필요적 기재사항 착오 외"},
+        {"value": "double_issued", "label": "착오로 이중 발급"}, {"value": "not_taxable", "label": "면세 등 발급 대상 아님"}, {"value": "wrong_rate", "label": "세율 착오"},
+        {"value": "input_error", "label": "입력 실수(수정 발행 아님)"}]}]},
+    "compensate": {"roles": ["accounting"], "label": "대변 메모 게시", "params": [
+      {"name": "amend_reason", "label": "수정 사유", "type": "text"}, {"name": "date", "label": "일자", "type": "date"}, {"name": "reason", "label": "사유", "type": "text"}]},
+    "set_evidence": {"roles": ["accounting"], "label": "증빙 적기", "params": [
+      {"name": "evidence_type", "label": "증빙", "type": "text"}, {"name": "approval_no", "label": "승인번호", "type": "text"},
+      {"name": "non_deduct_reason", "label": "불공제 사유", "type": "text"}, {"name": "card_kind", "label": "카드 구분", "type": "text"}]},
     "debit_note": {"roles": ["accounting"], "label": "차변 메모", "params": [
       {"name": "reason", "label": "사유", "type": "text"}, {"name": "date", "label": "일자", "type": "date"},
       {"name": "copy_lines", "label": "줄 복사", "type": "boolean"}]},
@@ -131,6 +174,7 @@ select erp.catalog_put('{
   "read_roles": ["accounting"], "write_roles": ["accounting"],
   "revert_blocked_states": ["in_process", "paid", "rejected"],
   "revert_blocked_reason": "게시된 입금은 되돌릴 수 없습니다. 입금 취소로 정정하세요",
+  "compensate": {"command": "cancel", "label": "입금·지급 취소"},
   "lock_fn": "erp.pay_lock_problem",
   "fields": [
     {"name": "number", "label": "번호", "type": "text", "readonly": true, "list": true, "search": true},
@@ -206,11 +250,12 @@ begin
   end if;
 end $$;
 
--- Which period locks hold a document: its side of the business, and the tax lock when it carries tax.
+-- Which period locks hold a document: its side of the business, and the tax lock when it carries tax or names its
+-- evidence. Zero-rated and exempt lines have no tax, yet they stand in a cell of the return.
 create or replace function erp.inv_lock_kinds(p_state jsonb) returns text[]
 language sql immutable as $$
   select array[case when p_state ->> 'move_type' like 'out_%' then 'sale' else 'purchase' end]
-      || case when exists (select 1 from jsonb_array_elements(coalesce(p_state -> 'lines', '[]'::jsonb)) l
+      || case when p_state ->> 'evidence_type' is not null or exists (select 1 from jsonb_array_elements(coalesce(p_state -> 'lines', '[]'::jsonb)) l
                             where erp.num(l -> 'tax_amount') <> 0 or exists (select 1 from jsonb_array_elements(coalesce(l -> 'taxes', '[]'::jsonb)) t where erp.num(t -> 'amount') <> 0))
               then array['tax'] else array[]::text[] end
 $$;
@@ -300,7 +345,7 @@ language sql immutable as $$
       'name', l -> 'name', 'qty', l -> 'qty', 'uom_id', l -> 'uom_id', 'price_unit', l -> 'price_unit', 'discount', l -> 'discount',
       'subtotal', l -> 'subtotal', 'tax_amount', l -> 'tax_amount', 'total', l -> 'total', 'taxes', coalesce(l -> 'taxes', '[]'::jsonb),
       'is_downpayment', coalesce(l -> 'is_downpayment', 'false'::jsonb), 'downpayment_line_id', l -> 'downpayment_line_id',
-      'account_id', l -> 'account_id') order by o), '[]'::jsonb)
+      'account_id', l -> 'account_id', 'fixed_asset', coalesce(l -> 'fixed_asset', 'false'::jsonb)) order by o), '[]'::jsonb)
     from jsonb_array_elements(coalesce(p_lines, '[]'::jsonb)) with ordinality t(l, o)
    where erp.inv_is_product_line(l)
 $$;
@@ -308,7 +353,8 @@ $$;
 create or replace function erp.inv_doc_facts(p_state jsonb) returns jsonb
 language sql immutable as $$
   select jsonb_build_object('move_type', p_state -> 'move_type', 'number', p_state -> 'number', 'origin_type', p_state -> 'origin_type',
-    'origin_id', p_state -> 'origin_id', 'partner_id', p_state -> 'partner_id', 'lines', erp.inv_line_facts(p_state -> 'lines'))
+    'origin_id', p_state -> 'origin_id', 'partner_id', p_state -> 'partner_id', 'lines', erp.inv_line_facts(p_state -> 'lines'),
+    'stock_reflect', coalesce(p_state -> 'stock_reflect', 'false'::jsonb))
 $$;
 
 create or replace function erp.inv_totals(p_lines jsonb) returns jsonb
@@ -339,7 +385,30 @@ begin
     t := erp.tax_compute(price, qty, disc, ids, null);
     r := r || jsonb_build_object('price_unit', price);
   end if;
-  return r || jsonb_build_object('tax_ids', ids, 'subtotal', t -> 'subtotal', 'tax_amount', t -> 'tax', 'total', t -> 'total', 'taxes', t -> 'taxes');
+  r := r || jsonb_build_object('tax_ids', ids, 'subtotal', t -> 'subtotal', 'tax_amount', t -> 'tax', 'total', t -> 'total', 'taxes', t -> 'taxes');
+  return erp.inv_tax_as_stated(r);
+end $$;
+
+-- A tax invoice states its own tax, and it can differ from the rate by a rounding. The document says what the paper says;
+-- the difference lands on the line's first tax, so the books and the return both follow the paper.
+create or replace function erp.inv_tax_as_stated(p_row jsonb) returns jsonb
+language plpgsql stable as $$
+declare
+  given numeric := erp.num(p_row -> 'tax_override', null);
+  worked numeric := erp.num(p_row -> 'tax_amount');
+  first_ jsonb := p_row -> 'taxes' -> 0;
+  gap numeric;
+begin
+  if given is null or given = worked then return p_row; end if;
+  if first_ is null or jsonb_typeof(first_) = 'null' then
+    perform erp.fail('ERP_INVALID', '세금이 없는 줄에는 세액을 적을 수 없습니다');
+  end if;
+  if first_ ? 'repartition' then
+    perform erp.fail('ERP_INVALID', '세금 분배가 있는 세금은 세액을 직접 적을 수 없습니다');
+  end if;
+  gap := given - worked;
+  return p_row || jsonb_build_object('tax_amount', given, 'worked_tax', worked, 'total', erp.num(p_row -> 'subtotal') + given,
+    'taxes', jsonb_set(p_row -> 'taxes', '{0,amount}', to_jsonb(erp.num(first_ -> 'amount') + gap)));
 end $$;
 
 -- Fills what a screen may leave out from the product, then computes amounts.
@@ -425,6 +494,7 @@ begin
       out_ := out_ || r;
     elsif old is not null and old -> 'price_unit' = r -> 'price_unit' and old -> 'qty' = r -> 'qty'
        and old -> 'discount' = r -> 'discount' and old -> 'tax_ids' = r -> 'tax_ids'
+       and old -> 'tax_override' is not distinct from r -> 'tax_override'
        and old ->> 'variant_id' is not distinct from r ->> 'variant_id' and seen ->> 'variant_id' is not distinct from r ->> 'variant_id' then
       out_ := out_ || r;
     else
@@ -719,7 +789,8 @@ begin
     'invoice_date', p -> 'invoice_date', 'date', p -> 'date', 'due_date', p -> 'due_date',
     'payment_term_id', o -> 'payment_term_id', 'fiscal_position_id', o -> 'fiscal_position_id', 'currency', o -> 'currency',
     'ref', coalesce(p -> 'ref', o -> 'client_ref', o -> 'vendor_ref'), 'narration', p -> 'narration', 'incoterm', o -> 'incoterm',
-    'origin_type', doc_type, 'origin_id', order_id, 'origin_name', o -> 'number'));
+    'origin_type', doc_type, 'origin_id', order_id, 'origin_name', o -> 'number',
+    'evidence_type', p -> 'evidence_type', 'approval_no', p -> 'approval_no', 'deductible', p -> 'deductible', 'non_deduct_reason', p -> 'non_deduct_reason', 'card_kind', p -> 'card_kind'));
   return erp.inv_emit_new(p_id, erp.inv_partner_defaults(move_type, partner, head), lines_);
 end $$;
 
@@ -755,7 +826,7 @@ begin
   end if;
   vals := erp.validate('account_move', erp.clean_payload('account_move', p - 'lines'), true);
   move_type := vals ->> 'move_type';
-  head := erp.inv_partner_defaults(move_type, (vals ->> 'partner_id')::uuid, jsonb_strip_nulls(vals - 'lines' - 'method' - 'amount' - 'deduct_downpayments' - 'line_ids'));
+  head := erp.inv_partner_defaults(move_type, (vals ->> 'partner_id')::uuid, jsonb_strip_nulls(vals - 'lines' - 'method' - 'amount' - 'deduct_downpayments' - 'line_ids' - 'payment_date' - 'payment_journal_id' - 'allow_duplicate'));
   if src is not null and not p ? 'lines' then
     lines_ := erp.inv_copy_lines(src -> 'lines', false);
   else
@@ -783,7 +854,7 @@ begin
   end if;
   perform erp.inv_check_fields('account_move', p);
   perform erp.currency_check(p ->> 'currency');
-  if exists (select 1 from jsonb_object_keys(p) k where k in ('from_sales_order', 'from_purchase_order', 'from_move', 'method', 'amount', 'deduct_downpayments', 'line_ids', 'move_type')) then
+  if exists (select 1 from jsonb_object_keys(p) k where k in ('from_sales_order', 'from_purchase_order', 'from_move', 'method', 'amount', 'deduct_downpayments', 'line_ids', 'move_type', 'voucher', 'payment_way', 'payment_date', 'payment_journal_id', 'allow_duplicate')) then
     perform erp.fail('ERP_INVALID', '만들 때만 정할 수 있는 항목입니다');
   end if;
   vals := erp.validate('account_move', erp.clean_payload('account_move', p - 'lines', cur), false);
@@ -1139,6 +1210,8 @@ begin
   inv_date := coalesce((s ->> 'invoice_date')::date, erp.today());
   acct_date := coalesce((s ->> 'date')::date, inv_date);
   perform erp.inv_lock_check(s || jsonb_build_object('date', acct_date));
+  if s ->> 'evidence_type' is not null then perform erp.vch_check(s); end if;
+  if s ->> 'approval_no' is not null then perform erp.vch_check_duplicate(p_id, s, false); end if;
   number_ := coalesce(s ->> 'number', erp.inv_number(mt, acct_date, s ->> 'journal_id'));
   if s ->> 'payment_term_id' is not null or s ->> 'due_date' is null then
     sched := erp.payment_term_schedule(nullif(s ->> 'payment_term_id', '')::uuid, total, inv_date, erp.num(s -> 'amount_untaxed'));
@@ -1162,7 +1235,8 @@ begin
     'partner_id', s -> 'partner_id', 'partner_name', p -> 'name', 'region', p -> 'region',
     'date', acct_date::text, 'invoice_date', inv_date::text, 'due_date', due, 'currency', s -> 'currency',
     'amount_untaxed', s -> 'amount_untaxed', 'amount_tax', s -> 'amount_tax', 'amount_total', s -> 'amount_total',
-    'reversal_of', s -> 'reversal_of', 'installments', sched, 'lines', erp.inv_line_facts(erp.inv_doc_taxes(s -> 'lines', mt))));
+    'reversal_of', s -> 'reversal_of', 'installments', sched, 'lines', erp.vch_line_facts(s, erp.inv_doc_taxes(s -> 'lines', mt)),
+    'evidence', erp.vch_evidence(s), 'partner_tax_id', p -> 'tax_id', 'stock_reflect', coalesce(s -> 'stock_reflect', 'false'::jsonb), 'stock_warehouse_id', s -> 'stock_warehouse_id'));
   -- A credit note closes the document it corrects at once, up to what is still open on it.
   target := nullif(s ->> 'reversal_of', '')::uuid;
   if target is not null and erp.state_of(target) ->> 'state' = 'posted' then
@@ -1241,28 +1315,37 @@ language plpgsql as $$
 declare
   s jsonb;
   mode_ text := coalesce(p ->> 'mode', 'reverse');
-  day_ date := coalesce(erp.inv_calendar_date(p ->> 'date'), erp.today());
+  day_ date := erp.inv_calendar_date(p ->> 'date');
   reason_ text := p ->> 'reason';
+  amend text := nullif(p ->> 'amend_reason', '');
   refund_type text;
   cn_id uuid := gen_random_uuid();
   head jsonb;
+  same_date boolean;
 begin
   s := erp.require_state(p_id, 'account_move');
   if s ->> 'state' <> 'posted' then
     perform erp.fail('ERP_STATE', '게시된 문서만 정정할 수 있습니다');
   end if;
+  -- What is amended decides whose date it carries: a return lands on its own day, a mistake on the first date.
+  same_date := day_ is null and amend is not null and erp.vch_amend_keeps_date(amend);
+  day_ := coalesce(day_, case when same_date then (s ->> 'invoice_date')::date end, erp.today());
   if mode_ not in ('reverse', 'reverse_and_create') then
     perform erp.fail('ERP_INVALID', format('알 수 없는 정정 방식입니다: %s', mode_));
   end if;
   -- The correction lands on its own date. A date inside a closed period is refused; the original stays as it is.
-  perform erp.inv_lock_check(s || jsonb_build_object('date', day_));
+  perform erp.inv_lock_check(s || jsonb_build_object('date', case when same_date then coalesce((s ->> 'date')::date, day_) else day_ end));
   refund_type := case s ->> 'move_type' when 'out_invoice' then 'out_refund' when 'in_invoice' then 'in_refund'
                                         when 'out_refund' then 'out_invoice' else 'in_invoice' end;
   head := jsonb_strip_nulls(jsonb_build_object('move_type', refund_type, 'partner_id', s -> 'partner_id', 'invoice_date', day_::text, 'journal_id', s -> 'journal_id',
     'payment_term_id', s -> 'payment_term_id', 'fiscal_position_id', s -> 'fiscal_position_id', 'currency', s -> 'currency',
     'origin_type', s -> 'origin_type', 'origin_id', s -> 'origin_id', 'origin_name', s -> 'origin_name',
     'reversal_of', p_id, 'reversal_reason', reason_, 'ref', format('정정: %s%s', s ->> 'number', coalesce(' (' || reason_ || ')', '')),
-    'auto_post', case when day_ > erp.today() then 'at_date' end));
+    'auto_post', case when day_ > erp.today() then 'at_date' end,
+    'date', case when same_date then s -> 'date' end,
+    'evidence_type', s -> 'evidence_type', 'deductible', s -> 'deductible', 'non_deduct_reason', s -> 'non_deduct_reason', 'card_kind', s -> 'card_kind',
+    'compensation', p -> 'compensation', 'amend_reason', to_jsonb(amend), 'original_date', case when s ->> 'evidence_type' is not null then s -> 'invoice_date' end, 'original_approval_no', s -> 'approval_no',
+    'stock_reflect', s -> 'stock_reflect', 'stock_warehouse_id', s -> 'stock_warehouse_id', 'voucher', s -> 'voucher'));
   perform erp.inv_emit_new(cn_id, head, erp.inv_reversal_lines(s));
   perform erp.emit('account_move', p_id, 'InvoiceReversalLinked', jsonb_build_object('set', jsonb_build_object('reversed_by', cn_id)));
   if mode_ = 'reverse_and_create' then
@@ -1345,8 +1428,15 @@ declare
   credit uuid;
 begin
   case p_command
-    when 'create' then return erp.inv_create(p_id, p_p);
+    when 'create' then
+      if coalesce((p_p ->> 'voucher')::boolean, false) then return erp.vch_create(p_id, p_p); end if;
+      if p_p ? 'payment_way' or p_p ? 'payment_date' or p_p ? 'payment_journal_id' or p_p ? 'allow_duplicate' then
+        perform erp.fail('ERP_INVALID', '결제방법과 중복 허용은 전표 입력(voucher)에만 씁니다');
+      end if;
+      return erp.inv_create(p_id, p_p);
     when 'update' then return erp.inv_update(p_id, p_p);
+    when 'compensate' then return erp.vch_compensate(p_id, p_p);
+    when 'set_evidence' then perform erp.vch_set_evidence(p_id, p_p);
     when 'post' then perform erp.inv_post(p_id);
     when 'reset_to_draft' then perform erp.inv_reset(p_id);
     when 'cancel' then perform erp.inv_cancel(p_id);
@@ -1747,10 +1837,13 @@ language plpgsql as $$
 declare
   mt text := coalesce(p ->> 'move_type', 'out_invoice');
   cur jsonb := case when erp.is_uuid(p ->> 'id') then coalesce(erp.state_of((p ->> 'id')::uuid), '{}'::jsonb) else '{}'::jsonb end;
-  lines_ jsonb := erp.inv_lines(mt, nullif(p ->> 'fiscal_position_id', '')::uuid, coalesce(p -> 'lines', '[]'::jsonb), coalesce(cur -> 'lines', '[]'::jsonb), true);
+  lines_ jsonb := erp.inv_lines(mt, nullif(p ->> 'fiscal_position_id', '')::uuid,
+    coalesce(case when coalesce((p ->> 'voucher')::boolean, false) then erp.vch_default_lines(mt, p ->> 'evidence_type', p -> 'lines') else p -> 'lines' end, '[]'::jsonb),
+    coalesce(cur -> 'lines', '[]'::jsonb), true);
   pct numeric := erp.tax_epd_pct(p ->> 'payment_term_id');
 begin
   if pct <> 0 then lines_ := erp.inv_epd_lines(lines_, pct); end if;
+  if coalesce((p ->> 'voucher')::boolean, false) then return erp.vch_preview(mt, p, lines_); end if;
   return p || jsonb_build_object('lines', erp.lines_with_echo(lines_), 'amount_residual', erp.inv_totals(lines_) -> 'amount_total') || erp.inv_totals(lines_);
 end $$;
 
@@ -1963,6 +2056,7 @@ begin
         from erp.records r
        where r.type = 'account_move' and not r.deleted and r.status = 'posted'
          and (r.state ->> 'date')::date between p_from and p_to
+         and coalesce((r.state ->> 'deductible')::boolean, true)
     ), tx as (
       select d.mt, d.sign_, t, l from docs d, jsonb_array_elements(d.lines_) l, jsonb_array_elements(coalesce(l -> 'taxes', '[]'::jsonb)) t
        where erp.inv_is_product_line(l)

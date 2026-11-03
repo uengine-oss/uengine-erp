@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { company, rejects } from './lib/harness.mjs'
 
-const FILES = { sales: '30_sales.sql', inventory: '40_inventory.sql', purchase: '50_purchase.sql', invoicing: ['60_invoicing.sql', '62_bank.sql'], accounting: '65_accounting.sql', analytics: '70_analytics.sql' }
+const FILES = { sales: '30_sales.sql', inventory: '40_inventory.sql', purchase: '50_purchase.sql', invoicing: ['60_invoicing.sql', '62_bank.sql', '63_voucher.sql'], accounting: '65_accounting.sql', krtax: '66_krtax.sql', analytics: '70_analytics.sql' }
 const read = (f) => { try { return fs.readFileSync(new URL(`../sql/${f}`, import.meta.url), 'utf8') } catch { return null } }
 const stripComments = (s) => s.replace(/--.*$/gm, '')
 
@@ -48,9 +48,11 @@ test('analysis reads the ledger, not any module table', () => {
 const ALL = ['sales', 'inventory', 'purchase', 'invoicing', 'accounting']
 const OWN = { sales: ['sales_order', 'quote_template'], inventory: ['picking', 'warehouse', 'stock_adjustment', 'reorder_rule'], purchase: ['purchase_order'], invoicing: ['account_move', 'payment', 'journal', 'payment_method', 'bank_statement', 'bank_line'], accounting: ['journal_entry', 'account'] }
 const subsets = Array.from({ length: 32 }, (_, i) => ALL.filter((_m, b) => i & (1 << b)))
+// Tax filing needs invoicing and nothing else, so it joins every combination that has it.
+const withTax = subsets.filter((s) => s.includes('invoicing')).map((s) => [...s, 'krtax'])
 const picks = async (k, id) => (await k.db.query(`select * from erp.records where type = 'picking' and not deleted and state ->> 'origin_id' = $1`, [id])).rows
 
-for (const on of subsets) {
+for (const on of [...subsets, ...withTax]) {
   const has = (m) => on.includes(m)
   test(`modules [${on.join(', ') || 'none'}] work together with nothing stuck`, async () => {
     const k = await company({ modules: on })
@@ -92,6 +94,22 @@ for (const on of subsets) {
         const inv = await k.admin('account_move', null, 'create', { partner_id: partner, invoice_date: '2026-02-01', lines: [{ name: '수기', qty: 1, price_unit: 1000 }] })
         await k.admin('account_move', inv.id, 'post', {})
         await k.settle()
+        // One voucher that pays and moves goods, in whatever company: its neighbours are there or they are not.
+        const v2 = await k.admin('account_move', null, 'create', { voucher: true, move_type: 'in_invoice', partner_id: partner, invoice_date: '2026-02-01', evidence_type: 'tax_invoice', approval_no: 'I-1', payment_way: 'bank', stock_reflect: true, ...(has('inventory') ? { stock_warehouse_id: (await k.list('warehouse'))[0].id } : {}),
+          lines: [{ variant_id: v, qty: 2, price_unit: 500 }] })
+        assert.equal(v2.state.state, 'posted')
+        await k.settle()
+        assert.equal((await k.db.query(`select count(*)::int n from erp.records where type = 'picking' and state ->> 'origin_id' = $1`, [v2.id])).rows[0].n, has('inventory') ? 1 : 0)
+        const back = await k.admin('account_move', v2.id, 'compensate', {})
+        assert.equal(back.state.state, 'posted')
+        await k.settle()
+      }
+      if (has('krtax')) {
+        const r = (await k.db.asUser(k.adminId, `select public.erp_krtax_return(2026, 1, 'preliminary') r`)).rows[0].r
+        assert.equal(Number(r.cells['10']?.amount ?? 0), 0, 'the voucher and its credit note net out')
+        assert.equal(r.unclassified.length, 1, 'the document with no evidence says so')
+      } else {
+        await rejects(k.admin('vat_return', null, 'create', { year: 2026, term: '1', kind: 'final' }), 'ERP_MODULE_OFF')
       }
       if (has('accounting')) {
         const tb = (await k.db.asUser(k.adminId, 'select public.erp_trial_balance() r')).rows[0].r
