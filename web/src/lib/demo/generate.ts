@@ -1,21 +1,13 @@
 // Turns the made-up company into commands, day by day, with modules turned on as the growth scenario says.
-import { PRODUCTS, REGIONS, dayOf, isoOf, rng, runWorld } from './world.ts'
+import { peopleSteps } from './people.ts'
+import { PRODUCTS, REGIONS, dayOf, hex, isoOf, rng, runWorld, uuid } from './world.ts'
 
 export interface DemoStep { kind: 'cmd' | 'validate' | 'settle'; at: string; as?: string; type?: string; id?: string; command?: string; payload?: unknown; origin?: string }
-export interface DemoStages { inventory: string; purchase: string; invoicing: string; accounting: string; end: string }
-export const DEFAULT_STAGES: DemoStages = { inventory: '2025-01-01', purchase: '2025-07-01', invoicing: '2026-01-01', accounting: '2026-07-01', end: '2026-11-01' }
+/** `hr` is optional: without it the story has no people module and is step for step what it was before there was one. */
+export interface DemoStages { inventory: string; purchase: string; invoicing: string; accounting: string; hr?: string; end: string }
+export const DEFAULT_STAGES: DemoStages = { inventory: '2025-01-01', purchase: '2025-07-01', invoicing: '2026-01-01', accounting: '2026-07-01', hr: '2026-08-01', end: '2026-11-01' }
 export const STARTED_AT = '2023-10-31T09:00:00+09:00'
-
-// Ids are fixed by name so a later step can name a document an earlier step made.
-const hex = (s: string) => {
-  let h = 0x811c9dc5
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) }
-  return (h >>> 0).toString(16).padStart(8, '0')
-}
-const uuid = (s: string) => {
-  const a = hex(s), b = hex(`${s}#1`), c = hex(`${s}#2`), d = hex(`${s}#3`)
-  return `${a}-${b.slice(0, 4)}-4${b.slice(5, 8)}-8${c.slice(1, 4)}-${c.slice(4)}${d}`
-}
+type Stage = Exclude<keyof DemoStages, 'hr'>
 
 const PEOPLE = [
   { name: '박영업', role: 'sales', from: 0 },
@@ -35,8 +27,10 @@ export function* generate(seed = 1, stages: DemoStages = DEFAULT_STAGES, start =
   const world = runWorld(seed, end)
   const r = rng(seed * 104729 + 7)
   const stamp = (d: number, t: string) => `${isoOf(d)}T${t}:00+09:00`
-  const dayIn = (name: keyof DemoStages) => dayOf(stages[name])
-  const on = (name: keyof DemoStages, d: number) => d >= dayIn(name)
+  const dayIn = (name: Stage) => dayOf(stages[name])
+  const on = (name: Stage, d: number) => d >= dayIn(name)
+  // Worked out apart from everything below, with its own random stream.
+  const staff = stages.hr ? peopleSteps(seed, dayOf(stages.hr), end) : new Map<number, DemoStep[]>()
 
   const pid = (p: number) => uuid(`product:${PRODUCTS[p].id}`)
   const wh = (g: number) => uuid(`warehouse:${g}`)
@@ -132,6 +126,7 @@ export function* generate(seed = 1, stages: DemoStages = DEFAULT_STAGES, start =
       steps.push(cmd(t, 'account', uuid('account:opex'), 'create', { code: '820', name: '판매관리비', account_type: 'expense' }, '정회계'))
       for (let m = since; m < d; m++) if (isoOf(m + 1).endsWith('-01')) steps.push(opex(t, m))
     }
+    steps.push(...(staff.get(d) ?? []))
     if (d > dayIn('accounting') && isoOf(d + 1).endsWith('-01')) steps.push(opex(stamp(d, '18'), d))
     if (d === changeDay) for (const c of changers) steps.push(cmd(stamp(d, '08'), 'partner', customer(c), 'update', { payment_term_id: termOf(15) }))
 

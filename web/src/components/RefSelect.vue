@@ -93,6 +93,8 @@ async function search() {
       rows = data ?? []
     } else {
       let q = db().from('erp_records').select('id,name,state').eq('type', props.refType).eq('active', true).order('name').limit(8)
+      // Someone who has left keeps their name on old documents and is not offered for new work.
+      if (doc.value?.pick_states?.length) q = q.in('status', doc.value.pick_states)
       if (typed) q = q.or(searchFilter(doc.value, typed))
       const { data, error } = await q
       if (error) throw error

@@ -7,7 +7,7 @@ create or replace function public.erp_demo_begin() returns jsonb
 language plpgsql security definer set search_path = erp, extensions, pg_temp as $$
 begin
   if not erp.has_role(array['admin']) then perform erp.fail('ERP_FORBIDDEN', '관리자만 실행할 수 있습니다'); end if;
-  if exists (select 1 from erp.events where stream_type in ('sales_order', 'picking', 'purchase_order', 'account_move')) then
+  if exists (select 1 from erp.events where stream_type in ('sales_order', 'picking', 'purchase_order', 'account_move', 'employee')) then
     perform erp.fail('ERP_INVALID', '이미 업무 데이터가 있는 회사에는 데모를 넣을 수 없습니다');
   end if;
   insert into erp.meta(key, value) values ('demo', 'true'), ('demo_open', 'true'), ('bus_paused', 'true')
@@ -15,13 +15,17 @@ begin
   return jsonb_build_object('open', true);
 end $$;
 
--- Steps are written before the company exists, so they name seeded records as "$seed:<name>".
+-- Steps are written before the company exists, so they name seeded records as "$seed:<name>" and people as "$member:<name>".
+-- A person the story has not reached yet is simply nobody.
 create or replace function erp.demo_resolve(p jsonb) returns jsonb
 language plpgsql as $$
 declare t text := p::text; m text[];
 begin
   for m in select regexp_matches(t, '"\$seed:([^"]+)"', 'g') loop
     t := replace(t, format('"$seed:%s"', m[1]), format('"%s"', erp.seed_id(m[1])));
+  end loop;
+  for m in select regexp_matches(t, '"\$member:([^"]+)"', 'g') loop
+    t := replace(t, format('"$member:%s"', m[1]), coalesce(to_jsonb((select record_id from erp.members where name = m[1] limit 1))::text, 'null'));
   end loop;
   return t::jsonb;
 end $$;

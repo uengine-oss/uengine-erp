@@ -88,6 +88,22 @@
 |---|---|
 | `JournalEntryPosted` | 전표 스트림. 효과 `gl = [{account_id, partner_id, date, debit, credit}]`. 분석의 기간은 `occurred_at` 이 아니라 효과의 `date` 로 거른다(회계를 늦게 켜면 전표 시각은 다시 만든 시점이다) |
 
+## 인사가 내는 것
+
+직원 이벤트의 공통 사실: `employee_no, name, hire_date, department_id, department_name, department_since, job_title, manager_id, manager_name, manager_user_id, member_id, user_id`. 직원 ID 는 `ev.stream_id` 다. `user_id` 는 ERP 계정이 있는 직원의 사용자 ID 이고 없으면 `null` 이다. 날짜는 `YYYY-MM-DD` 다.
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `EmployeeHired` | 공통 사실. 입사일이 앞날일 수 있다. 다시 입사는 새 직원 ID 의 `EmployeeHired` 다 |
+| `EmployeeChanged` | `changed:{칸:{from, to}}` + 바뀐 뒤의 공통 사실. `changed` 칸은 `employee_no, name, hire_date, department_id, department_since, job_title, manager_id, member_id, user_id` |
+| `EmployeeLeft` | `leave_date` + 공통 사실. 퇴사일이 오늘이거나 지난 날짜다. 앞날의 퇴사는 이벤트가 되지 않는다. 사유는 없다 |
+| `EmployeePrivateChanged` | `employee_id, name, fields:[칸 이름]`. **값은 없다.** `stream_id` 는 직원이 아니라 기록 스트림이므로 `employee_id` 를 쓴다 |
+| `EmployeePrivateErased` | `employee_id, name, fields:[칸 이름], erased_at`. 사유는 이벤트의 `reason` 이다 |
+| `DepartmentCreated`, `DepartmentArchived`, `DepartmentUnarchived`, `DepartmentDeleted` | `name` |
+| `DepartmentChanged` | `name, changed:{칸:{from, to}}` |
+
+연락처, 생년월일, 계좌 같은 개인정보는 어떤 이벤트에도 없다. 원장은 지울 수 없기 때문이다. 필요한 모듈은 패턴을 따른다(`docs/modules/hr.md`). **이름과 입퇴사일은 원장에 남고 지워지지 않는다.**
+
 ## 기초데이터가 내는 것
 
 | 이벤트 | `data` 의 사실 |
@@ -111,4 +127,5 @@
 | 구매 | `InvoiceDrafted`, `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled` | 청구 상태, `qty_billed` |
 | 회계 | `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled`, `PaymentPosted`, `PaymentCancelled`, `BankLineBooked`, `BankLineUnbooked` | 분개(처음부터 다시 읽는다) |
 | 회계 | `PickingValidated`, `StockAdjusted`, `StockScrapped` | 재고 평가 분개(처음부터 다시 읽는다) |
+| 인사 | 없음 | 아무 이벤트도 듣지 않는다 |
 | 분석 | 원장 전체 | 구독하지 않고 직접 읽는다 |
