@@ -27,8 +27,10 @@
 | 이벤트 | `data` 의 사실 |
 |---|---|
 | `PurchaseOrderConfirmed` | `number, partner_id, partner_name, warehouse_id, date_order, date_planned, currency, amount_untaxed, amount_tax, amount_total, lines:[{line_id, product_id, variant_id, name, qty, uom_id, unit_price, discount, subtotal, type, bill_policy, date_planned, delay_days}]` |
-| `PurchaseOrderLineAdded` | `line:{...}, warehouse_id, partner_id, number` |
-| `PurchaseOrderLineQtyChanged` | `line_id, variant_id, product_id, from, to, uom_id, name, type, warehouse_id, partner_id, number` |
+| `PurchaseOrderLineAdded` | `line:{...}, warehouse_id, partner_id, number, date_order` |
+| `PurchaseOrderLineQtyChanged` | `line_id, variant_id, product_id, from, to, uom_id, name, type, unit_price, discount, warehouse_id, partner_id, number` |
+| `PurchaseOrderLinePriceChanged` | 입고 전 가격 변경. 입고 원가에 반영된다 |
+| `PurchaseDraftQtyChanged` | 초안 수량. 재고 예측에 들어가고 보충 요청에 답한다 |
 | `PurchaseOrderCancelled` | `number, partner_id` |
 
 ## 재고가 내는 것
@@ -39,7 +41,7 @@
 | `PickingValidated` | `number, picking_type, origin_type, origin_id, is_return, to_refund, partner_id, warehouse_id, date_done, moves:[{move_id, origin_line_id, product_id, variant_id, name, qty_done, uom_id, location_from, location_to, lot_id, unit_cost, cost_method}]` |
 | `StockAdjusted` | `variant_id, product_id, location_id, warehouse_id, lot_id, delta, unit_cost, counted_qty` |
 | `StockScrapped` | `variant_id, product_id, location_id, warehouse_id, lot_id, qty, unit_cost` |
-| `ReorderRequested` | `rule_id, variant_id, product_id, location_id, warehouse_id, qty, uom_id, vendor_id, origin` |
+| `ReorderRequested` | 요청별 문서 스트림(되돌릴 때 같은 제품의 다른 요청이 끌려오지 않게). `rule_id, variant_id, product_id, location_id, warehouse_id, qty, uom_id, vendor_id, origin` |
 
 재고 수량 변화는 전부 `data.effects.quant = [{variant_id, location_id, lot_id, qty, reserved}]` 에 실린다. 분석은 이것을 읽는다.
 
@@ -83,7 +85,7 @@
 | 구독자 | 듣는 이벤트 | 하는 일 |
 |---|---|---|
 | 재고 | `SalesOrderConfirmed`, `SalesOrderLineAdded`, `SalesOrderLineQtyChanged`, `SalesOrderCancelled` | 출고 전표 |
-| 재고 | `PurchaseOrderConfirmed`, `PurchaseOrderLineAdded`, `PurchaseOrderLineQtyChanged`, `PurchaseOrderCancelled` | 입고 전표 |
+| 재고 | `PurchaseOrderConfirmed`, `PurchaseOrderLineAdded`, `PurchaseOrderLineQtyChanged`, `PurchaseOrderLinePriceChanged`, `PurchaseOrderCancelled`, `PurchaseDraftQtyChanged` | 입고 전표, 예측 |
 | 판매 | `PickingStateChanged`, `PickingValidated` | 납품 상태, `qty_delivered` |
 | 판매 | `InvoiceDrafted`, `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled` | 청구 상태, `qty_invoiced` |
 | 구매 | `ReorderRequested` | 견적 요청 초안 |

@@ -493,7 +493,11 @@ begin
         end if;
       when 'ref' then
         ref_type := f ->> 'ref';
-        if not exists (select 1 from erp.records where id = (v #>> '{}')::uuid and type = ref_type and not deleted) then
+        if ref_type = 'variant' then
+          if not exists (select 1 from erp.variants where id = (v #>> '{}')::uuid) then
+            perform erp.fail('ERP_INVALID_REF', format('%s 항목이 가리키는 레코드가 없습니다', f ->> 'label'));
+          end if;
+        elsif not exists (select 1 from erp.records where id = (v #>> '{}')::uuid and type = ref_type and not deleted) then
           perform erp.fail('ERP_INVALID_REF', format('%s 항목이 가리키는 레코드가 없습니다', f ->> 'label'));
         end if;
       when 'date' then v := to_jsonb(((v #>> '{}')::date)::text);
