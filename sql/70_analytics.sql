@@ -484,6 +484,91 @@ begin
     'decided_rate', case when decided > 0 then round(won::numeric / decided, 4) end, 'median_days', round(med, 1));
 end $$;
 
+-- Everyone the ledger knew about at that moment, by business dates rather than when they were entered: a company that
+-- turns the module on years in means to count people from the day they joined. Every employee event states the facts,
+-- so the newest one that still stands says it all, and nothing here reads a module's records. Private details are not in
+-- the ledger, so they cannot come out of here.
+create or replace function public.erp_people_ledger(p_as_of timestamptz)
+returns table(stream_id uuid, seq bigint, event_type text, data jsonb)
+language sql stable set search_path = public, pg_temp as $$
+  select e.stream_id, e.seq, e.event_type, e.data from public.erp_events e
+   where e.stream_type = 'employee' and e.event_type in ('EmployeeHired', 'EmployeeChanged', 'EmployeeLeft')
+     and e.occurred_at <= p_as_of and not e.correlation_id = any (public.erp_undone(p_as_of))
+$$;
+
+-- One row per person. A departure that was undone is not among the events, so the person is simply here again.
+create or replace function public.erp_people(p_as_of timestamptz)
+returns table(stream_id uuid, facts jsonb, hire_date date, leave_date date)
+language sql stable set search_path = public, pg_temp as $$
+  with ev as (select * from public.erp_people_ledger(p_as_of))
+  select distinct on (ev.stream_id) ev.stream_id, ev.data, (ev.data ->> 'hire_date')::date,
+         (select (l.data ->> 'leave_date')::date from ev l where l.stream_id = ev.stream_id and l.event_type = 'EmployeeLeft' order by l.seq desc limit 1)
+    from ev order by ev.stream_id, ev.seq desc
+$$;
+
+-- Who was here on a day, and in which department. The first and the last day both count. A move states the day it took
+-- effect, which can be earlier than the day it was entered, so the department is the one with the latest date not after this day.
+create or replace function public.erp_headcount(p_on date default null, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  tz text := public.erp_analytics_tz();
+  asof timestamptz := coalesce(p_as_of, now());
+  on_ date := coalesce(p_on, (asof at time zone tz)::date);
+  rows_ jsonb;
+begin
+  with ev as (select * from public.erp_people_ledger(asof)),
+  placed as (
+    select p.stream_id, p.facts, p.hire_date, p.leave_date, x.department_id, x.department_name
+      from public.erp_people(asof) p
+      cross join lateral (
+        select e.data ->> 'department_id' as department_id, e.data ->> 'department_name' as department_name
+          from ev e where e.stream_id = p.stream_id
+         order by ((e.data ->> 'department_since')::date <= on_) desc,
+                  case when (e.data ->> 'department_since')::date <= on_ then (e.data ->> 'department_since')::date end desc,
+                  (e.data ->> 'department_since')::date asc, e.seq desc
+         limit 1) x
+     where p.hire_date <= on_ and (p.leave_date is null or p.leave_date >= on_)
+  ), named as (
+    -- A department renamed since still goes by its present name, as the ledger knew it then.
+    select distinct on (e.stream_id) e.stream_id, e.data ->> 'name' as name from public.erp_events e
+     where e.stream_type = 'department' and e.event_type in ('DepartmentCreated', 'DepartmentChanged')
+       and e.occurred_at <= asof and not e.correlation_id = any (public.erp_undone(asof))
+     order by e.stream_id, e.seq desc
+  )
+  select coalesce(jsonb_agg(jsonb_build_object('id', p.stream_id, 'employee_no', p.facts -> 'employee_no', 'name', p.facts -> 'name', 'job_title', p.facts -> 'job_title',
+           'department_id', p.department_id, 'department_name', coalesce(n.name, p.department_name), 'hire_date', p.hire_date, 'leave_date', p.leave_date)
+           order by coalesce(n.name, p.department_name), p.facts ->> 'employee_no'), '[]'::jsonb) into rows_
+    from placed p left join named n on n.stream_id::text = p.department_id;
+  return jsonb_build_object('on', on_, 'as_of', asof, 'total', jsonb_array_length(rows_), 'people', rows_,
+    'departments', coalesce((select jsonb_agg(jsonb_build_object('department_id', d, 'name', nm, 'count', c) order by nm) from (
+      select r ->> 'department_id' as d, r ->> 'department_name' as nm, count(*) as c from jsonb_array_elements(rows_) r group by 1, 2) y), '[]'::jsonb));
+end $$;
+
+-- Month by month: who joined, who left, and how many were here at the end of it. A month still running ends today.
+create or replace function public.erp_headcount_trend(p_from date, p_to date, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  tz text := public.erp_analytics_tz();
+  asof timestamptz := coalesce(p_as_of, now());
+  today date := (asof at time zone tz)::date;
+begin
+  if p_from is null or p_to is null or p_from > p_to then raise exception 'ERP_INVALID: 기간이 올바르지 않습니다'; end if;
+  if p_to > p_from + interval '20 years' then raise exception 'ERP_INVALID: 기간이 너무 깁니다'; end if;
+  return (
+    with p as (select * from public.erp_people(asof)),
+    m as (
+      select g::date as first_, (g + interval '1 month' - interval '1 day')::date as last_
+        from generate_series(date_trunc('month', p_from::timestamp), date_trunc('month', p_to::timestamp), interval '1 month') g
+    )
+    select jsonb_build_object('from', p_from, 'to', p_to, 'rows', coalesce(jsonb_agg(jsonb_build_object(
+        'period', to_char(m.first_, 'YYYY-MM'),
+        'hired', (select count(*) from p where p.hire_date between m.first_ and m.last_),
+        'left', (select count(*) from p where p.leave_date between m.first_ and m.last_),
+        'headcount', (select count(*) from p where p.hire_date <= least(m.last_, today) and (p.leave_date is null or p.leave_date >= least(m.last_, today))))
+        order by m.first_), '[]'::jsonb))
+      from m where m.first_ <= today);
+end $$;
+
 -- Every model and its state. Thresholds come from experiments/whatif/results-thresholds.json and match web/src/lib/forecast/thresholds.ts.
 -- Modules on and off, and what counts as evidence, are all read from the ledger, using its indexes.
 create or replace function public.erp_models(p_as_of timestamptz default null) returns jsonb
@@ -493,7 +578,7 @@ declare
   asof timestamptz := coalesce(p_as_of, now());
   today date := ((asof at time zone tz) + interval '1 second')::date;
   spans jsonb := public.erp_module_spans(asof);
-  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계"}';
+  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계","hr":"인사"}';
   readable text[] := erp.readable_types();
   m record;
   missing text[];
@@ -511,6 +596,7 @@ declare
   paid int;
   term_changes int;
   gl_months int; gl_first date;
+  first_hire date; people_months int := 0;
   span jsonb;
   a date; b date;
 begin
@@ -549,6 +635,11 @@ begin
   select count(distinct date_trunc('month', d)), min(d)::date into gl_months, gl_first
     from (select public.erp_biz_day(coalesce(e.data -> 'effects' -> 'gl' -> 0 ->> 'date', e.data ->> 'date'), e.occurred_at, tz) as d
             from public.erp_events e where (e.data -> 'effects') ? 'gl' and e.occurred_at <= asof) x;
+  -- By the day people joined: a company entering long-serving staff today already has that history.
+  select min(p.hire_date) into first_hire from public.erp_people(asof) p;
+  if first_hire is not null and first_hire <= today then
+    people_months := extract(year from age(today, first_hire))::int * 12 + extract(month from age(today, first_hire))::int;
+  end if;
 
   -- The drop what-if asks for stockouts. Counted only when stock history exists, because this one walks every stock change.
   stock_out_cases := 0;
@@ -571,7 +662,8 @@ begin
       ('reorder_plan', 'forecast', '발주 필요 예측', array['sales', 'inventory', 'purchase'], true, array['sales_order', 'picking', 'purchase_order']),
       ('cash_in', 'forecast', '입금 예측', array['invoicing'], true, array['account_move']),
       ('whatif_terms', 'whatif', '결제 조건 변경', array['invoicing'], true, array['account_move']),
-      ('pnl_outlook', 'forecast', '손익 전망', array['sales', 'accounting'], false, array['sales_order', 'journal_entry'])
+      ('pnl_outlook', 'forecast', '손익 전망', array['sales', 'accounting'], false, array['sales_order', 'journal_entry']),
+      ('stat_headcount', 'stat', '인원 추이·입퇴사', array['hr'], false, array['employee'])
     ) as t(id, kind, label, modules, needs_current, types)
   loop
     missing := '{}'; stale := '{}';
@@ -604,6 +696,7 @@ begin
         have := paid; need := 100; unit_ := '건'; since_ := (spans -> 'invoicing' -> 'periods' -> 0 ->> 'from')::date; msg := '입금 완료 청구서';
         extra := jsonb_build_object('term_changes', term_changes, 'term_changes_need', 3);
       when 'pnl_outlook' then have := gl_months; need := 3; unit_ := '개월'; since_ := gl_first; msg := '전표';
+      when 'stat_headcount' then have := people_months; need := 3; unit_ := '개월'; since_ := first_hire; msg := '인사 이력';
     end case;
 
     ok := have >= need;
@@ -627,7 +720,7 @@ begin
       msg := (select string_agg(labels ->> x, '·') from unnest(missing) x) || ' 모듈을 켜면 열립니다';
     elsif cardinality(stale) > 0 then
       msg := msg || format('. %s 모듈이 꺼져 있어 %s까지의 이력으로 계산합니다',
-        (select string_agg(labels ->> x, '·') from unnest(stale) x), coalesce(stock_until::text, '꺼진 날'));
+        (select string_agg(labels ->> x, '·') from unnest(stale) x), coalesce(case when 'inventory' = any (m.modules) then stock_until::text end, '꺼진 날'));
     end if;
 
     -- Someone who may not read the documents behind a model does not see a count of them either.

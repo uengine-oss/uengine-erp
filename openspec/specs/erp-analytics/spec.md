@@ -14,6 +14,7 @@
 |---|---|---|---|---|
 | `stat_sales` | 지역·제품·시즌 통계 | 판매 | 없음 | 이력으로 계산 |
 | `quote_conversion` | 견적 전환율 | 판매 | 견적 40건 | 이력으로 계산 |
+| `stat_headcount` | 인원 추이·입퇴사 | 인사 | 가장 이른 입사일부터 3개월 | 이력으로 계산 |
 | `demand_sales` | 판매 기준 수요 예측 | 판매 | 판매가 있었던 달 15개월 | 이력으로 계산 |
 | `demand_true` | 품절 보정 수요 예측 | 판매, 재고 | 재고 이력 30일, 판매 12개월 | 이력으로 계산 |
 | `stockout_risk` | 품절 예상일 | 판매, 재고 | 재고 이력 30일 | 잠김 |
@@ -27,10 +28,10 @@
 | `whatif_terms` | 결제 조건 변경 | 청구 | 입금 완료 청구서 100건, 조건이 바뀐 거래처 3곳 | 잠김 |
 | `pnl_outlook` | 손익 전망 | 판매, 회계 | 전표가 있는 달 3개월 | 이력으로 계산 |
 
-#### Scenario: 첫 화면은 14개 모델을 세 상태로 보여 준다
+#### Scenario: 첫 화면은 15개 모델을 세 상태로 보여 준다
 
 - **WHEN** 김대표가 예측·what-if 메뉴를 연다
-- **THEN** 모델 카드 14장이 보이고, 근거가 넉넉한 회사의 `stat_sales`, `demand_sales`, `demand_true`, `stockout_risk`, `lead_time`, `whatif_policy`, `whatif_lead` 는 「사용 가능」 에 「열기」 다
+- **THEN** 모델 카드 15장이 보이고, 근거가 넉넉한 회사의 `stat_sales`, `demand_sales`, `demand_true`, `stockout_risk`, `lead_time`, `whatif_policy`, `whatif_lead` 는 「사용 가능」 에 「열기」 다
 
 #### Scenario: 어떤 모듈도 켜기 전에는 모두 잠겨 있다
 

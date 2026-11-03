@@ -208,3 +208,64 @@ test('a plugin installed on the real stack is driven by pg_cron with nobody conn
   await db.query(fs.readFileSync(new URL('../plugins/points-uninstall.sql', import.meta.url), 'utf8'))
   await waitFor(async () => (await http('GET', 'erp_api_points_entry?select=id')).status === 404, 'plugin resource gone')
 })
+
+test('People over real HTTP: resources and tools appear by themselves, and private values cross no read path', async () => {
+  const PHONE = '010-7777-4321'
+  const ADDRESS = '비밀시 전송구 7'
+  const d = await http('POST', 'erp_api_department', { body: { name: `부서-${stamp}` } })
+  assert.equal(d.status, 201, JSON.stringify(d.json))
+  const e = await http('POST', 'erp_api_employee', { body: { name: '전송 시험', hire_date: '2025-01-02', department_id: d.json[0].id } })
+  assert.equal(e.status, 201, JSON.stringify(e.json))
+  const id = e.json[0].id
+  assert.equal((await http('POST', 'erp_api_employee', { token: viewer, body: { name: 'x', hire_date: '2025-01-02', department_id: d.json[0].id } })).status, 403)
+  assert.equal((await http('DELETE', `erp_api_employee?id=eq.${id}`)).status, 400, 'leaving is not deleting')
+
+  const set = await rpc('erp_command', { p_type: 'employee', p_id: id, p_command: 'set_private', p_payload: { phone: PHONE, address: ADDRESS } })
+  assert.equal(set.status, 200, JSON.stringify(set.json))
+  const leaked = (v) => [PHONE, ADDRESS].filter((s) => JSON.stringify(v).includes(s))
+  assert.deepEqual(leaked(set.json), [], 'not even in the answer')
+  assert.equal((await rpc('erp_command', { p_type: 'employee', p_id: id, p_command: 'set_private', p_payload: { resident_no: '900101-1234567' } })).status, 422)
+
+  assert.equal((await http('GET', `erp_employee_private?employee_id=eq.${id}&select=phone`)).json[0].phone, PHONE, 'an admin can read the row')
+  assert.deepEqual((await http('GET', `erp_employee_private?employee_id=eq.${id}`, { token: viewer })).json, [], 'a member gets nothing')
+  assert.ok([401, 403].includes((await http('GET', 'erp_employee_private', { token: KEY })).status), 'the public key is refused')
+
+  const later = new Date(Date.now() + 60_000).toISOString()
+  for (const token of [admin, viewer]) {
+    assert.deepEqual(leaked((await http('GET', `erp_api_employee?id=eq.${id}`, { token })).json), [], 'resource')
+    assert.deepEqual(leaked((await http('GET', `erp_records?id=eq.${id}`, { token })).json), [], 'records')
+    assert.deepEqual(leaked((await http('GET', 'erp_events?select=data,reason&order=seq.desc&limit=200', { token })).json), [], 'events')
+    assert.deepEqual(leaked((await rpc('erp_as_of', { p_id: id, p_at: later }, { token })).json), [], 'as-of')
+    assert.deepEqual(leaked((await rpc('erp_stream', { p_id: id }, { token })).json), [], 'stream')
+    assert.deepEqual(leaked((await rpc('erp_event_feed', { p_after_txid: '0', p_after_seq: 0, p_types: null, p_limit: 1000 }, { token })).json), [], 'feed')
+  }
+  assert.deepEqual((await http('GET', 'erp_events?stream_type=eq.employee_private&select=seq', { token: viewer })).json, [], 'who changed what is for hr and admin')
+  assert.ok((await http('GET', 'erp_events?stream_type=eq.employee_private&select=seq')).json.length > 0)
+
+  const agent = await mcpClient({ Authorization: `Bearer ${admin}` })
+  const reader = await mcpClient({ Authorization: `Bearer ${viewer}` })
+  try {
+    const { tools } = await reader.listTools()
+    assert.equal(tools.length, 4)
+    assert.ok(tools[0].inputSchema.properties.type.enum.includes('employee'), 'no change to the tools')
+    for (const c of [agent, reader]) {
+      for (const args of [{ type: 'employee', id }, { type: 'employee', id, history: true }, { type: 'employee', id, as_of: later }, { type: 'employee' }]) {
+        assert.deepEqual(leaked(await c.callTool({ name: 'erp_read', arguments: args })), [], JSON.stringify(args))
+      }
+      assert.deepEqual(leaked(await c.readResource({ uri: `erp://employee/${id}/history` })), [])
+    }
+    const refused = await reader.callTool({ name: 'erp_update', arguments: { type: 'employee', id, action: 'set_private', values: { phone: '1' } } })
+    assert.equal(refused.isError, true); assert.match(text(refused), /ERP_FORBIDDEN/)
+    const erased = await agent.callTool({ name: 'erp_update', arguments: { type: 'employee', id, action: 'erase_private', values: {}, reason: '본인 요청' } })
+    assert.equal(erased.isError, undefined, text(erased))
+  } finally { await agent.close(); await reader.close() }
+
+  assert.deepEqual((await http('GET', `erp_employee_private?employee_id=eq.${id}`)).json, [], 'gone')
+  const scan = await db.query(`select count(*)::int n from erp.events where data::text like $1 or data::text like $2 or coalesce(reason, '') like $1 or coalesce(reason, '') like $2`, [`%${PHONE}%`, `%${ADDRESS}%`])
+  assert.equal(scan.rows[0].n, 0)
+  const left = await http('PATCH', `erp_api_employee?id=eq.${id}`, { body: { state: 'left', leave_date: '2025-03-03' } })
+  assert.equal(left.status, 200, JSON.stringify(left.json))
+  const count = await rpc('erp_headcount', { p_on: '2025-03-04' })
+  assert.equal(count.status, 200)
+  assert.ok(!count.json.people.some((p) => p.id === id))
+})

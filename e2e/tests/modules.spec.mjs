@@ -47,7 +47,7 @@ test('모듈이 하나도 없으면 빈 상태로 안내한다', async ({ page }
 test('S1. 판매만 켜져 있으면 메뉴에 판매만 있고, 재고 명령은 거부된다', async ({ page }) => {
   await connectAndLogin(page)
   await openModules(page)
-  await expect(page.getByTestId('module-card')).toHaveCount(5)
+  await expect(page.getByTestId('module-card')).toHaveCount(6)
   await expect(card(page, 'sales').getByTestId('module-state')).toHaveText('켜짐')
   await expect(card(page, 'sales').getByTestId('module-enabled-at')).toHaveText(today())
   await expect(card(page, 'sales')).toContainText('거래처, 제품, 가격표')
@@ -307,7 +307,7 @@ test('모듈 정보를 읽지 못하면 오류와 다시 시도를 보여 주고
   await restoreRpc(page, 'erp_modules')
   await page.getByTestId('modules-retry').click()
   await expect(page.getByTestId('modules-error')).toHaveCount(0)
-  await expect(page.getByTestId('module-card')).toHaveCount(5)
+  await expect(page.getByTestId('module-card')).toHaveCount(6)
   await expect(page.getByTestId('module-unlocks')).toHaveCount(0)
 })
 

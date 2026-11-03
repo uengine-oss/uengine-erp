@@ -9,6 +9,7 @@ const TYPE_LABELS: Record<string, string> = {
   warehouse: '창고', location: '위치', operation_type: '작업 유형', picking: '입출고 전표', stock_adjustment: '재고 조정', scrap: '폐기', lot: '로트·일련번호', reorder_rule: '재주문 규칙',
   stock_replenishment: '보충 요청', stock_rfq_watch: '구매 초안 수량', sales_order: '견적·주문', quote_template: '견적 양식', purchase_order: '구매 주문',
   account_move: '청구서', payment: '입금·지급', journal: '분개장', payment_method: '결제 수단', bank_statement: '은행 명세서', bank_line: '은행 거래',
+  employee: '직원', employee_private: '직원 개인정보 기록', department: '부서',
 }
 
 /** A type's name for people, also when its module is off. A type nobody here has heard of is still a document. */
@@ -54,6 +55,8 @@ const EXACT: Record<string, string> = {
   StockAdjustmentCreated: '재고 조정 작성', StockAdjustmentCounted: '실사 수량 입력', StockAdjustmentDeleted: '재고 조정 삭제',
   ScrapCreated: '폐기 작성', ScrapUpdated: '폐기 변경', ScrapDeleted: '폐기 삭제', ApiKeyCreated: '연동 키 만듦', ApiKeyRevoked: '연동 키 폐기', LotCreated: '로트 생성', PartnerUpdated: '연락처 변경',
   PaymentPosted: '결제 게시', PaymentCancelled: '결제 취소', PaymentAllocated: '결제 배분',
+  EmployeeHired: '입사', EmployeeChanged: '직원 정보 변경', EmployeeLeft: '퇴사', EmployeePrivateChanged: '개인정보 변경', EmployeePrivateErased: '개인정보 지움',
+  DepartmentCreated: '부서 생성', DepartmentChanged: '부서 변경', DepartmentArchived: '부서 보관', DepartmentUnarchived: '부서 보관 해제', DepartmentDeleted: '부서 삭제',
 }
 
 // Modules name row events <Type><Column>Added/Changed/Removed/Reordered, so endings cover new ones too.
