@@ -4,6 +4,7 @@ import { refreshBus } from '../lib/bus'
 import { onLedgerEvent } from '../lib/realtime'
 import { loadCatalog } from '../lib/session'
 import { navOpen } from '../lib/ui'
+import DemoBanner from './DemoBanner.vue'
 import NetBanner from './NetBanner.vue'
 import RollbackDialog from './RollbackDialog.vue'
 import SideNav from './SideNav.vue'
@@ -46,6 +47,7 @@ onBeforeUnmount(() => {
     <div class="shell-main">
       <TopBar class="no-print" />
       <UpgradeBanner />
+      <DemoBanner />
       <TimeBanner />
       <StallBanner />
       <NetBanner />

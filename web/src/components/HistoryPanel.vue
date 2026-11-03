@@ -25,7 +25,6 @@ function fieldOf(name: string): Field | undefined {
 
 interface ChangeLine { key: string; label: string; from?: string; to: string }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-/i
 /** What a new record simply starts with is not news in its first history entry. */
 function isBlank(v: unknown, name: string): boolean {
   return v === null || v === false || v === '' || name === 'active' || (Array.isArray(v) && !v.length)
@@ -42,8 +41,8 @@ function linesOf(ev: ErpEvent): ChangeLine[] {
   const created = ev.version === 1
   for (const [name, change] of Object.entries(changes)) {
     const f = fieldOf(name)
-    // Internal ids with no catalog field mean nothing to a reader.
-    if (!f && typeof change.to === 'string' && UUID_RE.test(change.to)) continue
+    // A value no catalog field names, one kept out of forms, or a block of JSON means nothing to a reader.
+    if (!f || f.hidden || f.type === 'json') continue
     if (created && isBlank(change.to, name)) continue
     const hasFrom = !created && change.from !== null && change.from !== undefined
     out.push({ key: name, label: f?.label ?? name, from: hasFrom ? textOf(f, change.from) : undefined, to: textOf(f, change.to) })
@@ -56,14 +55,16 @@ function linesOf(ev: ErpEvent): ChangeLine[] {
       .filter(([k]) => k !== 'id')
       .map(([k, v]) => {
         const c = f?.columns?.find((x) => x.name === k)
-        return c ? `${c.label} ${textOf(c, v)}` : null
+        return c && !c.hidden ? `${c.label} ${textOf(c, v)}` : null
       })
       .filter(Boolean)
       .slice(0, 3)
       .join(', ')
     op.add?.forEach((row, i) => out.push({ key: `${name}-a${i}`, label: `${label} 줄 추가`, to: columnsOf(row) }))
     op.set?.forEach((row, i) => out.push({ key: `${name}-s${i}`, label: `${label} 줄 변경`, to: columnsOf(row) }))
-    if (op.del?.length) out.push({ key: `${name}-d`, label: `${label} 줄 삭제`, to: `${op.del.length}줄` })
+    // Lines that exist only for bookkeeping, like where an order's slips are written down, are not shown as changes.
+    if (f?.hidden) out.splice(out.length - ((op.add?.length ?? 0) + (op.set?.length ?? 0)))
+    if (op.del?.length && !f?.hidden) out.push({ key: `${name}-d`, label: `${label} 줄 삭제`, to: `${op.del.length}줄` })
   }
   return out
 }

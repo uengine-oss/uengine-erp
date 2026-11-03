@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   classifyKey, clearSetupCode, conn, issueSetupCode, loadSetupCode, normalizeUrl, projectRef, SECRET_KEY_MESSAGE, setConn, sqlEditorUrl,
 } from '../lib/conn'
-import { functionExists, probeStatus, rpc, type ApiError } from '../lib/api'
+import { probeStatus, rpc, type ApiError } from '../lib/api'
 import { installSql, setupCodeSql } from '../lib/install'
 import { boot, session, signIn } from '../lib/session'
 import { copyText, toast } from '../lib/ui'
@@ -12,7 +12,7 @@ import ConnectionProblem from '../components/ConnectionProblem.vue'
 import Icon from '../components/Icon.vue'
 import SplitLayout from '../components/SplitLayout.vue'
 
-type Step = 'connect' | 'install' | 'company' | 'demo'
+type Step = 'connect' | 'install' | 'company'
 
 const route = useRoute()
 const router = useRouter()
@@ -22,7 +22,6 @@ const STEPS: { key: Step; label: string }[] = [
   { key: 'connect', label: '프로젝트 연결' },
   { key: 'install', label: '데이터베이스 설치' },
   { key: 'company', label: '회사 만들기' },
-  { key: 'demo', label: '시작하기' },
 ]
 const stepIndex = computed(() => STEPS.findIndex((s) => s.key === step.value))
 
@@ -136,6 +135,8 @@ const companyError = ref('')
 const creating = ref(false)
 const needsCode = ref(false)
 const reissueSql = ref('')
+const startWith = ref<'real' | 'demo'>('real')
+const isDemo = computed(() => startWith.value === 'demo')
 
 function openCompany() {
   stopPolling()
@@ -162,14 +163,18 @@ async function createCompany() {
   if (c.password !== c.password2) { companyError.value = '비밀번호 확인이 일치하지 않습니다.'; return }
   creating.value = true
   try {
+    // Loaded only for those who ask: the story of a made-up company is no use to a real one.
+    const demo = isDemo.value ? await import('../lib/demo/generate.ts') : null
     await rpc('erp_bootstrap', {
       p_setup_code: setupCode.value,
-      p_company: {
-        name: c.name.trim(),
-        currency: c.currency,
-        decimal_places: currencyDecimals.value,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Seoul',
-      },
+      p_company: demo
+        ? { name: '가온가전(데모)', currency: 'KRW', decimal_places: 0, timezone: 'Asia/Seoul', started_at: demo.STARTED_AT }
+        : {
+            name: c.name.trim(),
+            currency: c.currency,
+            decimal_places: currencyDecimals.value,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Seoul',
+          },
       p_email: c.email.trim(),
       p_password: c.password,
       p_name: c.adminName.trim(),
@@ -179,8 +184,7 @@ async function createCompany() {
     await boot()
     company.value.password = ''
     company.value.password2 = ''
-    if (await functionExists('erp_demo_seed')) step.value = 'demo'
-    else await router.replace('/')
+    await router.replace(demo ? { name: 'demo-build', query: { start: '1' } } : '/')
   } catch (e) {
     const err = e as ApiError
     if (err.code === 'ERP_SETUP_CODE') requireNewCode()
@@ -194,28 +198,6 @@ async function createCompany() {
 async function copyReissue() {
   const ok = await copyText(reissueSql.value)
   toast(ok ? 'SQL 을 복사했습니다. SQL Editor 에서 실행하세요.' : '복사하지 못했습니다.', ok ? 'ok' : 'error')
-}
-
-/* Step 4: demo data (only when the install has a demo module) */
-const seeding = ref(false)
-const seedError = ref('')
-async function seedDemo() {
-  seeding.value = true
-  seedError.value = ''
-  try {
-    // The API cuts statements at 8 seconds, so the seed returns a cursor until it is finished.
-    let next: unknown = null
-    do {
-      const res = await rpc<{ next?: unknown } | null>('erp_demo_seed', next === null ? {} : { p_step: next })
-      next = res?.next ?? null
-    } while (next !== null)
-    await boot()
-    await router.replace('/')
-  } catch (e) {
-    seedError.value = (e as ApiError).message
-  } finally {
-    seeding.value = false
-  }
 }
 
 onMounted(() => {
@@ -306,7 +288,23 @@ onBeforeUnmount(stopPolling)
     <!-- 3. Company -->
     <template v-else-if="step === 'company'">
       <h1 class="split-title">회사 만들기</h1>
-      <p class="split-lead">회사 정보와 첫 관리자 계정을 만듭니다. 메일 인증 없이 바로 로그인됩니다.</p>
+      <p class="split-lead">{{ isDemo ? '둘러볼 가상 회사와 그 회사의 관리자 계정을 만듭니다.' : '회사 정보와 첫 관리자 계정을 만듭니다.' }} 메일 인증 없이 바로 로그인됩니다.</p>
+
+      <fieldset class="start-with" data-testid="start-with">
+        <legend class="sr-only">어떻게 시작할까요</legend>
+        <label class="choice" :class="{ on: !isDemo }">
+          <input v-model="startWith" type="radio" name="start-with" value="real" data-testid="start-real" />
+          <span><b>실제 회사로 시작</b><small>빈 회사입니다. 판매 모듈이 켜진 채 시작하고, 나머지는 필요할 때 켭니다.</small></span>
+        </label>
+        <label class="choice" :class="{ on: isDemo }">
+          <input v-model="startWith" type="radio" name="start-with" value="demo" data-testid="start-demo" />
+          <span><b>가상 회사(가온가전)로 먼저 체험하기</b><small>3년치 판매·재고·구매·청구·회계를 실제 명령으로 만듭니다.</small></span>
+        </label>
+      </fieldset>
+      <div v-if="isDemo" class="banner banner-warn" style="margin-bottom: 12px; align-items: flex-start" data-testid="demo-cost">
+        <Icon name="alert" />
+        <span>데이터베이스를 약 250 MB 씁니다(무료 플랜 한도 500 MB). 다 만드는 데 몇 분 걸립니다. 만든 데이터는 지어낸 것이니, 실제 업무에는 새 프로젝트로 시작하세요.</span>
+      </div>
 
       <div v-if="needsCode" class="banner banner-warn" style="margin-bottom: 12px; align-items: flex-start" data-testid="reissue-code">
         <Icon name="alert" />
@@ -321,7 +319,7 @@ onBeforeUnmount(stopPolling)
       </div>
 
       <form class="form-stack" @submit.prevent="createCompany">
-        <div class="form-row-2">
+        <div v-if="!isDemo" class="form-row-2">
           <div class="field-stack">
             <label for="co-name">회사명</label>
             <input id="co-name" v-model="company.name" class="input" required autocomplete="organization" />
@@ -356,20 +354,18 @@ onBeforeUnmount(stopPolling)
         </div>
         <div v-if="companyError" class="banner banner-error" role="alert" data-testid="company-error"><Icon name="alert" /><span>{{ companyError }}</span></div>
         <div class="row">
-          <button type="submit" class="btn btn-primary btn-lg" :disabled="creating" data-testid="company-create">{{ creating ? '만드는 중…' : '회사 만들기' }}</button>
+          <button type="submit" class="btn btn-primary btn-lg" :disabled="creating" data-testid="company-create">{{ creating ? '만드는 중…' : isDemo ? '가상 회사 만들기' : '회사 만들기' }}</button>
         </div>
       </form>
     </template>
-
-    <!-- 4. Demo data -->
-    <template v-else>
-      <h1 class="split-title">데모 데이터를 넣을까요?</h1>
-      <p class="split-lead">거래처·제품·주문 예시로 화면을 먼저 둘러볼 수 있습니다. 실제 업무에 쓸 회사라면 빈 상태로 시작하세요.</p>
-      <div v-if="seedError" class="banner banner-error" role="alert" style="margin-bottom: 12px"><Icon name="alert" /><span>{{ seedError }}</span></div>
-      <div class="row">
-        <button type="button" class="btn btn-primary btn-lg" :disabled="seeding" data-testid="demo-seed" @click="seedDemo">{{ seeding ? '넣는 중…' : '데모 데이터 넣기' }}</button>
-        <button type="button" class="btn btn-lg" :disabled="seeding" data-testid="demo-skip" @click="router.replace('/')">빈 회사로 시작</button>
-      </div>
-    </template>
   </SplitLayout>
 </template>
+
+<style scoped>
+.start-with { display: flex; flex-direction: column; gap: 6px; max-width: 560px; margin: 0 0 12px; padding: 0; border: 0; }
+.choice { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); cursor: pointer; }
+.choice.on { border-color: var(--navy-600); box-shadow: 0 0 0 1px var(--navy-600); }
+.choice input { margin-top: 3px; flex: none; }
+.choice b { display: block; font-weight: 600; }
+.choice small { color: var(--text-2); font-size: 12px; }
+</style>

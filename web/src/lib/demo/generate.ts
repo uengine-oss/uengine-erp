@@ -67,6 +67,10 @@ export function* generate(seed = 1, stages: DemoStages = DEFAULT_STAGES, start =
   PRODUCTS.forEach((P, p) => setup.push(cmd(at0, 'product', pid(p), 'create', { name: P.name, type: 'goods', list_price: P.price, standard_price: P.cost, category_id: uuid(`category:${P.category}`), sale_ok: true })))
   yield setup
 
+  const opex = (at: string, day: number) => cmd(at, 'journal_entry', null, 'create', { date: isoOf(day), ref: `${isoOf(day).slice(0, 7)} 인건비와 임차료`, lines: [
+    { account_id: uuid('account:opex'), debit: 110000000, credit: 0, name: '인건비와 임차료' },
+    { account_id: '$seed:보통예금', debit: 0, credit: 110000000, name: '인건비와 임차료' },
+  ], post: true }, '정회계')
   const toPay = new Map<number, DemoStep[]>()
   const invoiceOrder = (d: number, orderId: string, c: number) => {
     const id = uuid(`invoice:${orderId}`)
@@ -115,7 +119,20 @@ export function* generate(seed = 1, stages: DemoStages = DEFAULT_STAGES, start =
       steps.push(cmd(t, 'module', null, 'enable', { id: 'invoicing', options: { orders_since: isoOf(d) } }))
       steps.push(cmd(t, 'member', null, 'create', { name: '정회계', email: `${hex('정회계')}@demo.example`, password: `demo-${hex('정회계' + seed)}-pass`, roles: ['accounting', 'sales'] }))
     }
-    if (d === dayIn('accounting')) steps.push(cmd(stamp(d, '08'), 'module', null, 'enable', { id: 'accounting' }))
+    if (d === dayIn('accounting')) {
+      const t = stamp(d, '08')
+      const since = dayIn('invoicing')
+      steps.push(cmd(t, 'module', null, 'enable', { id: 'accounting', options: { books_since: isoOf(since) } }))
+      // The books start with invoicing. What was already on the shelves that day comes in as an opening balance.
+      const opening = PRODUCTS.reduce((sum, P, p) => sum + REGIONS.reduce((x, _, g) => x + world.stock[since - 1][p][g] * P.cost, 0), 0)
+      steps.push(cmd(t, 'journal_entry', null, 'create', { date: isoOf(since), ref: '기초 잔액', lines: [
+        { account_id: '$seed:상품', debit: opening, credit: 0, name: '기초 재고' },
+        { account_id: '$seed:자본금', debit: 0, credit: opening, name: '기초 재고' },
+      ], post: true }, '정회계'))
+      steps.push(cmd(t, 'account', uuid('account:opex'), 'create', { code: '820', name: '판매관리비', account_type: 'expense' }, '정회계'))
+      for (let m = since; m < d; m++) if (isoOf(m + 1).endsWith('-01')) steps.push(opex(t, m))
+    }
+    if (d > dayIn('accounting') && isoOf(d + 1).endsWith('-01')) steps.push(opex(stamp(d, '18'), d))
     if (d === changeDay) for (const c of changers) steps.push(cmd(stamp(d, '08'), 'partner', customer(c), 'update', { payment_term_id: termOf(15) }))
 
     // Goods arrive first thing in the morning.

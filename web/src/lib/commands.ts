@@ -1,16 +1,29 @@
 // The one place the app writes. Every command, rollback and bus action passes through here, so the version
 // sent to the database, the read-only modes and the push that follows a write cannot be forgotten by a screen.
 import { onBeforeUnmount } from 'vue'
-import { ApiError, rpc } from './api'
+import { ApiError, isDebuggerGlitch, rpc } from './api'
 import { refreshBus } from './bus'
 import { APP_VERSION } from './install'
 import { writeBlock, writeBlockMessage } from './mode'
 import { loadCatalog, refreshStatus } from './session'
 import type { BusTick, CommandResult, RollbackKind, RollbackResult, State } from './types'
 
+/** A failed call changed nothing, so this one known glitch gets a second try before anyone hears of it. */
+async function once<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call()
+  } catch (e) {
+    if (!isDebuggerGlitch(e)) throw e
+    await wait(300)
+    return call()
+  }
+}
+
 function assertWritable(): void {
   if (writeBlock.value) throw new ApiError(writeBlockMessage.value, { code: 'READ_ONLY' })
 }
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /* Screens that show data listen here: a subscriber's work or a rollback can change what they hold. */
 type Listener = () => void
@@ -37,8 +50,6 @@ const CRON_DELAY_MS = 6_000
 let ticksLeft = 0
 let ticking = false
 let moreWork = false
-
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 async function drainBus(): Promise<void> {
   ticking = true
@@ -92,7 +103,7 @@ export interface CommandArgs {
 export async function sendCommand<T = CommandResult>(args: CommandArgs): Promise<T> {
   assertWritable()
   try {
-    const result = await rpc<T>('erp_command', {
+    const result = await once(() => rpc<T>('erp_command', {
       p_type: args.type,
       p_id: args.id ?? null,
       p_command: args.command,
@@ -101,7 +112,7 @@ export async function sendCommand<T = CommandResult>(args: CommandArgs): Promise
       p_reason: args.reason ?? null,
       p_source: 'ui',
       p_app_version: APP_VERSION,
-    })
+    }))
     nudgeBus()
     return result
   } catch (e) {
@@ -115,9 +126,9 @@ export async function sendCommand<T = CommandResult>(args: CommandArgs): Promise
 /** The one write open while looking at a past date: going back to that date is why someone is looking at it. */
 export async function applyRollback(kind: RollbackKind, target: State, hash: string, allowCascade: boolean, reason: string): Promise<RollbackResult> {
   if (writeBlock.value !== 'time') assertWritable()
-  const result = await rpc<RollbackResult>('erp_rollback_apply', {
+  const result = await once(() => rpc<RollbackResult>('erp_rollback_apply', {
     p_kind: kind, p_target: target, p_hash: hash, p_allow_cascade: allowCascade, p_reason: reason,
-  })
+  }))
   notifyChanged()
   nudgeBus()
   return result
@@ -125,7 +136,7 @@ export async function applyRollback(kind: RollbackKind, target: State, hash: str
 
 export async function retrySubscription(name: string): Promise<{ processed: number; failures: number; last_error: string | null }> {
   assertWritable()
-  const result = await rpc<{ processed: number; failures: number; last_error: string | null }>('erp_bus_retry', { p_name: name })
+  const result = await once(() => rpc<{ processed: number; failures: number; last_error: string | null }>('erp_bus_retry', { p_name: name }))
   if (result.processed > 0) notifyChanged()
   nudgeBus()
   return result
@@ -133,6 +144,6 @@ export async function retrySubscription(name: string): Promise<{ processed: numb
 
 export async function skipSubscriptionEvent(name: string, reason: string): Promise<void> {
   assertWritable()
-  await rpc('erp_bus_skip', { p_name: name, p_reason: reason })
+  await once(() => rpc('erp_bus_skip', { p_name: name, p_reason: reason }))
   nudgeBus()
 }

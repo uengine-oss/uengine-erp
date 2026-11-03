@@ -2058,7 +2058,7 @@ select erp.catalog_put('{
     {"command": "confirm", "to": "ready", "from": ["draft"], "label": "확정", "roles": ["inventory"], "primary": true},
     {"command": "check_availability", "to": "ready", "from": ["confirmed"], "label": "재고 확인", "roles": ["inventory"]},
     {"command": "validate", "to": "done", "from": ["draft", "confirmed", "ready"], "label": "처리 완료", "roles": ["inventory"], "primary": true,
-     "params": [{"name": "backorder", "label": "나머지를 백오더로", "type": "boolean"}, {"name": "moves", "label": "처리 수량", "type": "json"}]},
+     "params": [{"name": "backorder", "label": "나머지를 백오더로", "type": "boolean", "api_only": true}, {"name": "moves", "label": "처리 수량", "type": "json", "api_only": true}]},
     {"command": "unreserve", "to": "confirmed", "from": ["ready"], "label": "예약 해제", "roles": ["inventory"]},
     {"command": "cancel", "to": "cancelled", "from": ["draft", "confirmed", "ready", "waiting"], "label": "취소", "roles": ["inventory"], "danger": true}
   ],
@@ -2093,7 +2093,7 @@ select erp.catalog_put('{
   "states": [{"value": "draft", "label": "실사 중", "color": "gray"}, {"value": "applied", "label": "반영됨", "color": "green"}, {"value": "reverted", "label": "되돌림", "color": "red"}],
   "transitions": [
     {"command": "apply", "to": "applied", "from": ["draft"], "label": "재고에 반영", "roles": ["inventory"], "primary": true,
-     "params": [{"name": "force", "label": "실사 뒤 재고가 움직여도 반영", "type": "boolean"}]},
+     "params": [{"name": "force", "label": "실사 뒤 재고가 움직여도 반영", "type": "boolean", "api_only": true}]},
     {"command": "revert", "to": "reverted", "from": ["applied"], "label": "되돌리기", "roles": ["inventory"], "danger": true}
   ],
   "commands": {"create": {"roles": ["inventory"]}, "update": {"roles": ["inventory"]}, "delete": {"roles": ["inventory"]}},
@@ -2124,7 +2124,7 @@ select erp.catalog_put('{
   "states": [{"value": "draft", "label": "초안", "color": "gray"}, {"value": "done", "label": "처리됨", "color": "green"}],
   "transitions": [
     {"command": "validate", "to": "done", "from": ["draft"], "label": "폐기 처리", "roles": ["inventory"], "primary": true,
-     "params": [{"name": "force", "label": "재고보다 많아도 처리", "type": "boolean"}]}
+     "params": [{"name": "force", "label": "재고보다 많아도 처리", "type": "boolean", "api_only": true}]}
   ],
   "commands": {"create": {"roles": ["inventory"]}, "update": {"roles": ["inventory"]}, "delete": {"roles": ["inventory"]}},
   "write_roles": ["inventory"]

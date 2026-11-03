@@ -761,7 +761,7 @@ select erp.catalog_put('{
   "extra_commands": {
     "lock": {"roles": ["purchase"], "label": "잠금"},
     "unlock": {"roles": ["purchase"], "label": "잠금 해제"},
-    "receive": {"roles": ["purchase"], "label": "입고 수량 입력", "params": [{"name": "lines", "label": "줄별 입고 수량", "type": "json"}]},
+    "receive": {"roles": ["purchase"], "label": "입고 수량 입력", "params": [{"name": "lines", "label": "줄별 입고 수량", "type": "json", "api_only": true}]},
     "vendor_confirm": {"roles": ["purchase"], "label": "공급사 확인 기록", "params": [{"name": "at", "label": "확인 일시", "type": "datetime"}]}
   },
   "write_roles": ["purchase"]

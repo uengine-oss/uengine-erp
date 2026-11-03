@@ -68,6 +68,13 @@ export async function failRpc(page, fn, status = 500) {
 }
 export const restoreRpc = (page, fn) => page.unroute(`${API_URL}/rest/v1/rpc/${fn}`)
 
+/** The API answers this function with these rows, for states that are costly to set up in the database. */
+export async function fakeRpc(page, fn, body) {
+  await page.route(`${API_URL}/rest/v1/rpc/${fn}`, (route) => route.fulfill({
+    status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body),
+  }))
+}
+
 /** Nothing sticks out past the window, not even inside the shell, which clips instead of scrolling. */
 export async function expectFitsWidth(page, selector) {
   await expect(page.locator(selector).first()).toBeVisible()

@@ -18,7 +18,7 @@ await a.query(`
       exception when others then t := t - 1;
       end;
       -- Lagging behind the invalidation queue is what a long batch does; sleeping makes it certain.
-      if d = 2 and s = 2 then perform pg_sleep(0.3); end if;
+      if d = 1 and s = 2 then perform pg_sleep(0.01); end if;
       perform pg_catalog.length('a');
       exit when s > 3;
     end loop;
@@ -28,7 +28,7 @@ async function loopA(ms, label, k = a) {
   const end = Date.now() + ms
   let ok = 0, bad = 0, streak = 0, maxStreak = 0, first = null, other = null
   while (Date.now() < end) {
-    try { await k.query('select rec_f(4)'); ok++; streak = 0 }
+    try { await k.query('select rec_f(5)'); ok++; streak = 0 }
     catch (e) { bad++; streak++; maxStreak = Math.max(maxStreak, streak); if (/pldbgapi2/.test(e.message)) first ??= e.message.slice(0, 50); else other = e.message.slice(0, 80) }
   }
   console.log(label, { ok, bad, maxStreak, first, other })
@@ -43,10 +43,25 @@ async function withDdl(db, label, n) {
   stop = true; await ddl; await b.end()
   console.log('  ddl rounds', rounds)
 }
-await withDdl(dbB, 'DDL flood in another database, caller lagging', 800)
-await loopA(6000, 'same connection, flood stopped')
-await withDdl(dbA, 'DDL in the same database, caller lagging', 800)
-await loopA(6000, 'same connection, DDL stopped')
+// Test files create and drop whole databases; a customer's project never does.
+async function withDatabases(label) {
+  const d = new pg.Client({ connectionString: base + 'postgres' }); await d.connect()
+  let stop = false, rounds = 0
+  const churn = (async () => {
+    while (!stop) {
+      const n = `erp_t_churn_${Date.now().toString(36)}`
+      await d.query(`create database ${n}`)
+      await d.query(`drop database ${n} with (force)`)
+      rounds++
+    }
+  })()
+  const r = await loopA(40000, label)
+  stop = true; await churn; await d.end()
+  console.log('  database rounds', rounds)
+  return r
+}
+await withDatabases('databases created and dropped elsewhere')
+await loopA(8000, 'same connection, churn stopped')
 const a2 = new pg.Client({ connectionString: base + dbA }); await a2.connect()
 await loopA(3000, 'new connection', a2)
 await a.end(); await a2.end()

@@ -64,7 +64,8 @@ export async function freshCompany({ since, modules = 'all' } = {}) {
   await sql(installScript())
   await sql(`select erp.set_setup_code('test-setup-code')`)
   await waitForInstalled()
-  const company = { name: COMPANY, currency: 'KRW', decimal_places: 0, timezone: 'Asia/Seoul', modules }
+  // 'default' leaves the choice to each module's default_on, as a real first install does: sales alone.
+  const company = { name: COMPANY, currency: 'KRW', decimal_places: 0, timezone: 'Asia/Seoul', ...(modules === 'default' ? {} : { modules }) }
   if (since) {
     await sql(`with c as materialized (select set_config('erp.clock', $1, true)) select public.erp_bootstrap('test-setup-code', $2::jsonb, $3, $4, $5) from c`,
       [since, JSON.stringify(company), ADMIN.email, ADMIN.password, ADMIN.name])

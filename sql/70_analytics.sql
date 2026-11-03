@@ -536,7 +536,9 @@ begin
   select count(*) into receipts from public.erp_events e
    where e.event_type = 'PickingValidated' and e.data ->> 'picking_type' = 'incoming' and e.occurred_at <= asof and e.data ->> 'origin_type' = 'purchase_order';
   select count(*) into paid from public.erp_events e
-   where e.event_type = 'InvoicePaymentApplied' and e.data ->> 'payment_state' = 'paid' and e.occurred_at <= asof;
+   where e.event_type = 'InvoicePaymentApplied' and e.data ->> 'payment_state' = 'paid' and e.occurred_at <= asof
+     -- Money coming in: a supplier's bill being paid says nothing about when customers pay.
+     and exists (select 1 from public.erp_events p where p.stream_id = e.stream_id and p.event_type = 'InvoicePosted' and p.data ->> 'move_type' = 'out_invoice');
   select count(*) into term_changes from (
     select e.data ->> 'partner_id' as partner
       from public.erp_events e

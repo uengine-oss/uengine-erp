@@ -9,8 +9,9 @@
 select erp.module_put('{
   "id": "accounting", "label": "회계", "label_en": "Accounting", "sort": 50,
   "description": "분개와 시산표, 손익, 재무상태를 다룹니다. 켜면 그 전의 게시 청구서와 입금으로 전표를 다시 만듭니다.",
-  "not_rebuilt": "청구 모듈이 없던 기간의 전표는 만들 수 없습니다. 그 기간은 기초 잔액 전표로 넣으세요.",
-  "subscribes": [{"name": "accounting.books", "handler": "erp.books_on_event", "replay": true,
+  "options": [{"name": "books_since", "label": "이 날짜부터 장부를 만듭니다(비우면 원장의 처음부터)", "type": "date"}],
+  "not_rebuilt": "청구 모듈이 없던 기간에는 매출 전표를 만들 수 없습니다. 재고 전표만 과거로 올라가 손익이 어긋나지 않도록, 청구를 시작한 날을 고르고 그 전은 기초 잔액 전표로 넣으세요.",
+  "subscribes": [{"name": "accounting.books", "handler": "erp.books_on_event", "replay": true, "since_option": "books_since",
     "events": ["InvoicePosted", "InvoiceResetToDraft", "InvoiceCancelled", "PaymentPosted", "PaymentCancelled",
                "PickingValidated", "StockAdjusted", "StockScrapped"]}],
   "publishes": [{"event": "JournalEntryPosted", "fields": ["number", "date", "origin_type", "origin_id", "lines"]}]

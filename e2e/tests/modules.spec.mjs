@@ -1,16 +1,20 @@
-// Turning modules on and off, the event bus, and what surrounds every command. Scenario S1, S2, S3 and M5-M7.
+// Turning the real modules on and off, the event bus, and what surrounds every command. Scenario S1, S3 and M5-M7.
+// S2's walk through the screens is in growth.spec.mjs.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { test, expect, shot, connectAndLogin, expectDark, expectFitsWidth, failRpc, fieldInput, login, restoreRpc } from '../lib/fixtures.mjs'
-import { ADMIN, command, freshCompany, inviteHash, rest, sql, tokenFor, waitFor } from '../lib/stack.mjs'
-import { breakStock, count, deliver, enableModule, fixStock, installTestModules, newOrder, removeRealModules, pickingsFor, STALL_ERROR, waitForPicking } from '../lib/test-modules.mjs'
+import { test, expect, shot, cell, connectAndLogin, expectDark, expectFitsWidth, failRpc, fakeRpc, fieldInput, login, pickRef, restoreRpc } from '../lib/fixtures.mjs'
+import { ADMIN, command, freshCompany, inviteHash, sql, tokenFor } from '../lib/stack.mjs'
+import { BROKEN_MESSAGE, breakSubscription, fixSubscription, realOrder, sellableBasics, slipsFor, waitForSlip } from '../lib/real-modules.mjs'
+import { count, deliver } from '../lib/test-modules.mjs'
 
 test.describe.configure({ mode: 'serial' })
 
 const SALES = { name: '박영업', email: 'sales@example.com', password: 'sales-pass-1234' }
+const STOCK_SUB = 'inventory.sales'
 let token
 let salesToken
+let basics
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const card = (page, id) => page.locator(`[data-testid="module-card"][data-id="${id}"]`)
@@ -18,16 +22,19 @@ const subRow = (page, name) => page.locator(`[data-testid="bus-sub"][data-name="
 const openModules = async (page) => { await page.goto('/#/settings/modules'); await expect(page.getByTestId('modules')).toBeVisible() }
 const openBus = async (page) => { await page.goto('/#/settings/bus'); await expect(page.getByTestId('bus')).toBeVisible() }
 const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(new Date())
+const newOrder = (qty = 1, opt = {}) => realOrder(salesToken, basics, qty, opt)
 
 test.beforeAll(async () => {
-  await freshCompany()
+  await freshCompany({ modules: 'default' })
   token = await tokenFor(ADMIN.email, ADMIN.password)
   await command(token, 'member', null, 'create', { ...SALES, roles: ['sales'] })
   salesToken = await tokenFor(SALES.email, SALES.password)
+  basics = await sellableBasics(token)
 })
 
 test('모듈이 하나도 없으면 빈 상태로 안내한다', async ({ page }) => {
-  await removeRealModules()
+  await fakeRpc(page, 'erp_modules', [])
+  await fakeRpc(page, 'erp_bus_status', [])
   await connectAndLogin(page)
   await openModules(page)
   await expect(page.getByTestId('empty-state')).toContainText('설치된 모듈이 없습니다')
@@ -35,9 +42,6 @@ test('모듈이 하나도 없으면 빈 상태로 안내한다', async ({ page }
   await openBus(page)
   await expect(page.getByTestId('empty-state')).toContainText('구독이 없습니다')
   await shot(page, '71-bus-empty')
-  await installTestModules()
-  await enableModule('sales')
-  await deliver(token)
 })
 
 test('S1. 판매만 켜져 있으면 메뉴에 판매만 있고, 재고 명령은 거부된다', async ({ page }) => {
@@ -46,19 +50,18 @@ test('S1. 판매만 켜져 있으면 메뉴에 판매만 있고, 재고 명령�
   await expect(page.getByTestId('module-card')).toHaveCount(5)
   await expect(card(page, 'sales').getByTestId('module-state')).toHaveText('켜짐')
   await expect(card(page, 'sales').getByTestId('module-enabled-at')).toHaveText(today())
-  await expect(card(page, 'sales')).toContainText('거래처, 제품, 가격표, 견적과 주문을 다룹니다.')
+  await expect(card(page, 'sales')).toContainText('거래처, 제품, 가격표')
   for (const id of ['inventory', 'purchase', 'invoicing', 'accounting']) await expect(card(page, id).getByTestId('module-state')).toHaveText('꺼짐')
-  await expect(card(page, 'inventory').getByTestId('module-subs')).toHaveText('1개 · 꺼짐')
-  await expect(card(page, 'purchase').getByTestId('module-subs')).toHaveText('없음')
-  await expect(card(page, 'inventory').getByTestId('module-unlocks')).toContainText('품절 보정 수요 예측')
+  await expect(card(page, 'inventory').getByTestId('module-subs')).toHaveText(/\d+개 · 꺼짐/)
+  await expect(card(page, 'invoicing').getByTestId('module-subs')).toHaveText('없음')
   await shot(page, '72-modules-s1')
 
   await expect(page.locator('[data-module="sales"]')).toBeVisible()
   for (const m of ['inventory', 'purchase', 'invoicing', 'accounting']) await expect(page.locator(`[data-module="${m}"]`), `${m} 메뉴`).toHaveCount(0)
   await page.locator('[data-module="sales"]').click()
-  await expect(page.locator('[data-screen="tm_order"]')).toBeVisible()
+  await expect(page.locator('[data-screen="sales_order"]')).toBeVisible()
 
-  await expect(command(token, 'tm_picking', null, 'create', { name: '직접 호출' })).rejects.toThrow(/ERP_MODULE_OFF/)
+  await expect(command(token, 'picking', null, 'create', {})).rejects.toThrow(/ERP_MODULE_OFF/)
 })
 
 test('켜면 열리는 예측과 what-if 는 erp_models 에서 읽고, 다른 모듈이 더 필요한 것은 말하지 않는다', async ({ page }) => {
@@ -67,16 +70,13 @@ test('켜면 열리는 예측과 what-if 는 erp_models 에서 읽고, 다른 �
   await expect(card(page, 'inventory').getByTestId('module-unlocks')).toContainText('품절 보정 수요 예측')
   await expect(card(page, 'inventory').getByTestId('module-unlocks')).toContainText('열립니다')
   await expect(card(page, 'sales').getByTestId('module-unlocks')).toContainText('이 모듈로 쓰는 예측·what-if')
-  await expect(card(page, 'sales').getByTestId('module-unlocks')).toContainText('통계')
-  await expect(card(page, 'purchase').getByTestId('module-unlocks')).toHaveCount(0)
+  await expect(card(page, 'purchase').getByTestId('module-unlocks'), '재고가 함께 있어야 열리는 것뿐이다').toHaveCount(0)
   await shot(page, '73-modules-unlocks')
 })
 
-test('S2. 재고를 켠다: 옵션은 메타데이터로 그려지고, 메뉴가 바로 바뀌고, 고른 날짜 이후의 주문을 가져온다', async ({ page }) => {
-  const earlier = await newOrder(salesToken, '켜기 전에 확정한 주문', { confirm: true })
+test('옵션을 비워 켜면 과거를 읽지 않고, 메뉴가 바로 바뀌고, 켠 뒤의 이벤트부터 받는다', async ({ page }) => {
+  const before = await newOrder()
   await deliver(token)
-  expect(await pickingsFor(earlier)).toBe(0)
-
   await connectAndLogin(page)
   await openModules(page)
   await expect(page.locator('[data-module="inventory"]')).toHaveCount(0)
@@ -84,35 +84,20 @@ test('S2. 재고를 켠다: 옵션은 메타데이터로 그려지고, 메뉴가
   const dialog = page.getByRole('dialog')
   await expect(dialog).toContainText('재고 모듈 켜기')
   await expect(dialog).toContainText('품절 보정 수요 예측')
-  await expect(dialog).toContainText('켜기 전의 재고 수량과 품절 여부는 다시 만들 수 없습니다')
-  await expect(dialog.getByLabel('이 날짜 이후의 미납품 주문을 출고 대기로 가져오기')).toBeVisible()
+  await expect(dialog.getByLabel('미납품 주문을 출고 대기로 가져오기')).toBeVisible()
   await shot(page, '74-module-enable-options')
-  await dialog.getByLabel('이 날짜 이후의 미납품 주문을 출고 대기로 가져오기').fill(today())
   await page.getByTestId('dlg-confirm').click()
-
   await expect(card(page, 'inventory').getByTestId('module-state')).toHaveText('켜짐')
   await expect(page.locator('[data-module="inventory"]'), '새로 고치지 않아도 메뉴에 나타난다').toBeVisible()
   await page.locator('[data-module="inventory"]').click()
-  await expect(page.locator('[data-screen="tm_picking"]')).toBeVisible()
+  await expect(page.locator('[data-screen="picking"]')).toBeVisible()
   await expect(page.locator('[data-screen="warehouse"]')).toBeVisible()
-  await waitForPicking(earlier)
   await shot(page, '75-module-enabled-menu')
-})
-
-test('옵션을 비워 켜면 과거를 읽지 않고, 켠 뒤의 이벤트부터 받는다', async ({ page }) => {
-  const before = await newOrder(salesToken, '청구를 켜기 전의 주문', { confirm: true })
-  await connectAndLogin(page)
-  await openModules(page)
-  await card(page, 'invoicing').getByTestId('module-enable').click()
-  await expect(page.getByRole('dialog')).toContainText('청구 모듈 켜기')
-  await page.getByTestId('dlg-confirm').click()
-  await expect(card(page, 'invoicing').getByTestId('module-state')).toHaveText('켜짐')
-  await expect(page.locator('[data-module="invoicing"]')).toBeVisible()
   await deliver(token)
-  const after = await newOrder(salesToken, '청구를 켠 뒤의 주문', { confirm: true })
+  expect(await slipsFor(before), '켜기 전의 주문은 가져오지 않는다').toBe(0)
+  const after = await newOrder()
   await deliver(token)
-  expect(await count('select count(*)::int as n from erp.tm_bill_log where order_id = $1', [before])).toBe(0)
-  expect(await count('select count(*)::int as n from erp.tm_bill_log where order_id = $1', [after])).toBe(1)
+  expect(await slipsFor(after)).toBe(1)
 })
 
 test('명령이 끝나면 전달을 재촉하고, 실시간이 꺼져 있어도 열린 문서에 다른 모듈의 결과가 나타난다', async ({ page }) => {
@@ -124,15 +109,17 @@ test('명령이 끝나면 전달을 재촉하고, 실시간이 꺼져 있어도 
     if (r.url().endsWith('/rpc/erp_bus_tick')) ticks++
   })
   await connectAndLogin(page)
-  await page.goto('/#/r/tm_order/new')
-  await fieldInput(page, 'name').fill('화면에서 확정하는 주문')
+  await page.goto('/#/r/sales_order/new')
+  await pickRef(fieldInput(page, 'partner_id'), '가온마트')
+  await page.getByTestId('line-add').first().click()
+  await pickRef(cell(page.locator('[data-field="lines"] tbody tr[data-row]').first(), 'variant_id'), '에어서큘레이터')
+  await expect(page.locator('dd[data-field="amount_total"]')).not.toHaveText('0')
   await page.getByTestId('save').click()
-  await expect(page).toHaveURL(/tm_order\/[0-9a-f-]{36}/)
-  await expect(page.locator('[data-field="delivery"] .field-value')).toHaveText('해당 없음')
+  await expect(page).toHaveURL(/sales_order\/[0-9a-f-]{36}/)
   await page.getByTestId('tr-confirm').click()
-  // Stock makes a slip, then sales hears about the slip: two hops, and nothing on this screen reloaded by hand.
-  await expect(page.locator('[data-field="delivery"] .field-value')).toHaveText('출고 대기')
-  await expect(page.getByTestId('form-version')).toHaveText('v3')
+  // Inventory makes a slip, then sales hears about the slip: two hops, and nothing on this screen reloaded by hand.
+  await expect(page.locator('[data-field="delivery_status"] .field-value')).toHaveText('납품 전')
+  await expect(page.getByTestId('order-picking')).toBeVisible()
   await shot(page, '76-chain-reread')
   expect(commands.length).toBe(2)
   for (const c of commands) expect(c.p_app_version, '모든 명령이 앱 버전을 싣는다').toMatch(/^\d+\.\d+\.\d+$/)
@@ -143,80 +130,77 @@ test('명령이 끝나면 전달을 재촉하고, 실시간이 꺼져 있어도 
 test('전달 재촉이 실패해도 사용자의 작업은 성공이다', async ({ page }) => {
   await connectAndLogin(page)
   await failRpc(page, 'erp_bus_tick')
-  await page.goto('/#/r/tm_order/new')
-  await fieldInput(page, 'name').fill('재촉이 실패하는 주문')
+  await page.goto('/#/r/partner/new')
+  await fieldInput(page, 'name').fill('재촉이 실패할 때 만든 거래처')
   await page.getByTestId('save').click()
   await expect(page.locator('.toast').filter({ hasText: '저장했습니다' })).toBeVisible()
   await expect(page.getByTestId('form-error')).toHaveCount(0)
-  await expect(page).toHaveURL(/tm_order\/[0-9a-f-]{36}/)
+  await expect(page).toHaveURL(/partner\/[0-9a-f-]{36}/)
 })
 
-test('S3. 재고가 고장 나도 주문은 모두 성공하고, 전 화면 배너와 원인이 보이며, 청구는 정상이다', async ({ page }) => {
+test('S3. 재고가 고장 나도 주문은 모두 성공하고, 전 화면 배너와 원인이 보이며, 나머지는 정상이다', async ({ page }) => {
   await deliver(token)
-  await breakStock()
+  await breakSubscription(STOCK_SUB)
   const ids = []
-  for (let i = 1; i <= 4; i++) ids.push(await newOrder(salesToken, `고장 중 주문 ${i}`, { confirm: true }))
+  for (let i = 0; i < 4; i++) ids.push(await newOrder())
+  const fifth = await newOrder(1, { confirm: false })
+  ids.push(fifth)
   await connectAndLogin(page)
-  await page.goto('/#/r/tm_order/new')
-  await fieldInput(page, 'name').fill('고장 중 주문 5')
-  await page.getByTestId('save').click()
-  await expect(page).toHaveURL(/tm_order\/[0-9a-f-]{36}/)
-  ids.push(page.url().split('/').pop())
+  await page.goto(`/#/r/sales_order/${fifth}`)
   await page.getByTestId('tr-confirm').click()
-  await expect(page.locator('.pipeline li.on')).toHaveText('확정')
-  expect(await count(`select count(*)::int as n from erp.records where id = any ($1) and status = 'confirmed'`, [ids])).toBe(5)
+  await expect(page.locator('.pipeline li.on')).toHaveText('주문')
+  expect(await count(`select count(*)::int as n from erp.records where id = any ($1) and status = 'sale'`, [ids])).toBe(5)
 
   const banner = page.getByTestId('stall-banner')
   await expect(banner).toContainText(/재고 모듈이 이벤트 #\d+ 에서 멈췄습니다/)
   await shot(page, '77-stall-banner')
-  await page.goto('/#/r/tm_order')
+  await page.goto('/#/r/sales_order')
   await expect(banner, '어느 화면에서나 보인다').toBeVisible()
 
   await banner.getByTestId('stall-open').click()
   await expect(page).toHaveURL(/settings\/bus/)
-  const row = subRow(page, 'inventory.orders')
+  const row = subRow(page, STOCK_SUB)
   await expect(row.getByTestId('bus-status')).toHaveText('멈춤')
   await expect(row.getByTestId('bus-stall')).toContainText(/이벤트 #\d+ 에서 멈췄습니다/)
-  await expect(row.getByTestId('bus-stall')).toContainText('TmOrderConfirmed')
-  await expect(row.getByTestId('bus-error-text'), '오류 문구는 그대로').toHaveText(STALL_ERROR)
+  await expect(row.getByTestId('bus-stall')).toContainText('SalesOrderConfirmed')
+  await expect(row.getByTestId('bus-error-text'), '오류 문구는 그대로').toHaveText(BROKEN_MESSAGE)
   await expect(row.locator('img'), 'HTML 로 해석하지 않는다').toHaveCount(0)
   expect(await page.evaluate(() => window.__xss)).toBeUndefined()
-  await expect(subRow(page, 'invoicing.orders').getByTestId('bus-status')).toHaveText('정상')
-  await expect(subRow(page, 'invoicing.orders').getByTestId('bus-processed')).not.toHaveText('0건')
+  await expect(subRow(page, 'sales.delivery').getByTestId('bus-status')).toHaveText('정상')
   await shot(page, '78-bus-stalled')
 
   await openModules(page)
   await expect(card(page, 'inventory').getByTestId('module-stall')).toContainText(/이벤트 #\d+ 에서 멈춤/)
-  await expect(card(page, 'inventory').getByTestId('module-stall')).toContainText(STALL_ERROR)
-  await expect(card(page, 'inventory').getByTestId('module-subs')).toHaveText('1개 중 1개 멈춤')
-  await expect(card(page, 'invoicing').getByTestId('module-subs')).toHaveText('1개 · 정상')
+  await expect(card(page, 'inventory').getByTestId('module-stall')).toContainText(BROKEN_MESSAGE)
+  await expect(card(page, 'inventory').getByTestId('module-subs')).toHaveText(/\d+개 중 1개 멈춤/)
+  await expect(card(page, 'sales').getByTestId('module-subs')).toHaveText(/\d+개 · 정상/)
   await shot(page, '79-module-stalled')
 
   // Still broken: the retry says so and the stall stays.
   await card(page, 'inventory').getByTestId('module-stall-open').click()
-  await subRow(page, 'inventory.orders').getByTestId('bus-retry').click()
+  await subRow(page, STOCK_SUB).getByTestId('bus-retry').click()
   await expect(page.locator('.toast-error').filter({ hasText: '아직 멈춰 있습니다' })).toBeVisible()
-  await expect(subRow(page, 'inventory.orders').getByTestId('bus-status')).toHaveText('멈춤')
+  await expect(subRow(page, STOCK_SUB).getByTestId('bus-status')).toHaveText('멈춤')
 
   // Fixed: everything missed arrives once.
-  await fixStock()
-  await subRow(page, 'inventory.orders').getByTestId('bus-retry').click()
+  await fixSubscription(STOCK_SUB)
+  await subRow(page, STOCK_SUB).getByTestId('bus-retry').click()
   await expect(page.locator('.toast').filter({ hasText: /이벤트 \d+건을 처리했습니다/ })).toBeVisible()
   await expect(banner).toHaveCount(0)
-  await expect(subRow(page, 'inventory.orders').getByTestId('bus-status')).toHaveText(/정상|처리 대기/)
-  for (const id of ids) await waitForPicking(id, 1)
-  expect(await count(`select count(*)::int as n from erp.records where type = 'tm_picking' and state ->> 'order_id' = any ($1)`, [ids]), '누락도 중복도 없다').toBe(5)
+  await expect(subRow(page, STOCK_SUB).getByTestId('bus-status')).toHaveText(/정상|처리 대기/)
+  for (const id of ids) await waitForSlip(id, 1)
+  expect(await count(`select count(*)::int as n from erp.records where type = 'picking' and state ->> 'origin_id' = any ($1)`, [ids]), '누락도 중복도 없다').toBe(5)
   await shot(page, '80-bus-recovered')
 })
 
 test('건너뛰기는 사유가 있어야 하고, 원장에 남고, 다음 이벤트로 넘어간다', async ({ page }) => {
   await deliver(token)
-  await breakStock()
-  const stuck = await newOrder(salesToken, '건너뛸 주문', { confirm: true })
+  await breakSubscription(STOCK_SUB)
+  const stuck = await newOrder()
   await deliver(token)
   await connectAndLogin(page)
   await openBus(page)
-  const row = subRow(page, 'inventory.orders')
+  const row = subRow(page, STOCK_SUB)
   await row.getByTestId('bus-skip').click()
   await expect(page.getByRole('dialog')).toContainText('영영 받지 않고')
   await page.getByTestId('dlg-confirm').click()
@@ -231,16 +215,16 @@ test('건너뛰기는 사유가 있어야 하고, 원장에 남고, 다음 이�
   await expect(row.getByTestId('bus-skipped')).toContainText('잘못 입력한 주문이라 출고하지 않음')
   expect(await count(`select count(*)::int as n from erp.events where event_type = 'SubscriptionEventSkipped' and reason = '잘못 입력한 주문이라 출고하지 않음'`)).toBe(1)
 
-  await fixStock()
-  const next = await newOrder(salesToken, '건너뛴 다음 주문', { confirm: true })
-  await waitForPicking(next)
-  expect(await pickingsFor(stuck)).toBe(0)
+  await fixSubscription(STOCK_SUB)
+  const next = await newOrder()
+  await waitForSlip(next)
+  expect(await slipsFor(stuck)).toBe(0)
 })
 
 test('끄면 메뉴와 명령이 막히고 데이터는 남으며, 다시 켤 때 밀린 이벤트를 고른다', async ({ page }) => {
   await connectAndLogin(page)
   await deliver(token)
-  const kept = await count(`select count(*)::int as n from erp.records where type = 'tm_picking'`)
+  const kept = await count(`select count(*)::int as n from erp.records where type = 'picking'`)
   await openModules(page)
   await card(page, 'inventory').getByTestId('module-disable').click()
   await expect(page.getByRole('dialog')).toContainText('데이터와 이력은 그대로 남고')
@@ -248,16 +232,16 @@ test('끄면 메뉴와 명령이 막히고 데이터는 남으며, 다시 켤 �
   await page.getByTestId('dlg-confirm').click()
   await expect(card(page, 'inventory').getByTestId('module-state')).toHaveText('꺼짐')
   await expect(page.locator('[data-module="inventory"]'), '새로 고치지 않아도 메뉴에서 사라진다').toHaveCount(0)
-  await page.goto('/#/r/tm_picking')
+  await page.goto('/#/r/picking')
   await expect(page.getByTestId('empty-state')).toContainText('모듈이 꺼져 있습니다')
-  await expect(command(token, 'tm_picking', null, 'create', { name: '끈 뒤 직접 호출' })).rejects.toThrow(/ERP_MODULE_OFF/)
-  expect(await count(`select count(*)::int as n from erp.records where type = 'tm_picking'`), '데이터는 남는다').toBe(kept)
+  await expect(command(token, 'picking', null, 'create', {})).rejects.toThrow(/ERP_MODULE_OFF/)
+  expect(await count(`select count(*)::int as n from erp.records where type = 'picking'`), '데이터는 남는다').toBe(kept)
 
-  const whileOff = await newOrder(salesToken, '꺼져 있는 동안의 주문 1', { confirm: true })
+  const whileOff = await newOrder()
   await openModules(page)
   await card(page, 'inventory').getByTestId('module-enable').click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByLabel('이 날짜 이후의 미납품 주문을 출고 대기로 가져오기'), '처음 켤 때만 묻는다').toHaveCount(0)
+  await expect(dialog.getByLabel('미납품 주문을 출고 대기로 가져오기'), '처음 켤 때만 묻는다').toHaveCount(0)
   await expect(dialog.getByLabel('꺼져 있던 동안의 이벤트')).toHaveValue('process')
   await shot(page, '83-module-resume')
   await dialog.getByLabel('꺼져 있던 동안의 이벤트').selectOption('skip')
@@ -265,26 +249,24 @@ test('끄면 메뉴와 명령이 막히고 데이터는 남으며, 다시 켤 �
   await expect(card(page, 'inventory').getByTestId('module-state')).toHaveText('켜짐')
   await expect(page.locator('[data-module="inventory"]')).toBeVisible()
   await deliver(token)
-  expect(await pickingsFor(whileOff), '건너뛰면 받지 않는다').toBe(0)
-  const opts = (await sql(`select options from erp.modules where id = 'inventory'`)).rows[0].options
-  expect(opts.import_since, '처음 고른 옵션은 그대로다').toBe(today())
+  expect(await slipsFor(whileOff), '건너뛰면 받지 않는다').toBe(0)
 
   await card(page, 'inventory').getByTestId('module-disable').click()
   await page.getByTestId('dlg-confirm').click()
   await expect(card(page, 'inventory').getByTestId('module-state')).toHaveText('꺼짐')
-  const backlog = await newOrder(salesToken, '꺼져 있는 동안의 주문 2', { confirm: true })
+  const backlog = await newOrder()
   await card(page, 'inventory').getByTestId('module-enable').click()
   await expect(page.getByRole('dialog').getByLabel('꺼져 있던 동안의 이벤트')).toHaveValue('process')
   await page.getByTestId('dlg-confirm').click()
   await expect(card(page, 'inventory').getByTestId('module-state')).toHaveText('켜짐')
-  await waitForPicking(backlog)
+  await waitForSlip(backlog)
   await expect(card(page, 'inventory').getByTestId('module-enabled-at')).toHaveText(today())
 })
 
 test('비관리자에게는 모듈 메뉴와 배너가 없고, 주소로 와도 안내만 나오며, 재촉은 그대로 돈다', async ({ page }) => {
   await deliver(token)
-  await breakStock()
-  await newOrder(salesToken, '직원이 보는 고장', { confirm: true })
+  await breakSubscription(STOCK_SUB)
+  await newOrder()
   await deliver(token)
   let tickStatus = 0
   page.on('response', (r) => { if (r.url().endsWith('/rpc/erp_bus_tick')) tickStatus = r.status() })
@@ -306,10 +288,10 @@ test('비관리자에게는 모듈 메뉴와 배너가 없고, 주소로 와도 
   await expect(page.getByTestId('bus-refresh')).toHaveCount(0)
   expect(refused, '권한 없는 호출을 하지 않는다').toEqual([])
 
-  await page.goto('/#/r/tm_order/new')
-  await fieldInput(page, 'name').fill('직원이 만든 주문')
+  await page.goto('/#/r/partner/new')
+  await fieldInput(page, 'name').fill('직원이 만든 거래처')
   await page.getByTestId('save').click()
-  await expect(page).toHaveURL(/tm_order\/[0-9a-f-]{36}/)
+  await expect(page).toHaveURL(/partner\/[0-9a-f-]{36}/)
   await expect.poll(() => tickStatus).toBe(200)
   await expect(page.getByTestId('stall-banner')).toHaveCount(0)
 })
@@ -356,7 +338,7 @@ test('휴대폰 폭: 메뉴는 서랍으로 열리고 카드와 멈춤 상태가
   await expectFitsWidth(page, '[data-testid="bus-sub"]')
   await expectFitsWidth(page, '[data-testid="bus-error-text"]')
   await shot(page, '89-bus-mobile')
-  await subRow(page, 'inventory.orders').getByTestId('bus-skip').click()
+  await subRow(page, STOCK_SUB).getByTestId('bus-skip').click()
   await expectFitsWidth(page, '.dlg')
   await page.getByRole('button', { name: '취소' }).click()
 })
@@ -379,7 +361,7 @@ test('어두운 테마: 모듈과 버스 화면, 배너, 오류 문구가 어두
   await openBus(page)
   await expectDark(page, '[data-testid="bus-error-text"]')
   await shot(page, '91-bus-dark')
-  await subRow(page, 'inventory.orders').getByTestId('bus-skip').click()
+  await subRow(page, STOCK_SUB).getByTestId('bus-skip').click()
   await expectDark(page, '.dlg h2')
   await shot(page, '92-dialog-dark')
   await page.getByRole('button', { name: '취소' }).click()
@@ -387,16 +369,16 @@ test('어두운 테마: 모듈과 버스 화면, 배너, 오류 문구가 어두
   await openModules(page)
   await expect(page.locator('.side')).not.toBeInViewport()
   await shot(page, '93-modules-mobile-dark')
-  await fixStock()
+  await fixSubscription(STOCK_SUB)
   await page.setViewportSize({ width: 1280, height: 720 })
   await openBus(page)
-  await subRow(page, 'inventory.orders').getByTestId('bus-retry').click()
+  await subRow(page, STOCK_SUB).getByTestId('bus-retry').click()
   await expect(page.getByTestId('stall-banner')).toHaveCount(0)
 })
 
 test('DB 가 앱보다 최소 버전을 높이면 쓰기를 막고 새로 고침을 안내한다', async ({ page }) => {
   await connectAndLogin(page)
-  await page.goto('/#/r/tm_order/new')
+  await page.goto('/#/r/partner/new')
   await fieldInput(page, 'name').fill('열려 있던 앱에서 저장')
   await page.waitForTimeout(400)
 
@@ -411,7 +393,7 @@ test('DB 가 앱보다 최소 버전을 높이면 쓰기를 막고 새로 고침
     await shot(page, '94-app-outdated')
 
     // What was typed is still worth a warning, even though it cannot be saved here.
-    await page.goto('/#/r/tm_order')
+    await page.goto('/#/r/sales_order')
     await expect(page.getByRole('dialog')).toContainText('저장하지 않은 변경')
     await page.getByTestId('dlg-confirm').click()
     await expect(page.getByTestId('list-table')).toBeVisible()
@@ -420,7 +402,7 @@ test('DB 가 앱보다 최소 버전을 높이면 쓰기를 막고 새로 고침
     await expect(page.getByTestId('form-title')).toBeVisible()
     await expect(page.getByTestId('save')).toHaveCount(0)
     await expect(page.locator('[data-testid^="tr-"]')).toHaveCount(0)
-    await expect(page.locator('[data-field="name"] input')).toHaveCount(0)
+    await expect(page.locator('[data-field="partner_id"] input')).toHaveCount(0)
     await expect(page.getByTestId('history-rollback-work')).toHaveCount(0)
 
     await openModules(page)
@@ -445,7 +427,7 @@ test('DB 가 앱보다 낮으면 업그레이드 배너에 더해 쓰기 버튼�
     await connectAndLogin(page)
     const banner = page.getByTestId('upgrade-banner')
     await expect(banner).toContainText('업그레이드할 때까지 저장할 수 없습니다')
-    await page.goto('/#/r/tm_order')
+    await page.goto('/#/r/sales_order')
     await expect(page.getByTestId('list-table')).toBeVisible()
     await expect(page.getByTestId('new-record')).toHaveCount(0)
     await page.getByTestId('list-table').locator('tbody tr').first().click()

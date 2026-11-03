@@ -46,6 +46,15 @@ export async function rpc<T = unknown>(fn: string, args: Record<string, unknown>
   return data as T
 }
 
+/**
+ * A debugging extension some Supabase projects load can fail a statement at random with this. The transaction is
+ * rolled back whole, so sending the same request again is safe.
+ */
+export function isDebuggerGlitch(e: unknown): boolean {
+  const err = e as ApiError
+  return err?.code === 'XX000' && /pldbgapi2/.test(err.raw ?? '')
+}
+
 export function messageOf(e: unknown): string {
   if (e instanceof ApiError) return e.message
   return '요청을 처리하지 못했습니다.'
@@ -70,16 +79,4 @@ export async function probeStatus(): Promise<StatusProbe> {
     if (err.code === 'BAD_KEY' || err.code === 'AUTH') return { kind: 'bad-key', message: '키가 이 프로젝트의 공개 키가 아닙니다. 키를 다시 확인하세요.' }
     return { kind: 'error', message: err.message }
   }
-}
-
-/**
- * Asks PostgREST whether a function exists without letting it change anything: GET runs a function in a
- * read-only transaction, so a function that writes fails with 25006 and a missing one answers 404.
- * A hint naming the function covers one that exists but requires arguments.
- */
-export async function functionExists(name: string): Promise<boolean> {
-  const { error, status } = await db().rpc(name, {}, { get: true })
-  if (!error) return true
-  if (error.code !== 'PGRST202' && status !== 404) return true
-  return (error.hint ?? '').includes(name)
 }

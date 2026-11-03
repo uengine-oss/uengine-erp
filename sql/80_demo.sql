@@ -15,6 +15,17 @@ begin
   return jsonb_build_object('open', true);
 end $$;
 
+-- Steps are written before the company exists, so they name seeded records as "$seed:<name>".
+create or replace function erp.demo_resolve(p jsonb) returns jsonb
+language plpgsql as $$
+declare t text := p::text; m text[];
+begin
+  for m in select regexp_matches(t, '"\$seed:([^"]+)"', 'g') loop
+    t := replace(t, format('"$seed:%s"', m[1]), format('"%s"', erp.seed_id(m[1])));
+  end loop;
+  return t::jsonb;
+end $$;
+
 create or replace function public.erp_demo_apply(p_steps jsonb) returns jsonb
 language plpgsql security definer set search_path = erp, extensions, pg_temp as $$
 declare
@@ -40,7 +51,7 @@ begin
     case s ->> 'kind'
       when 'cmd' then
         perform set_config('erp.event_actor', coalesce(who::text, ''), true);
-        perform public.erp_command(s ->> 'type', nullif(s ->> 'id', '')::uuid, s ->> 'command', coalesce(s -> 'payload', '{}'::jsonb), null, null, 'demo');
+        perform public.erp_command(s ->> 'type', nullif(s ->> 'id', '')::uuid, s ->> 'command', erp.demo_resolve(coalesce(s -> 'payload', '{}'::jsonb)), null, null, 'demo');
       when 'validate' then
         perform set_config('erp.event_actor', coalesce(who::text, ''), true);
         select id into pick from erp.records where type = 'picking' and not deleted and state ->> 'origin_id' = s ->> 'origin'

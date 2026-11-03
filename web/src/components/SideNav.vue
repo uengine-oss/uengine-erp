@@ -2,12 +2,12 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { resolveNav } from '../nav'
-import { isAdmin, session } from '../lib/session'
+import { session } from '../lib/session'
 import { navOpen } from '../lib/ui'
 import Icon from './Icon.vue'
 
 const route = useRoute()
-const modules = computed(() => resolveNav(session.catalog, isAdmin()))
+const modules = computed(() => resolveNav(session.catalog, session.me?.roles ?? []))
 
 function matches(prefix: string | undefined) {
   return !!prefix && (route.path === prefix || route.path.startsWith(`${prefix}/`))

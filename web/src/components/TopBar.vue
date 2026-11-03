@@ -35,6 +35,7 @@ async function logout() {
   <header class="top">
     <button type="button" class="btn btn-ghost btn-icon nav-toggle" :aria-expanded="navOpen" aria-label="메뉴" data-testid="nav-toggle" @click="navOpen = !navOpen"><Icon name="menu" /></button>
     <strong class="ellipsis" data-testid="company-name">{{ session.company?.state?.name ?? session.status?.company_name }}</strong>
+    <span v-if="session.status?.demo" class="pill pill-violet" style="flex: none" title="지어낸 회사입니다. 실제 업무 데이터가 아닙니다." data-testid="demo-mark">가상 회사입니다</span>
     <span class="top-right">
       <label class="top-time" title="날짜를 고르면 회사 전체를 그날의 모습으로 읽기 전용으로 봅니다">
         <Icon name="history" :size="13" />

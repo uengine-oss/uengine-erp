@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { onBeforeRouteLeave, useRouter } from 'vue-router'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { db } from '../lib/conn'
 import { ApiError, messageOf, rpc, toApiError } from '../lib/api'
 import { onDataChanged, sendCommand } from '../lib/commands'
@@ -8,7 +8,7 @@ import { timeView, writeBlock } from '../lib/mode'
 import { openRollback } from '../lib/rollback'
 import { catalogOf, isAdmin, loadCompany, session } from '../lib/session'
 import {
-  canCommand, collectRefIds, deepEqual, emptyDraft, formFields, isDangerous, isDerived, isLongText, newId,
+  canCommand, collectRefIds, deepEqual, emptyDraft, formFields, isDangerous, isDerived, isLongText, isNumeric, newId,
   visibleExtraCommands, visibleTransitions,
 } from '../lib/fields'
 import { fmtDateTime } from '../lib/format'
@@ -28,6 +28,7 @@ import StatusPill from '../components/StatusPill.vue'
 
 const props = defineProps<{ type: string; id?: string | null; embedded?: boolean }>()
 const router = useRouter()
+const route = useRoute()
 
 const doc = computed(() => catalogOf(props.type))
 const screen = computed(() => screenFor(props.type))
@@ -65,7 +66,9 @@ function toggleHistory() {
 }
 
 const view = computed<State>(() => asOf.value?.state ?? draft.value)
-const fields = computed<Field[]>(() => (doc.value ? formFields(doc.value, isNew.value).filter((f) => !(f.name === 'state' && doc.value?.states?.length)) : []))
+const fields = computed<Field[]>(() => (doc.value
+  ? formFields(doc.value, isNew.value).filter((f) => !(f.name === 'state' && doc.value?.states?.length) && !screen.value?.hideFields?.includes(f.name))
+  : []))
 const lineFields = computed(() => fields.value.filter((f) => f.type === 'lines'))
 // With line tables, totals read best under the lines, like the foot of a printed document.
 const totalFields = computed(() => (lineFields.value.length ? fields.value.filter((f) => f.type === 'money' && isDerived(f)) : []))
@@ -75,13 +78,18 @@ const gridFields = computed(() => fields.value.filter((f) => {
   const empty = view.value[f.name] === null || view.value[f.name] === undefined || view.value[f.name] === ''
   return !(isDerived(f) && empty)
 }))
+const isAdvanced = (f: Field) => !!screen.value?.advanced?.includes(f.name) && !(f.required && isNew.value)
+const mainFields = computed(() => gridFields.value.filter((f) => !isAdvanced(f)))
+const advancedFields = computed(() => gridFields.value.filter(isAdvanced))
+const extra = computed(() => (screen.value?.formExtra ? defineAsyncComponent(screen.value.formExtra) : null))
 
 const canEdit = computed(() => {
   if (!doc.value) return false
   return canCommand(doc.value, isNew.value ? 'create' : 'update')
 })
 const timeTraveling = computed(() => !!asOf.value)
-const readOnly = computed(() => timeTraveling.value || !canEdit.value)
+const closedState = computed(() => !isNew.value && !!screen.value?.readonlyIn?.includes(record.value?.status ?? ''))
+const readOnly = computed(() => timeTraveling.value || !canEdit.value || closedState.value)
 const status = computed(() => (asOf.value ? asOf.value.state.state ?? null : record.value?.status ?? draft.value.state ?? null))
 
 const isShownAsValue = (f: Field) =>
@@ -155,6 +163,11 @@ async function loadRecord() {
     record.value = null
     events.value = []
     const empty = emptyDraft(doc.value)
+    // A screen can link here with some values already chosen.
+    for (const f of doc.value.fields) {
+      const given = route.query[f.name]
+      if (typeof given === 'string' && given && !isDerived(f)) empty[f.name] = isNumeric(f) ? Number(given) : given
+    }
     draft.value = empty
     baseline.value = JSON.parse(JSON.stringify(empty))
     lastPreviewJson = JSON.stringify(empty)
@@ -342,20 +355,23 @@ function revert() {
 
 async function runCommand(command: string, label: string, def: Pick<CommandDef, 'params' | 'danger' | 'confirm'> = {}, after?: () => void) {
   if (!doc.value || !props.id) return
+  const ui = screen.value?.commands?.[command]
   const danger = isDangerous(command, def)
+  // A JSON box is no way to ask a person anything. Such parameters are for other callers, or the screen fills them.
+  const params = ui?.fields ? ui.fields(record.value) : def.params?.filter((p) => p.type !== 'json' && !p.api_only && !ui?.hideParams?.includes(p.name))
   let payload: State = {}
   let reason: string | null = null
-  if (def.params?.length || danger) {
+  if (params?.length || danger) {
     const answer = await ask({
       title: label,
       message: def.confirm ?? (danger ? `"${label}" 작업을 진행할까요? 이 변경은 이력에 그대로 남습니다.` : undefined),
-      fields: def.params,
+      fields: params,
       danger,
       reason: danger,
       confirmLabel: label,
     })
     if (!answer) return
-    payload = answer.values
+    payload = ui?.payload ? ui.payload(answer.values) : answer.values
     reason = answer.reason || null
   }
   // An action means "with what is on screen", so unsaved edits are saved first.
@@ -363,11 +379,25 @@ async function runCommand(command: string, label: string, def: Pick<CommandDef, 
   busy.value = true
   formError.value = ''
   try {
-    const res = await sendCommand({ type: props.type, id: props.id, command, payload, expectedVersion: record.value?.version ?? null, reason })
-    adoptResult(res)
-    toast(`${label} 완료`)
-    void loadStream()
-    after?.()
+    for (;;) {
+      try {
+        const res = await sendCommand({ type: props.type, id: props.id, command, payload, expectedVersion: record.value?.version ?? null, reason })
+        adoptResult(res)
+        toast(`${label} 완료`)
+        void loadStream()
+        after?.()
+        return
+      } catch (e) {
+        const err = e as ApiError
+        const retry = err.code ? ui?.retry?.[err.code] : undefined
+        if (!retry) throw e
+        const { payload: toPayload, ...question } = retry
+        // The database's own sentence explains what it found. It stands in only where no wording was set here.
+        const answer = await ask({ confirmLabel: label, message: err.message.replace(/\s*\([a-z_]+\)\.?$/, ''), ...question })
+        if (!answer) return
+        payload = { ...payload, ...toPayload(answer.values) }
+      }
+    }
   } catch (e) {
     handleCommandError(e)
   } finally {
@@ -623,14 +653,15 @@ const isCompanyForm = computed(() => props.id === COMPANY_ID)
         <StatePipeline class="no-print" :doc="doc" :value="status" />
       </div>
       <div class="form-actions no-print">
-        <template v-if="!timeTraveling && canEdit">
+        <template v-if="!timeTraveling && canEdit && !closedState">
           <button type="button" class="btn btn-primary" :disabled="busy || (!isNew && !dirty)" data-testid="save" @click="save">{{ busy ? '저장 중…' : '저장' }}</button>
           <button v-if="dirty && !isNew" type="button" class="btn" :disabled="busy" data-testid="revert" @click="revert">되돌리기</button>
         </template>
-        <span v-if="transitions.length && !timeTraveling && canEdit" class="sep"></span>
+        <span v-if="transitions.length && !timeTraveling && canEdit && !closedState" class="sep"></span>
         <button v-for="t in transitions" :key="t.command" type="button" class="btn" :class="{ 'btn-primary': t.primary && !dirty, 'btn-danger': !t.primary && isDangerous(t.command, t) }"
                 :disabled="busy" :data-testid="`tr-${t.command}`" @click="runCommand(t.command, t.label, t)">{{ t.label }}</button>
         <span v-if="dirty" class="muted small" data-testid="dirty-mark">저장하지 않은 변경 있음</span>
+        <component :is="extra" v-if="extra && record && !isNew" :record="asOf ? null : record" :doc="doc" />
         <div class="grow"></div>
         <div v-if="menuItems.length" class="menu-wrap">
           <button type="button" class="btn" aria-haspopup="menu" :aria-expanded="menuOpen" data-testid="more-menu" @click.stop="menuOpen = !menuOpen"><Icon name="more" />더 보기</button>
@@ -668,7 +699,7 @@ const isCompanyForm = computed(() => props.id === COMPANY_ID)
         <p v-if="loading" class="muted" style="padding: 16px">불러오는 중…</p>
         <form v-else class="form-sheet" autocomplete="off" @submit.prevent="save">
           <div class="field-grid">
-            <div v-for="f in gridFields" :key="f.name" class="field" :class="{ full: isFull(f) }" :data-field="f.name">
+            <div v-for="f in mainFields" :key="f.name" class="field" :class="{ full: isFull(f) }" :data-field="f.name">
               <label class="field-label" :for="fieldId(f)">{{ f.label }}<span v-if="f.required && !isShownAsValue(f)" class="req" aria-hidden="true">*</span></label>
               <div>
                 <div v-if="isShownAsValue(f)" class="field-value" :id="fieldId(f)"><FieldValue :field="f" :value="view[f.name]" /></div>
@@ -677,6 +708,19 @@ const isCompanyForm = computed(() => props.id === COMPANY_ID)
               </div>
             </div>
           </div>
+          <details v-if="advancedFields.length" class="form-more no-print" data-testid="form-advanced">
+            <summary>그 밖의 항목 {{ advancedFields.length }}개</summary>
+            <div class="field-grid">
+              <div v-for="f in advancedFields" :key="f.name" class="field" :class="{ full: isFull(f) }" :data-field="f.name">
+                <label class="field-label" :for="fieldId(f)">{{ f.label }}</label>
+                <div>
+                  <div v-if="isShownAsValue(f)" class="field-value" :id="fieldId(f)"><FieldValue :field="f" :value="view[f.name]" /></div>
+                  <FieldInput v-else :id="fieldId(f)" :field="f" :invalid="invalidField === f.name" :model-value="draft[f.name]" @update:model-value="setField(f, $event)" />
+                  <div v-if="f.help && !isShownAsValue(f)" class="hint" style="margin-top: 2px">{{ f.help }}</div>
+                </div>
+              </div>
+            </div>
+          </details>
 
           <section v-for="f in lineFields" :key="f.name" class="form-lines" :data-field="f.name">
             <h2>{{ f.label }}</h2>
@@ -708,6 +752,8 @@ const isCompanyForm = computed(() => props.id === COMPANY_ID)
 .form-layout { display: flex; flex: 1 1 auto; min-height: 0; }
 .form-main { flex: 1 1 auto; min-width: 0; overflow: auto; background: var(--surface); }
 .form-sheet { padding: 12px 16px 28px; }
+.form-more { margin-top: 8px; }
+.form-more > summary { margin-bottom: 6px; }
 .form-lines { margin-top: 14px; }
 .form-lines h2 { margin-bottom: 6px; font-size: 13px; }
 .totals { display: grid; grid-template-columns: auto 130px; justify-content: end; gap: 3px 16px; margin: 10px 0 0; }

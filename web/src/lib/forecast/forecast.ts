@@ -47,8 +47,8 @@ export function demandSales(p: Panel, input: Input = {}): ModelResult<DemandOutc
   const need = NEED.demand_sales_months
   const ev: Evidence = { have: months, need, unit: '개월', from: toIso(p.day0), to: p.data.asOf, message: months >= need ? `판매 ${months}개월` : `판매 ${need}개월 필요 (지금 ${months}개월)` }
   const warnings = ['판매 기록만 읽으므로 품절로 못 판 수요는 빠져 있습니다. 재고를 켜면 보정할 수 있습니다']
-  // Off by default: this model reads sales as they are. See docs/modules/analytics.md for what the filter does.
-  // Measured on synthetic companies: leaving out long gaps in sales matches stock history for the forecast itself.
+  // On by default: long gaps in sales are set aside as probable stockouts, as scenario S7 says. On synthetic companies
+  // this matches stock history for the forecast itself. gap_filter: false reads sales exactly as they are.
   const opt = { mode: 'sales' as const, gapFilter: input.gap_filter ?? true }
   if (opt.gapFilter) warnings[0] = '판매가 오래 끊긴 구간은 품절로 보고 뺐습니다. 재고를 켜면 추정이 아니라 기록으로 보정합니다'
   const fit = fitDemand(p, opt)

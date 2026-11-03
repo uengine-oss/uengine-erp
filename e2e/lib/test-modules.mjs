@@ -162,7 +162,7 @@ export const enableModule = async (id, payload = {}) => command(await tokenFor(A
 /** Delivers what can be delivered right now, as the app's own push or cron would. */
 export async function deliver(token) {
   // A long transaction anywhere in the cluster holds delivery back, and SQL tests may be running beside these.
-  for (let i = 0; i < 150; i++) {
+  for (let i = 0; i < 400; i++) {
     const r = await (await rest('erp_bus_tick', {}, token)).json()
     if (!r.pending) return r
     await new Promise((res) => setTimeout(res, 100))
@@ -179,7 +179,14 @@ export async function newOrder(token, name, { confirm = false } = {}) {
   return made.id
 }
 
-// Cron runs every 5 seconds and a subscriber that just failed waits 10 more before its next try.
+// Cron runs every 5 seconds and a subscriber that just failed waits 10 more before its next try. Installing right after a
+// reset can slip past pg_cron, which then ignores the new job until cron.job changes again, so a long wait changes it.
+// A first install does not do this: a scheduler that was idle, or an extension that was absent, picks the job up in 5 seconds.
 export async function waitForPicking(orderId, n = 1) {
-  await waitFor(async () => (await pickingsFor(orderId)) === n, `주문 ${orderId} 의 출고 전표 ${n}건`, 120)
+  let polls = 0
+  await waitFor(async () => {
+    if ((await pickingsFor(orderId)) === n) return true
+    if (++polls % 28 === 0) await sql(`select cron.alter_job(jobid, active := true) from cron.job where jobname = 'erp-bus'`)
+    return false
+  }, `주문 ${orderId} 의 출고 전표 ${n}건`, 120)
 }

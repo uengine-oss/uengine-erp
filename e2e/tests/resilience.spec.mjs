@@ -133,37 +133,6 @@ test('실시간 연결이 막혀도 앱은 그대로 돌아간다', async ({ pag
   await expect(page).toHaveURL(/test_customer\/[0-9a-f-]{36}/)
 })
 
-test('데모 함수가 있으면 물어보고, 확인 호출은 함수를 실행하지 않는다', async ({ page }) => {
-  await wipe()
-  await sql(installScript())
-  // The module does not exist yet: a stand-in that records every real call.
-  await sql(`create table erp.demo_calls (at timestamptz default now())`)
-  await sql(`create or replace function public.erp_demo_seed() returns jsonb language plpgsql security definer set search_path = erp as $f$
-    begin insert into erp.demo_calls default values; return '{"next":null}'; end $f$`)
-  await sql(`grant execute on function public.erp_demo_seed() to authenticated; notify pgrst, 'reload schema'`)
-  await sql(`select erp.set_setup_code('demo-code')`)
-  await waitForInstalled()
-  await page.goto('/#/setup')
-  await page.evaluate(([url, key]) => {
-    localStorage.setItem('erp.connection', JSON.stringify({ url, key }))
-    localStorage.setItem('erp.setup', JSON.stringify({ url, code: 'demo-code' }))
-  }, [API_URL, PUBLISHABLE_KEY])
-  await page.reload()
-  await expect(page.getByRole('heading', { name: '회사 만들기' })).toBeVisible()
-  await page.getByLabel('회사명').fill(COMPANY)
-  await page.getByLabel('관리자 이름').fill(ADMIN.name)
-  await page.getByLabel('관리자 이메일').fill(ADMIN.email)
-  await page.getByLabel(/^비밀번호/).first().fill(ADMIN.password)
-  await page.getByLabel('비밀번호 확인').fill(ADMIN.password)
-  await page.getByTestId('company-create').click()
-  await expect(page.getByRole('heading', { name: '데모 데이터를 넣을까요?' })).toBeVisible()
-  await shot(page, '44-setup-demo')
-  expect((await sql('select count(*)::int as n from erp.demo_calls')).rows[0].n, '묻는 동안 실행되지 않는다').toBe(0)
-  await page.getByTestId('demo-seed').click()
-  await expect(page.getByTestId('home-title')).toHaveText('홈')
-  expect((await sql('select count(*)::int as n from erp.demo_calls')).rows[0].n).toBe(1)
-})
-
 test('다른 브라우저에서 설치했으면 설치 코드를 다시 발급한다', async ({ browser }) => {
   await wipe()
   await sql(installScript())

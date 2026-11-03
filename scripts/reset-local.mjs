@@ -28,7 +28,7 @@ export async function resetLocal(connectionString = LOCAL_PG) {
     }
     // Takes the sign-up guard trigger on auth.users with it.
     await c.query('drop schema if exists erp cascade')
-    await c.query(`delete from auth.users where email like '%@example.com' or email like '%@test.co'`)
+    await c.query(`delete from auth.users where email like '%@example.com' or email like '%@test.co' or email like '%@demo.example'`)
     await c.query('commit')
     await c.query(`notify pgrst, 'reload schema'`)
   } catch (e) {

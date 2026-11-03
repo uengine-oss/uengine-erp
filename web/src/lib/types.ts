@@ -6,6 +6,8 @@ export interface FieldOption { value: string; label: string; color?: string }
 
 export interface Field {
   name: string
+  /** Accepted by the command for API callers, but not something a person fills in on a form. */
+  api_only?: boolean
   label: string
   type: FieldType
   required?: boolean
@@ -169,7 +171,7 @@ export interface BusSubscription {
   skipped: SkippedEvent[]
 }
 
-export interface BusTick { processed: number; failing: number; pending: number }
+export interface BusTick { processed: number; failing: number; pending: number; paused?: boolean }
 
 /** A forecast or what-if from erp_models(), reduced to what a module card needs. */
 export interface ModelInfo { id: string; label: string; modules: string[] }
