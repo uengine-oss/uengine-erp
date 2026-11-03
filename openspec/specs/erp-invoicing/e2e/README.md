@@ -14,6 +14,28 @@ source scripts/local-env.sh && npm run test:e2e -- growth.spec.mjs rollback.spec
 
 | 스펙 시나리오 | 시험 | 단계 | |
 |---|---|---|---|
+| MCP 호출 하나가 게시와 지급을 한 작업으로 한다 | `voucher.test.mjs › one command makes the document, posts it and pays it, as one correlation, and says what it made` | SQL | ✅ |
+| 실패하면 아무것도 남지 않는다 | `voucher.test.mjs › nothing half done: a voucher that cannot be paid leaves no document and no number` | SQL | ✅ |
+| 결제방법이 계정을 정하고 카드 분개장은 필요할 때 생긴다 | `voucher.test.mjs › payment way decides the account; card makes its journal the first time it is needed` | SQL | ✅ |
+| 저장 전에 분개를 본다 | `voucher.test.mjs › the preview says what the books will get, from the same code, and writes nothing`<br>`krtax.spec.mjs › 사람 속도로 매입 세금계산서를 넣으면 분개가 먼저 보이고, 저장하면 게시와 지급과 재고 반영까지 간다` | SQL, 브라우저 | ✅ |
+| 증빙에 따라 기본값이 정해지고 안 되는 조합은 거부된다 | `voucher.test.mjs › evidence decides what can be said: the tax default, what can be deducted, and what makes no sense`<br>`krtax.spec.mjs › 같은 승인번호를 다시 넣으면 저장 전에 알려 주고, 저장해도 거부된다` | SQL, 브라우저 | ✅ |
+| 불공제 세액은 비용이 된다 | `voucher.test.mjs › tax that cannot be deducted is a cost, not a claim: it stays off the VAT account` | SQL | ✅ |
+| 증빙의 세액이 세율과 달라도 증빙을 따른다 | `voucher.test.mjs › the paper says what the tax is, the difference shows, and the books still balance` | SQL | ✅ |
+| 같은 승인번호를 다시 올리면 거부된다 | `voucher.test.mjs › the same approval number twice is refused with a code the agent can read`<br>`krtax.spec.mjs › 같은 승인번호를 다시 넣으면 저장 전에 알려 주고, 저장해도 거부된다` | SQL, 브라우저 | ✅ |
+| 번호가 없으면 거래처·날짜·금액으로 본다 | `voucher.test.mjs › with no number, the same partner, day and amount is refused until someone says it is really another one` | SQL | ✅ |
+| 사가가 보상하면 재고, 장부, 미지급금, 신고서 칸이 올리기 전과 같다 | `voucher.test.mjs › a voucher taken back: the saga cancels the payment, posts the credit note, goods return, books and VAT cells are as before`<br>`krtax.spec.mjs › 전표 취소: 대변 메모가 게시되고 지급이 취소되고 물건이 돌아가고 신고서 칸은 올리기 전과 같다` | SQL, 브라우저 | ✅ |
+| 일반 되돌리기는 여전히 막힌다 | `voucher.test.mjs › a posted voucher still blocks a plain rollback`<br>`krtax.spec.mjs › 전표 취소: 대변 메모가 게시되고 지급이 취소되고 물건이 돌아가고 신고서 칸은 올리기 전과 같다` | SQL, 브라우저 | ✅ |
+| 잠긴 기간이면 사가가 이유와 함께 막힌다 | `voucher.test.mjs › in a closed period the saga is blocked and says which lock` | SQL | ✅ |
+| 물건을 이미 내보냈으면 재고 음수를 막는다 | `voucher.test.mjs › after someone ships the received goods the saga is refused rather than leave stock negative` | SQL | ✅ |
+| 일부 반품은 대변 메모의 수량만큼 움직인다 | `voucher.test.mjs › a customer return comes back in: the sale side compensates too, and a partial correction moves only what it says` | SQL | ✅ |
+| 입고가 증빙 단가로 들어오고 장부가 맞는다 | `voucher.test.mjs › stock follows from the event: a receipt raises stock at the paper price and the books clear what they awaited` | SQL | ✅ |
+| 재고가 모자라도 매출 전표는 선다 | `voucher.test.mjs › a sale with not enough goods stands and its transfer waits for a person` | SQL | ✅ |
+| 재고가 꺼져 있거나 멈춰도 전표가 된다 | `voucher.test.mjs › with stock off nothing happens, and with stock stuck the voucher still goes through` | SQL | ✅ |
+| 지난 문서에 증빙을 적는다 | `voucher.test.mjs › evidence written after the fact: an approval number, or the type of a document from before these fields` | SQL | ✅ |
+| 주문에서 온 청구서의 증빙 | `voucher.test.mjs › documents from orders carry the same evidence, and stock stays with the order` | SQL | ✅ |
+| 후보가 중복과 새 거래처와 추천 계정을 말한다 | `voucher.test.mjs › a file becomes candidates: what is already there, who is new, and what was chosen for that partner last time` | SQL | ✅ |
+| 화면에서 열을 맞춰 저장하고 후보를 고른다 | `krtax.spec.mjs › 사람이 내려받은 파일이 전표 후보가 된다. 열은 직접 맞춰 저장하고, 중복과 새 거래처를 알려 주고, 고친 계정을 기억한다` | 브라우저 | ◐ |
+| 인쇄와 내보내기 | `krtax.spec.mjs › 세금계산서를 인쇄하고 승인번호를 적을 수 있다. 앱이 발행하지 않는다고 밝힌다`<br>`voucher.test.mjs › the invoicing role reads the bulk issue rows, others do not; nothing here issues anything` | SQL, 브라우저 | ✅ |
 | 할인과 세금을 줄마다 계산하고 번호는 게시할 때 붙인다 | `invoicing.test.mjs › a draft computes amounts line by line and has no number until posted` | SQL | ✅ |
 | 제품을 고르면 제품의 값으로 채우고 잘못된 입력은 거부한다 | `invoicing.test.mjs › a product line takes its name, unit, price and taxes from the product; a blank line needs words` | SQL | ✅ |
 | 초안의 줄을 고치면 금액이 다시 계산되고 바뀐 것이 없으면 기록하지 않는다 | `invoicing.test.mjs › line edits become line events, a no-op writes nothing, and subscribers hear every draft change` | SQL | ✅ |

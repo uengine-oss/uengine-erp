@@ -56,6 +56,7 @@
 | 구매 | 없음 | 켜기 전의 납기 | 없음 |
 | 청구 | 청구 대상 수량 | 켜기 전의 입금 기록 | 언제 이후의 주문을 청구 대상으로 볼지 |
 | 회계 | 고른 날짜 이후의 게시 청구서·입금과 입출고·조정·폐기 전표 | 청구 모듈이 없던 기간의 매출 전표 | 장부를 시작할 날짜. 그 전은 기초 잔액 전표로 넣는다 |
+| 세금 신고 | 게시 청구서의 신고서 칸 | 증빙유형이 없던 문서의 칸. 미분류로 보이고 증빙을 적으면 들어간다 | 없음. 청구가 켜져 있어야 한다 |
 
 ## 4. 예측과 what-if 의 상태
 
@@ -293,6 +294,7 @@
 | S6 | `test/history.test.mjs`, `e2e/tests/rollback.spec.mjs`, `e2e/tests/history.spec.mjs` |
 | S7, S8 | `test/models.test.mjs`, `e2e/tests/whatif.spec.mjs` |
 | S9 | `test/plugin.test.mjs`, `test/api.test.mjs`, `test/api.e2e.mjs`, `e2e/tests/integration.spec.mjs` |
+| S16 1~5, 7, 8 | `test/voucher.test.mjs`, `test/krtax.test.mjs`, `e2e/tests/krtax.spec.mjs` |
 | S10~S17 | 모듈별 `test/<모듈>.test.mjs`, `e2e/tests/<모듈>.spec.mjs` |
 | S18 | `test/saga.test.mjs`, `test/saga.e2e.mjs`, Process GPT Lite 의 실제 대화 시험 |
 | M1 | `test/isolation.test.mjs` 정적 검사 |

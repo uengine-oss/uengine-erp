@@ -8,6 +8,8 @@
 
 `move_type(out_invoice/out_refund/in_invoice/in_refund), number, partner_id, invoice_date, date, due_date, payment_term_id, fiscal_position_id, currency, ref, payment_reference, narration, incoterm, incoterm_place, partner_bank, should_be_paid(yes/no/exception), origin_type, origin_id, origin_name, auto_post, state(draft/posted/cancelled), payment_state(not_paid/in_payment/paid/partial/reversed), reversal_of, reversed_by, reversal_reason, debit_note_of, installments[{due_date, amount, discount_date, discount_amount, discount_mode}], applied[{id, payment_id, credit_move_id, amount, date, reversal}], amount_untaxed, amount_tax, amount_total, amount_residual, lines[{id, sequence, display_type, product_id, variant_id, name, qty, uom_id, price_unit, discount, tax_ids, account_id, subtotal, tax_amount, total, taxes, origin_line_id, is_downpayment, downpayment_line_id}]`
 
+증빙 칸: `evidence_type(tax_invoice/exempt_invoice/credit_card/cash_receipt/other_receipt/none), approval_no, deductible, non_deduct_reason, card_kind(business/other), amend_reason, original_date, original_approval_no, stock_reflect, stock_warehouse_id, voucher, payment_way(credit/cash/bank/card), voucher_payment_id, compensation`. 줄에 `fixed_asset`, `tax_override`(증빙에 적힌 세액), `worked_tax`(세율로 계산한 값) 가 더 있다.
+
 번호 형식: `INV/2026/00001`, `RINV/2026/00001`, `BILL/2026/10/0001`, `RBILL/2026/10/0001`. 회계일의 연·월로 게시할 때 붙고, 다시 초안으로 가도 유지된다.
 
 | 명령 | 뜻 |
@@ -23,10 +25,55 @@
 | `apply_credit{credit_move_id, amount}`, `remove_credit{credit_move_id}` | 대변 메모를 다른 청구서에 맞추거나 푼다 |
 | `change_number{number}` | 번호가 붙었다가 초안으로 돌아온 문서의 번호를 바꾼다. 그 묶음의 마지막 문서만 된다. 번호에서 연·월을 찾아 분개장의 형식으로 삼고, 뒤 문서가 그 형식을 잇는다. 변경은 분개장에 `JournalNumberFormatChanged` 로 남는다 |
 | `fill_from_order{from_sales_order 또는 from_purchase_order}` | 손으로 시작한 초안에 주문의 남은 줄을 채운다. 거래처가 같아야 한다 |
+| `create{voucher: true, ...}` | 전표 입력. 아래 「증빙과 전표 입력」 |
+| `compensate{amend_reason, date, reason}` | 게시 문서를 대변 메모로 상쇄한다. 아래 「게시 문서를 상쇄한다」 |
+| `set_evidence{evidence_type, approval_no, non_deduct_reason, card_kind, amend_reason}` | 게시 뒤에도 증빙을 적는다. 금액은 그대로다. 공제 여부는 장부가 이미 받았으므로 게시 뒤에 바꾸지 않는다 |
 
 `date`(회계일)는 비우면 청구일을 따른다. 초안으로 돌아갈 때 청구일과 같았다면 다시 비워서 청구일을 고치면 함께 움직인다.
 
 결제 조건이 없는 문서의 기일은 청구일이다. 관찰된 동작은 만든 날인데, 그러면 소급 청구서의 미수금 연령이 틀어지고 미래 청구서의 기일이 청구일보다 앞선다. 그래서 따르지 않는다(`docs/plan.md` 결정 12).
+
+## 증빙과 전표 입력
+
+**새 문서 종류가 아니다.** `account_move.create{voucher: true}` 한 번이 문서를 만들고 게시하고 결제까지 한 트랜잭션, 한 correlation 으로 한다. 어디서 실패해도 문서도 번호도 남지 않는다.
+
+```
+erp_create { type: "account_move", saga_id: "...", values: {
+  voucher: true, move_type: "in_invoice" | "out_invoice", partner_id, invoice_date, evidence_type,
+  approval_no?, deductible?, non_deduct_reason?, card_kind?, payment_way: "credit" | "cash" | "bank" | "card", payment_date?, payment_journal_id?,
+  stock_reflect?, stock_warehouse_id?, allow_duplicate?, lines: [{ variant_id | name, account_id?, qty, price_unit, tax_ids?, tax_override?, fixed_asset? }] } }
+```
+
+돌려주는 값: `id`(문서), `state`(`number`, `amount_total`, `voucher_payment_id` 포함), `correlation_id`, `events[{stream_id, type}]`.
+
+- 줄에 세금을 안 주면 증빙이 정한다. 계산서는 면세, 매입의 그 밖의 영수증과 없음은 세금 없음, 제품 줄은 제품의 세금, 그 밖은 회사 기본 세금이다.
+- 공제 기본값과 증빙으로 할 수 없는 조합(`ERP_EVIDENCE`)의 근거는 `krtax.md` 다.
+- 카드 결제는 신용카드 분개장을 쓴다. 없으면 처음 쓸 때 만든다. 매출을 카드로 받는 경우도 같은 분개장에 입금한다. 카드사 정산은 은행 거래로 맞춘다.
+- `erp_preview('account_move', {voucher: true, ...})` 는 줄, 합계, `problem`, `duplicate_of`, `tax_gap`, `facts{invoice, payment}` 를 준다. 화면이 `facts` 를 `erp_preview('journal_entry', facts)` 에 넘기면 회계가 자기 코드로 분개를 보여 준다. 회계가 꺼져 있으면 그렇다고 말한다.
+
+**중복.** 같은 승인번호(같은 `move_type`, 대소문자와 구분 기호 무시)는 초안에도 게시에도 `set_evidence` 에도 `ERP_DUPLICATE_VOUCHER` 다. 승인번호가 없는 전표 입력은 거래처·증빙 일자·합계가 같으면 거부하고, `allow_duplicate: true` 로 넘어간다. 메시지에 있는 문서의 번호와 id 가 들어 있다. 대변 메모가 게시되어 상쇄된 문서는 없는 것으로 보므로 같은 파일을 다시 올릴 수 있다. 같은 값을 동시에 올려도 잠금으로 줄을 세운다.
+
+## 게시 문서를 상쇄한다
+
+게시한 청구서는 되돌리기(`Reverted`)로 막혀 있다. 그 규칙은 그대로다. `compensate` 는 반대 거래를 남기는 명령이다.
+
+1. 전표 입력이 만든 입금이 살아 있으면 취소한다. 다른 돈은 떼어 거래처의 크레딧으로 남긴다.
+2. 전액 대변 메모를 만들어 게시한다. 원 문서는 `reversed` 가 되고 대변 메모는 `compensation: true`, `amend_reason`, `reversal_reason`(`reason` 또는 명령의 사유), `original_date`, `original_approval_no` 를 갖는다.
+3. 날짜는 사유가 정한다(`krtax.md`). `input_error` 가 기본값이고 처음 날짜를 따른다. 그래서 신고서 칸이 그 기간 안에서 상쇄된다. 미래 날짜는 거부한다.
+
+다시 부르면 이미 게시된 상쇄 문서를 돌려주고 아무것도 하지 않는다. 사람이 쓴 대변 메모가 이미 있으면 `ERP_STATE` 다. 전액을 또 빼면 과하기 때문이다.
+
+사가에서: 카탈로그의 `compensate` 가 `account_move` 는 `compensate`, `payment` 는 `cancel` 을 가리킨다. 커널이 역순으로 부르므로 입금이 먼저 취소된다. 잠긴 기간이면 `lock_fn` 이, 물건을 이미 내보냈으면 재고 `check_fn` 이 사가를 `blocked` 로 만든다.
+
+## 파일에서 전표 후보로
+
+사람이 내려받은 파일만 받는다. 스크래핑, 금융 ID·비밀번호·인증서 저장은 하지 않는다.
+
+- `erp_voucher_candidates(move_type, evidence, rows)`: 읽기만 한다. 행 `{date, partner_name, partner_tax_id, supply, tax, total, approval_no, item}` 에 대해 `partner_id, partner_by(tax_id/name), new_partner, duplicate_of{id, number, by(approval_no/partner_date_amount/same_file)}, suggested_account_id, supply, tax, total, problems[]` 를 돌려준다. 합계만 있으면 공급대가 ÷ 1.1 로 나눈다.
+- 계정 추천은 그 거래처의 같은 쪽 전표에서 사람이 마지막에 고른 계정이다. 따로 규칙 표가 없다.
+- 쓰기는 `erp_import('account_move', rows, 'commit', {keep_good: true})` 로 전표 입력과 같은 명령을 부른다.
+- 열 배치는 회사의 레코드 `voucher_import_profile{name, source, columns, verified}` 다. **앱에 들어 있는 양식은 없다.** 실제 파일 표본을 보지 못했으므로 열 이름을 추측하지 않고, 화면이 모든 자료에 "확인 안 됨"이라고 표시한다.
+- `erp_tax_invoice_rows(from, to)`: 기간의 매출 세금계산서. 화면이 CSV 로 내보낸다. 홈택스 일괄 발급 양식과 대조하지 못했다고 화면이 말한다. 전자 발행은 하지 않는다.
 
 ## 분개장
 
@@ -128,7 +175,7 @@
 |---|---|
 | 줄 공통 | `downpayment_line_id`. `taxes[].account_id` |
 | `InvoiceDrafted` | `reversal_of` |
-| `InvoicePosted` | `invoice_date`, `installments` |
+| `InvoicePosted` | `invoice_date`, `installments`, `evidence`, `partner_tax_id`, `stock_reflect`, `stock_warehouse_id` |
 | `InvoicePaymentApplied` | `credit_move_id`(대변 메모가 맞물렸을 때 상대 문서, 이때 `payment_id` 는 없다). 맞물림을 풀면 같은 이벤트가 **음수 `amount`** 로 나간다. 합치면 지금 상태와 같다 |
 | `PaymentPosted` | `partner_type`, `writeoff_label`, `early_discount`, `writeoff_taxes[{tax_id, name, account_id, amount}]` |
 | `PaymentCancelled` | `partner_type`. 초안을 취소했으면 `allocations` 는 빈 목록이다 |
