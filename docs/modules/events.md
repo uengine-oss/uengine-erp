@@ -104,6 +104,25 @@
 
 연락처, 생년월일, 계좌 같은 개인정보는 어떤 이벤트에도 없다. 원장은 지울 수 없기 때문이다. 필요한 모듈은 패턴을 따른다(`docs/modules/hr.md`). **이름과 입퇴사일은 원장에 남고 지워지지 않는다.**
 
+## 급여가 내는 것
+
+**한 사람의 금액, 계좌, 가족 수는 어떤 이벤트에도 없다.** 회사 합계와 전표·원천세 집계에 필요한 합계만 있다. 대장에 사람이 한 명이면 합계가 그 사람의 금액이라는 한계는 `docs/modules/payroll.md` 에 적었다. `payroll_run` 스트림은 `hr`, `payroll`, `admin` 만 읽는다. 구독자는 RLS 와 무관하게 받는다.
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `PayrollRunDrafted` | `number, kind(regular, bonus, correction, reversal), period_month, pay_month, pay_date, reversal_of, corrects`. 금액 없음. 초안의 합계는 원장에 쓰지 않는다 |
+| `PayrollPosted` | `number, kind, period_month, pay_month, pay_date, date(회계일), reversal_of, corrects, headcount, gross_total, nontaxable_total, taxable_total, deduction_total, net_total, statutory:{income_tax, local_tax, pension, health, ltc, employment, other}, by_income:[{income_code, label, people, people_delta, gross, nontaxable, income_tax, local_tax}], entry:[{key, name, account_id, amount}], rates:{id, name, valid_from, source, source_url, checked_on, 요율 값}, tax_table:{id, name, valid_from, source, source_url, checked_on, sha256, rows_count}`. 취소 대장은 같은 이벤트에 음수다 |
+| `PayrollPaid` | `number, period_month, pay_month, date, amount, account_id, reversal_of, entry:[{key, name, account_id, amount}]`. 취소 대장은 음수다 |
+| `PayrollRunReversed` | 원래 대장 스트림. `set.reversed_by` 만 있다. 취소 대장의 `PayrollPosted` 가 사실을 싣는다 |
+| `PayrollRunCancelled` | 초안 취소. 사실 없음 |
+| `PayrollTransferExported` | `number, format_id, format_name, rows`. 값 없음 |
+| `WithholdingFiled` | 지급 월별 스트림. `number, pay_month, sheets:[{period_month, pay_month, lines, total, local}], revision, previous_sheets` |
+| `WithholdingReopened` | `pay_month, revision`. 사유는 이벤트의 `reason` 이다 |
+| `PayrollProfileChanged`, `PayrollProfileErased` | `employee_id, name, fields:[칸 이름]`, 지운 때는 `erased_at`. **값 없음** |
+| `PayrollSlipChanged`, `PayrollSlipAdded`, `PayrollSlipRemoved`, `PayrollSlipErased` | 대장별 기록 스트림. `run_id, employee_id, name`, 고친 때는 `fields:[칸 이름]`. **값 없음** |
+
+`entry` 의 `key` 는 `wages`, `withheld`, `payable`, `bank` 다. `amount` 는 양수가 차변이다. 합은 0 이다. `account_id` 가 비면 회계가 `key` 로 계정을 고른다. `people_delta` 는 이 대장으로 그 귀속·지급 월의 그 소득 구분 인원이 달라진 수다. 합하면 서식의 인원이 된다.
+
 ## 기초데이터가 내는 것
 
 | 이벤트 | `data` 의 사실 |
@@ -127,5 +146,9 @@
 | 구매 | `InvoiceDrafted`, `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled` | 청구 상태, `qty_billed` |
 | 회계 | `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled`, `PaymentPosted`, `PaymentCancelled`, `BankLineBooked`, `BankLineUnbooked` | 분개(처음부터 다시 읽는다) |
 | 회계 | `PickingValidated`, `StockAdjusted`, `StockScrapped` | 재고 평가 분개(처음부터 다시 읽는다) |
+| 회계 | `PayrollPosted`, `PayrollPaid` | 급여와 예수금, 지급 분개(처음부터 다시 읽는다) |
+| 급여 | `EmployeeHired`, `EmployeeChanged`, `EmployeeLeft` | 직원 사본, 입퇴사 목록(처음부터 다시 읽는다) |
+| 급여 | `AttendanceClosed` | 명세서의 근무 시간. 근태가 없으면 사람이 적는다 |
+| 급여 | `Reverted` | 되돌린 입퇴사와 근태 마감을 지운다 |
 | 인사 | 없음 | 아무 이벤트도 듣지 않는다 |
 | 분석 | 원장 전체 | 구독하지 않고 직접 읽는다 |
