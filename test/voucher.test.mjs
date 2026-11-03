@@ -147,6 +147,19 @@ test('evidence decides what can be said: the tax default, what can be deducted, 
   await rejects(c.admin('account_move', null, 'create', { ...base, move_type: 'in_invoice', lines: [row] }), 'ERP_REQUIRED')
 })
 
+test('a plain document from the generic form says nothing it did not mean to', async () => {
+  // What the form sends: every field it knows, blank or at its default.
+  const r = await c.admin('account_move', null, 'create', { move_type: 'in_invoice', partner_id: vendor, invoice_date: '2026-05-20', evidence_type: null, approval_no: null, deductible: true, stock_reflect: false,
+    voucher: false, payment_way: null, payment_date: null, payment_journal_id: null, allow_duplicate: false, lines: [{ name: '일반 문서', qty: 1, price_unit: 1000, tax_ids: [tax10], account_id: taxExpense }] })
+  assert.equal(r.state.state, 'draft', 'it does not post')
+  assert.equal(r.state.voucher, undefined); assert.equal(r.state.payment_way, undefined)
+  await c.admin('account_move', r.id, 'post', {})
+  const posted = (await c.events(r.id)).find((e) => e.event_type === 'InvoicePosted')
+  assert.equal(posted.data.lines[0].taxes[0].non_deductible, undefined)
+  assert.deepEqual(posted.data.evidence, {}, 'no evidence is no evidence')
+  await c.settle()
+})
+
 test('tax that cannot be deducted is a cost, not a claim: it stays off the VAT account', async () => {
   await c.settle()
   const before_ = await balance('부가세대급금')
@@ -338,6 +351,37 @@ test('a posted voucher still blocks a plain rollback', async () => {
   assert.equal((await c.rec(r.id)).state.state, 'posted')
 })
 
+test('an agent with the accounting role alone can do the whole of it, and take it back', async () => {
+  const k = await company({ clock: '2026-06-01T03:00:00Z' })
+  try {
+    const clerk = await k.addMember('정회계', ['accounting'])
+    const call = async (name, args) => {
+      const r = (await k.db.asUser(clerk.id, 'select public.erp_mcp($1) r', [JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })])).rows[0].r
+      return { isError: r.result.isError ?? false, text: r.result.content[0].text, json: r.result.isError ? null : JSON.parse(r.result.content[0].text) }
+    }
+    const pr = await k.admin('product', null, 'create', { name: '제품', standard_price: 100 })
+    const v = pr.state.variants[0].id
+    const schema = await call('erp_read', { type: 'account_move', schema: true })
+    assert.ok(schema.json.fields.some((f) => f.name === 'voucher'), 'an agent can find the voucher in the schema')
+    assert.ok(schema.json.extra_commands.compensate); assert.equal(schema.json.compensate.command, 'compensate')
+    const saga = crypto.randomUUID()
+    const party = await call('erp_create', { type: 'partner', values: { name: '거래처', tax_id: '1' }, saga_id: saga })
+    assert.equal(party.isError, false, party.text)
+    const made = await call('erp_create', { type: 'account_move', saga_id: saga, values: { voucher: true, move_type: 'in_invoice', partner_id: party.json.id, invoice_date: '2026-05-01', evidence_type: 'tax_invoice', approval_no: 'C-1', payment_way: 'bank', stock_reflect: true, lines: [{ variant_id: v, qty: 3, price_unit: 1000 }] } })
+    assert.equal(made.isError, false, made.text)
+    await k.settle()
+    const plan = await call('erp_read', { rollback: { correlation_id: saga } })
+    assert.equal(plan.isError, false, plan.text)
+    assert.equal(plan.json.mode, 'compensate', JSON.stringify(plan.json.hard_blocked))
+    const done = await call('erp_create', { type: 'rollback', values: { correlation_id: saga, plan_hash: plan.json.hash }, reason: '취소' })
+    assert.equal(done.isError, false, done.text)
+    await k.settle()
+    const st = (await call('erp_read', { saga })).json
+    for (const n of st.net) assert.equal(Number(n.amount), 0, JSON.stringify(n))
+    assert.equal(Number((await k.db.query('select coalesce(sum(qty), 0) n from erp.quants where variant_id = $1', [v])).rows[0].n), 0)
+  } finally { await k.close() }
+})
+
 test('in a closed period the saga is blocked and says which lock', async () => {
   const k = await company({ clock: '2026-06-01T03:00:00Z' })
   try {
@@ -407,6 +451,9 @@ test('a customer return comes back in: the sale side compensates too, and a part
   assert.equal(await onHand(v), 3, 'one came back')
   assert.equal(Number((await c.rec(draft.id)).state.amount_total), 110000)
   await rejects(c.admin('account_move', sale.id, 'compensate', { amend_reason: 'nonsense' }), 'ERP_INVALID')
+  await rejects(c.admin('account_move', sale.id, 'reverse', { amend_reason: 'nonsense' }), 'ERP_INVALID')
+  // A correction someone wrote by hand stands: offsetting the whole document on top of it would take back too much.
+  await rejects(c.admin('account_move', sale.id, 'compensate', {}), 'ERP_STATE')
   // Cancelling a document whose goods moved brings them back as well.
   const other = await c.admin('account_move', null, 'create', { voucher: true, move_type: 'out_invoice', partner_id: customer, invoice_date: '2026-05-27', evidence_type: 'tax_invoice', approval_no: approval(), stock_reflect: true,
     lines: [{ variant_id: v, qty: 2, price_unit: 100000 }] })

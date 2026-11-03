@@ -1636,7 +1636,7 @@ select erp.catalog_put(d || jsonb_build_object('fields', (
     {"name": "early_discount_gain_account_id", "label": "조기 할인 이익 계정", "type": "ref", "ref": "account"},
     {"name": "early_discount_loss_account_id", "label": "조기 할인 손실 계정", "type": "ref", "ref": "account"},
     {"name": "lock_date_all", "label": "전체 잠금일", "type": "date", "help": "이 날짜까지의 청구서·입금·전표를 게시하거나 되돌릴 수 없습니다"},
-    {"name": "lock_date_tax", "label": "세금 잠금일", "type": "date", "help": "세금이 있는 문서만 막습니다. 세금 신고를 마친 뒤 넣습니다"},
+    {"name": "lock_date_tax", "label": "세금 잠금일", "type": "date", "help": "세금이나 증빙이 있는 문서를 막습니다. 세금 신고를 마친 뒤 넣습니다"},
     {"name": "lock_date_sale", "label": "판매 잠금일", "type": "date", "help": "고객 문서만 막습니다"},
     {"name": "lock_date_purchase", "label": "구매 잠금일", "type": "date", "help": "공급사 문서만 막습니다"},
     {"name": "lock_date_hard", "label": "되돌릴 수 없는 잠금일", "type": "date", "help": "넣은 뒤에는 앞당기거나 지울 수 없습니다"}

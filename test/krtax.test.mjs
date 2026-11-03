@@ -3,6 +3,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { company, rejects } from './lib/harness.mjs'
+import { seedKrtax } from '../scripts/seed-krtax.mjs'
 
 let c, buyer, buyer2, seller, seller2, seller3, T = {}, expense, member
 const q = async (sql, params = [], user = c.adminId) => (await c.db.asUser(user, sql, params)).rows[0].r
@@ -470,6 +471,23 @@ test('turned on late it comes out the same as on from the start', async () => {
     assert.deepEqual(cell(await ret(2026, 1, 'preliminary', null, late), '3'), { amount: 260000, tax: 26000 })
     assert.deepEqual(await late.verifyProjection(), [])
   } finally { await late.close() }
+})
+
+test('the optional seed adds what it says it adds, once, and only when someone runs it', async () => {
+  const k = await company({ clock: '2026-03-20T03:00:00Z' })
+  try {
+    const expense2 = (await k.list('account')).find((a) => a.state.code === '960').id
+    const run = (type, id, command, payload) => k.admin(type, id, command, payload)
+    assert.equal((await seedKrtax(run, { year: 2026, term: 1, expenseAccountId: expense2 })).length, 4)
+    await k.settle()
+    const r = await ret(2026, 1, 'preliminary', null, k)
+    assert.deepEqual(cell(r, '1'), { amount: 3000000, tax: 300000 })
+    assert.deepEqual(cell(r, '10'), { amount: 1050000, tax: 105000 })
+    assert.deepEqual(cell(r, '44'), { amount: 70000, tax: 7000 })
+    assert.deepEqual(cell(r, '53'), { amount: 50000, tax: 5000 })
+    assert.equal(Number(r.totals.na), 107000); assert.equal(Number(r.totals.da), 193000)
+    assert.equal(r.exceptions.missing_tax_id.length, 0)
+  } finally { await k.close() }
 })
 
 test('it needs invoicing to be on, and is not on by default', async () => {

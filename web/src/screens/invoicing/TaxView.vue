@@ -39,7 +39,7 @@ const canClose = computed(() => isAdmin() && !writeBlock.value && !!picked.value
 
 async function closePeriod() {
   if (!picked.value) return
-  const answer = await ask({ title: '이 기간 닫기', message: `세금 잠금일을 ${picked.value.to} 로 정합니다. 세금이 있는 문서는 이 날짜까지 게시하거나 되돌릴 수 없게 됩니다.`, confirmLabel: '닫기', cancelLabel: '취소', danger: true })
+  const answer = await ask({ title: '이 기간 닫기', message: `세금 잠금일을 ${picked.value.to} 로 정합니다. 세금이나 증빙이 있는 문서는 이 날짜까지 게시하거나 되돌릴 수 없게 됩니다.`, confirmLabel: '닫기', cancelLabel: '취소', danger: true })
   if (!answer) return
   closing.value = true
   try {

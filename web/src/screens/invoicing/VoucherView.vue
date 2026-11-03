@@ -122,7 +122,7 @@ onMounted(async () => {
 })
 onDataChanged(() => { void recent.load() })
 watch(() => recent.data.value, (r) => { if (r?.length) void ensureNames(r.map((x) => x.state.partner_id)) })
-const labelOf = (v: unknown) => EVIDENCE.find((e) => e.value === v)?.label ?? '없음 표시 안 됨'
+const labelOf = (v: unknown) => EVIDENCE.find((e) => e.value === v)?.label ?? ''
 
 // What the tax office's bulk issue screen would want. Its own layout has not been compared with a real file.
 const exportFrom = ref(`${today.slice(0, 7)}-01`)

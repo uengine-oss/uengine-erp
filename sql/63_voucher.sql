@@ -37,8 +37,8 @@ $$;
 create or replace function erp.vch_line_facts(p_state jsonb, p_lines jsonb) returns jsonb
 language plpgsql stable as $$
 declare
-  no_deduct boolean := erp.vch_side(p_state ->> 'move_type') = 'in' and (p_state ->> 'deductible')::boolean is false;
-  known boolean := p_state ->> 'evidence_type' is not null;
+  -- With no evidence named nothing has been said about deduction, whatever a form's checkbox was left at.
+  no_deduct boolean := p_state ->> 'evidence_type' is not null and erp.vch_side(p_state ->> 'move_type') = 'in' and (p_state ->> 'deductible')::boolean is false;
   l jsonb; t jsonb; rows_ jsonb; cls text;
   out_ jsonb := '[]'::jsonb;
 begin
@@ -165,6 +165,15 @@ end $$;
 create or replace function erp.vch_amend_keeps_date(p_reason text) returns boolean
 language sql immutable as $$ select p_reason not in ('returned', 'contract_cancelled', 'amount_changed') $$;
 
+create or replace function erp.vch_check_amend(p_reason text) returns void
+language plpgsql stable as $$
+begin
+  if not exists (select 1 from jsonb_array_elements(erp.catalog_of('account_move') -> 'fields') f, jsonb_array_elements(f -> 'options') o
+                  where f ->> 'name' = 'amend_reason' and o ->> 'value' = p_reason) then
+    perform erp.fail('ERP_INVALID', format('수정 사유가 올바르지 않습니다: %s', p_reason));
+  end if;
+end $$;
+
 create or replace function erp.vch_tax_for(p_move_type text, p_class text) returns jsonb
 language plpgsql stable as $$
 declare
@@ -251,7 +260,7 @@ begin
   end if;
   if ev is null then perform erp.fail('ERP_REQUIRED', '증빙유형을 고르세요'); end if;
   if nullif(p ->> 'invoice_date', '') is null then perform erp.fail('ERP_REQUIRED', '증빙 일자는 필수입니다'); end if;
-  if erp.vch_side(mt) = 'out' and (p ? 'deductible' or p ? 'non_deduct_reason') then
+  if erp.vch_side(mt) = 'out' and ((p ->> 'deductible')::boolean is false or nullif(p ->> 'non_deduct_reason', '') is not null) then
     perform erp.fail('ERP_EVIDENCE', '공제 여부는 매입 전표에만 있습니다');
   end if;
   if p ? 'from_sales_order' or p ? 'from_purchase_order' or p ? 'from_move' then
@@ -329,10 +338,7 @@ begin
   if s ->> 'state' <> 'posted' then
     perform erp.fail('ERP_STATE', '게시된 문서만 대변 메모로 상쇄합니다');
   end if;
-  if not exists (select 1 from jsonb_array_elements(erp.catalog_of('account_move') -> 'fields') f, jsonb_array_elements(f -> 'options') o
-                  where f ->> 'name' = 'amend_reason' and o ->> 'value' = amend) then
-    perform erp.fail('ERP_INVALID', format('수정 사유가 올바르지 않습니다: %s', amend));
-  end if;
+  perform erp.vch_check_amend(amend);
   if cn is not null then
     note := erp.state_of(cn);
     if note ->> 'state' = 'posted' and coalesce((note ->> 'compensation')::boolean, false) then return cn; end if;

@@ -60,7 +60,7 @@ select erp.catalog_put('{
      "options": [{"value": "tax_invoice", "label": "세금계산서"}, {"value": "exempt_invoice", "label": "계산서"}, {"value": "credit_card", "label": "신용카드"},
                  {"value": "cash_receipt", "label": "현금영수증"}, {"value": "other_receipt", "label": "그 밖의 영수증"}, {"value": "none", "label": "없음"}]},
     {"name": "approval_no", "label": "승인번호", "type": "text", "search": true, "help": "홈택스에서 발급한 뒤 적습니다. 앱이 발급하지 않습니다"},
-    {"name": "deductible", "label": "매입세액 공제", "type": "boolean", "help": "게시 전에 정합니다. 안 받으면 세액이 비용이 됩니다"},
+    {"name": "deductible", "label": "매입세액 공제", "type": "boolean", "default": true, "help": "게시 전에 정합니다. 안 받으면 세액이 비용이 됩니다"},
     {"name": "non_deduct_reason", "label": "불공제 사유", "type": "enum",
      "options": [{"value": "missing_fields", "label": "필요적 기재사항 누락 등"}, {"value": "unrelated", "label": "사업과 직접 관련 없는 지출"},
                  {"value": "car", "label": "개별소비세 대상 자동차 구입·유지 및 임차"}, {"value": "entertainment", "label": "기업업무추진비 및 유사 비용"},
@@ -826,7 +826,8 @@ begin
   end if;
   vals := erp.validate('account_move', erp.clean_payload('account_move', p - 'lines'), true);
   move_type := vals ->> 'move_type';
-  head := erp.inv_partner_defaults(move_type, (vals ->> 'partner_id')::uuid, jsonb_strip_nulls(vals - 'lines' - 'method' - 'amount' - 'deduct_downpayments' - 'line_ids' - 'payment_date' - 'payment_journal_id' - 'allow_duplicate'));
+  head := erp.inv_partner_defaults(move_type, (vals ->> 'partner_id')::uuid, jsonb_strip_nulls(vals - 'lines' - 'method' - 'amount' - 'deduct_downpayments' - 'line_ids' - 'payment_date' - 'payment_journal_id' - 'allow_duplicate'
+      - case when coalesce((vals ->> 'voucher')::boolean, false) then array[]::text[] else array['voucher', 'payment_way'] end));
   if src is not null and not p ? 'lines' then
     lines_ := erp.inv_copy_lines(src -> 'lines', false);
   else
@@ -1327,6 +1328,7 @@ begin
   if s ->> 'state' <> 'posted' then
     perform erp.fail('ERP_STATE', '게시된 문서만 정정할 수 있습니다');
   end if;
+  if amend is not null then perform erp.vch_check_amend(amend); end if;
   -- What is amended decides whose date it carries: a return lands on its own day, a mistake on the first date.
   same_date := day_ is null and amend is not null and erp.vch_amend_keeps_date(amend);
   day_ := coalesce(day_, case when same_date then (s ->> 'invoice_date')::date end, erp.today());
@@ -1430,7 +1432,9 @@ begin
   case p_command
     when 'create' then
       if coalesce((p_p ->> 'voucher')::boolean, false) then return erp.vch_create(p_id, p_p); end if;
-      if p_p ? 'payment_way' or p_p ? 'payment_date' or p_p ? 'payment_journal_id' or p_p ? 'allow_duplicate' then
+      -- A form sends every field it knows, blank ones included: only what says something counts.
+      if exists (select 1 from jsonb_each(p_p) x where x.key in ('payment_way', 'payment_date', 'payment_journal_id', 'allow_duplicate')
+                  and jsonb_typeof(x.value) <> 'null' and x.value <> 'false'::jsonb and x.value <> '""'::jsonb) then
         perform erp.fail('ERP_INVALID', '결제방법과 중복 허용은 전표 입력(voucher)에만 씁니다');
       end if;
       return erp.inv_create(p_id, p_p);
@@ -2056,7 +2060,7 @@ begin
         from erp.records r
        where r.type = 'account_move' and not r.deleted and r.status = 'posted'
          and (r.state ->> 'date')::date between p_from and p_to
-         and coalesce((r.state ->> 'deductible')::boolean, true)
+         and (r.state ->> 'evidence_type' is null or coalesce((r.state ->> 'deductible')::boolean, true))
     ), tx as (
       select d.mt, d.sign_, t, l from docs d, jsonb_array_elements(d.lines_) l, jsonb_array_elements(coalesce(l -> 'taxes', '[]'::jsonb)) t
        where erp.inv_is_product_line(l)
