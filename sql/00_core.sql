@@ -796,7 +796,7 @@ language sql stable security definer set search_path = erp, pg_temp as $$
     'installed', true,
     'version', (select value #>> '{}' from erp.meta where key = 'schema_version'),
     'initialized', exists (select 1 from erp.members),
-    'company_name', (select state ->> 'name' from erp.records where id = erp.company_id()),
+    'company_name', case when erp.is_member() then (select state ->> 'name' from erp.records where id = erp.company_id()) end,
     'demo', coalesce((select (value #>> '{}')::boolean from erp.meta where key = 'demo'), false))
 $$;
 

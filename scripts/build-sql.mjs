@@ -25,7 +25,8 @@ const target = process.env.ERP_SQL_OUT || path.join(root, 'dist-sql', 'install.s
 fs.mkdirSync(path.dirname(target), { recursive: true })
 fs.writeFileSync(target, out)
 const gen = path.join(root, 'web', 'src', 'generated')
-if (!only && fs.existsSync(path.join(root, 'web', 'src'))) {
+// A subset build leaves the web app's copy alone unless asked: ERP_SQL_WEB=1 lets browser tests run on the subset.
+if ((!only || process.env.ERP_SQL_WEB === '1') && fs.existsSync(path.join(root, 'web', 'src'))) {
   fs.mkdirSync(gen, { recursive: true })
   fs.writeFileSync(path.join(gen, 'install.sql'), out)
   fs.writeFileSync(path.join(gen, 'version.json'), JSON.stringify({ version: pkg.version }))

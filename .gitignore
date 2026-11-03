@@ -10,3 +10,4 @@ test-results/
 playwright-report/
 *.log
 dist-sql/
+e2e/shots/

@@ -57,6 +57,12 @@
 
 필드 유형: `text number money integer boolean date datetime enum ref refs tags json lines password`. 추가 속성: `required list search default readonly options[{value,label}] ref unique create_only computed columns help`.
 
+화면 전용 속성(웹 앱 `MetaForm`·`MetaList` 가 읽는다, 없어도 동작한다):
+- 필드: `multiline`(긴 입력칸), `hidden`(화면에서 숨김), `sections`(`lines` 에 구역·메모 줄 허용. 열에 `display_type` 을 넣어도 같다), `options_from{path,field}`(같은 줄의 `field` 가 가리키는 레코드의 `state[path]` 에서 선택지를 가져온다).
+- 전이·추가 명령: `danger`(위험 표시, 확인·사유 대화상자), `confirm`(확인 문구). `cancel delete reverse void revert reset_to_draft archive merge` 로 시작하는 명령은 자동으로 위험 동작으로 본다.
+- 유형: `hidden`(메뉴에서 숨김), `singleton`, `read_roles`. 메뉴는 카탈로그로 설치 여부만 판단하고 역할로 숨기지 않으며, 읽을 수 없으면 목록의 빈 상태 문구가 안내한다.
+- 금액 표시: `lines` 가 있는 유형의 `money` + `computed`(또는 `readonly`) 필드는 줄 표 아래 합계 칸에 나오고 마지막 필드가 총계다. `erp.preview_<type>` 은 같은 필드 이름으로 값을 돌려주면 화면에 반영된다.
+
 **MCP 규칙:** 모든 업무 행위는 CRUD 로 표현할 수 있어야 한다.
 - 상태 전이: `update` + `{"state": "<to>"}` → 카탈로그 `transitions` 로 명령을 찾는다.
 - 다른 문서를 만드는 행위: `create` 로 표현한다(예: `account_move` create `{from_sales_order, method}`, `payment` create, 반품은 `picking` create `{return_of}`).

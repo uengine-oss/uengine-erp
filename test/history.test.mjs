@@ -116,6 +116,18 @@ test('time travel: a record reads back exactly as it stood at each moment', asyn
   assert.equal((await c.rec(o.id)).state.state, 'sent')
 })
 
+test('time travel: stepping by version separates events with the same timestamp', async () => {
+  const o = await newOrder(5)
+  await c.admin('t_order', o.id, 'update', { qty: 6 })
+  await c.admin('t_order', o.id, 'update', { qty: 7 })
+  const at = async (v) => (await c.db.asUser(c.adminId, 'select public.erp_at_version($1, $2) as s', [o.id, v])).rows[0].s
+  assert.equal((await at(1)).qty, 5)
+  assert.equal((await at(2)).qty, 6)
+  assert.equal((await at(3)).qty, 7)
+  const sales = await c.addMember('s-ver', ['viewer'])
+  assert.equal((await c.db.asUser(sales.id, 'select public.erp_at_version($1, 1) as s', [o.id])).rows[0].s.qty, 5)
+})
+
 test('time travel: the whole company list reads back as of a moment, including records that did not exist yet', async () => {
   const t0 = await clock()
   const o = await newOrder(3)

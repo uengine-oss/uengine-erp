@@ -1,0 +1,18 @@
+@media print {
+  @page { size: A4; margin: 14mm; }
+  html, body, #app { height: auto; background: #fff; }
+  .no-print, .toasts, .dlg-overlay { display: none !important; }
+  .print-only { display: block; }
+  .shell, .shell-main, .shell-body, .page, .page-body, .form-layout, .form-main { display: block !important; height: auto !important; overflow: visible !important; }
+  .input, .select, .textarea, .chips { border: 0 !important; background: none !important; box-shadow: none !important; }
+  input::placeholder, textarea::placeholder { color: transparent; }
+  .select { appearance: none; background-image: none; }
+  .textarea { resize: none; }
+  input::-webkit-calendar-picker-indicator { display: none; }
+  .combo-clear, .req, .hint { display: none !important; }
+  .print-head { border-bottom: 1px solid #333; margin-bottom: 8px; }
+  .tbl th { position: static; background: #fff; }
+  .tbl td, .tbl th { border-bottom-color: #bbb; }
+  .field-grid { gap: 2px 18px; }
+  a { color: inherit; }
+}

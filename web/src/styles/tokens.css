@@ -1,0 +1,52 @@
+:root {
+  /* Ink: text and chrome */
+  --ink-950: #0a1322;
+  --ink-900: #101b2f;
+  --ink-800: #18263f;
+  --ink-700: #2a3a55;
+  --ink-600: #46566f;
+  --ink-500: #5f6d83;
+  --ink-400: #8a96a8;
+  --ink-300: #b5becb;
+  --ink-200: #d6dbe3;
+  --ink-150: #e3e6ec;
+  --ink-100: #edeff3;
+  --ink-50: #f5f6f8;
+
+  /* Navy: the one brand colour, used for actions and selection */
+  --navy-800: #142c5c;
+  --navy-700: #1b3a78;
+  --navy-600: #24498f;
+  --navy-300: #9db0d6;
+  --navy-100: #dfe6f4;
+  --navy-50: #eff2f9;
+
+  /* Restrained accent: required marks and time travel only */
+  --accent: #a8481f;
+  --accent-soft: #fbf1ea;
+  --accent-line: #e9cdbb;
+
+  --bg: var(--ink-50);
+  --surface: #ffffff;
+  --line: #dde1e8;
+  --line-strong: #c5ccd7;
+  --text: #141c2b;
+  --text-2: var(--ink-600);
+  --text-3: var(--ink-500);
+
+  /* Status pills */
+  --gray-fg: #47536a;   --gray-bg: #eceef2;   --gray-line: #d7dbe2;
+  --blue-fg: #1d4289;   --blue-bg: #e4ebf8;   --blue-line: #c6d4ee;
+  --green-fg: #186343;  --green-bg: #e2f2ea;  --green-line: #bfe0cf;
+  --amber-fg: #7d5206;  --amber-bg: #faf0d9;  --amber-line: #eddcae;
+  --red-fg: #a02a2a;    --red-bg: #fae8e6;    --red-line: #f0cbc7;
+  --violet-fg: #54398f; --violet-bg: #eee9f8; --violet-line: #d9cfee;
+
+  --radius: 4px;
+  --radius-sm: 3px;
+  --row-h: 30px;
+  --ctl-h: 28px;
+  --shadow-pop: 0 4px 14px rgba(16, 27, 47, 0.16), 0 0 0 1px rgba(16, 27, 47, 0.08);
+  --font: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

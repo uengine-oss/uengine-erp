@@ -28,6 +28,14 @@ begin
   return s;
 end $$;
 
+-- Events in one transaction can share a timestamp, so stepping through a stream goes by version.
+create or replace function public.erp_at_version(p_id uuid, p_version int) returns jsonb
+language plpgsql stable security definer set search_path = erp, pg_temp as $$
+begin
+  perform erp.require_readable(p_id);
+  return erp.fold_to_version(p_id, p_version);
+end $$;
+
 -- The whole company as it stood at a moment: every screen can run read-only against this.
 -- Only the requested page is replayed; replaying every stream to fill one page took 8.9 s at 200,000 events.
 create index if not exists events_deleted_flag_idx on erp.events (stream_id, version)
