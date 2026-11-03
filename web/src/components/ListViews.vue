@@ -2,7 +2,8 @@
 // The same rows as a board, a calendar, a table of sums or columns. The browser only arranges what the query returned.
 import { computed, ref, watch } from 'vue'
 import { messageOf } from '../lib/api'
-import { displayValue } from '../lib/fields'
+import { sendCommand } from '../lib/commands'
+import { displayValue, visibleTransitions } from '../lib/fields'
 import { fmtMoney, fmtNumber } from '../lib/format'
 import { ensureNames } from '../lib/refs'
 import type { CatalogDoc, ErpRecord, Field } from '../lib/types'
@@ -11,7 +12,7 @@ import EmptyState from './EmptyState.vue'
 import Icon from './Icon.vue'
 import StatusPill from './StatusPill.vue'
 
-const props = defineProps<{ mode: string; doc: CatalogDoc; config: { date?: string; amount?: string; groups?: string[] }; total: number; fetchRows: (limit: number) => Promise<ErpRecord[]> }>()
+const props = defineProps<{ mode: string; doc: CatalogDoc; config: { date?: string; amount?: string; groups?: string[]; moves?: boolean; title?: string; subtitle?: string }; total: number; fetchRows: (limit: number) => Promise<ErpRecord[]> }>()
 defineEmits<{ open: [row: ErpRecord] }>()
 
 const LIMIT = 500
@@ -46,14 +47,34 @@ async function load() {
 watch(() => [props.mode, props.total], load, { immediate: true })
 
 const money = (r: ErpRecord) => (amount.value ? Number(r.state?.[amount.value.name] ?? 0) : 0)
-const titleOf = (r: ErpRecord) => r.name ?? r.state?.number ?? r.id.slice(0, 8)
-const subtitleOf = (r: ErpRecord) => { const f = fieldOf('partner_id'); return f ? displayValue(f, r.state?.partner_id) : '' }
+const titleOf = (r: ErpRecord) => (props.config.title ? r.state?.[props.config.title] : null) ?? r.name ?? r.state?.number ?? r.id.slice(0, 8)
+const subtitleOf = (r: ErpRecord) => {
+  const f = fieldOf('partner_id')
+  const partner = f ? displayValue(f, r.state?.partner_id) : ''
+  return partner || (props.config.subtitle ? r.state?.[props.config.subtitle] ?? '' : '')
+}
 
 /* Board */
 const board = computed(() => (props.doc.states ?? []).map((s) => {
   const items = rows.value.filter((r) => r.status === s.value)
   return { state: s, items, sum: items.reduce((n, r) => n + money(r), 0) }
 }))
+
+// The next step a board can take by itself: the state's main action, when it needs nothing asked. The rest opens the document.
+const moveOf = (r: ErpRecord) => (props.config.moves ? visibleTransitions(props.doc, r.status).find((t) => t.primary && !t.params?.length) : undefined)
+const moving = ref('')
+async function move(r: ErpRecord, command: string) {
+  moving.value = r.id
+  error.value = ''
+  try {
+    await sendCommand({ type: props.doc.type, id: r.id, command, expectedVersion: r.version })
+    await load()
+  } catch (e) {
+    error.value = messageOf(e)
+  } finally {
+    moving.value = ''
+  }
+}
 
 /* Calendar: a month at a time, moved by hand */
 const shownMonth = ref('')
@@ -105,11 +126,14 @@ const chartFormat = (v: number) => (amount.value ? fmtMoney(v) : fmtNumber(v))
     <div v-if="mode === 'board'" class="board" data-testid="list-board">
       <section v-for="c in board" :key="c.state.value" class="board-col" :data-state="c.state.value">
         <h3 class="board-head"><StatusPill :doc="doc" :value="c.state.value" /><span class="muted small">{{ c.items.length }}건</span><span v-if="amount" class="num small grow">{{ fmtMoney(c.sum) }}</span></h3>
-        <button v-for="r in c.items" :key="r.id" type="button" class="board-card" data-testid="board-card" @click="$emit('open', r)">
-          <strong class="ellipsis">{{ titleOf(r) }}</strong>
-          <span v-if="subtitleOf(r)" class="dim small ellipsis">{{ subtitleOf(r) }}</span>
-          <span v-if="amount" class="num small">{{ fmtMoney(money(r)) }}</span>
-        </button>
+        <template v-for="r in c.items" :key="r.id">
+          <button type="button" class="board-card" data-testid="board-card" @click="$emit('open', r)">
+            <strong class="ellipsis">{{ titleOf(r) }}</strong>
+            <span v-if="subtitleOf(r)" class="dim small ellipsis">{{ subtitleOf(r) }}</span>
+            <span v-if="amount" class="num small">{{ fmtMoney(money(r)) }}</span>
+          </button>
+          <button v-if="moveOf(r)" type="button" class="btn btn-sm board-move" :disabled="moving === r.id" data-testid="board-move" @click="move(r, moveOf(r)!.command)">{{ moveOf(r)!.label }}</button>
+        </template>
       </section>
     </div>
 

@@ -52,3 +52,43 @@ export function expenseSteps(seed: number, onDay: number, end: number): Steps {
   }
   return out
 }
+
+const LEADS = ['한빛유통', '새봄가전', '다온마트', '미래상사', '푸른생활', '대한홈', '온누리유통', '하늘가전', '가람상사', '세종마트', '우리생활', '태양유통'] as const
+const LOST = ['price', 'competitor', 'timing', 'budget', 'no_need', 'no_response'] as const
+
+/**
+ * Deals from the day the module comes on. A deal climbs the stages until it stops. Quotes are never drafted here, so the quote and
+ * order figures stay what they were; deals still open at the end are there for whoever opens the demo to win.
+ */
+export function crmSteps(seed: number, onDay: number, end: number, customers: number): Steps {
+  const r = rng(seed * 15485863 + 307)
+  const out: Steps = new Map()
+  const add = adder(out, end)
+  add(onDay, stepper(onDay, '08:40')('module', null, 'enable', { id: 'crm' }))
+  const STAGES = ['stage_talk', 'stage_proposal', 'stage_negotiation']
+  let n = 0
+  for (let d = onDay + 1; d < end; d++) {
+    if (r() > 0.28) continue
+    const id = uuid(`opportunity:${seed}:${n++}`)
+    const existing = r() < 0.5
+    const lead = LEADS[Math.floor(r() * LEADS.length)]
+    const amount = Math.round((500000 + r() * 9500000) / 10000) * 10000
+    const at = stepper(d, '10:05')
+    add(d, at('opportunity', id, 'create', {
+      name: `${existing ? '추가 납품' : lead} 제안`, expected_amount: amount, expected_close: isoOf(d + 30 + Math.floor(r() * 60)),
+      source: r() < 0.5 ? '소개' : '전시회', next_activity: '제안서 설명', next_activity_date: isoOf(d + 7),
+      ...(existing ? { partner_id: uuid(`customer:${Math.floor(r() * customers)}`) } : { company_name: lead }),
+    }, '박영업'))
+    let day = d
+    for (const command of STAGES) {
+      if (r() > 0.72) break
+      day += 3 + Math.floor(r() * 12)
+      add(day, stepper(day, '14:15')('opportunity', id, command, {}, '박영업'))
+    }
+    day += 4 + Math.floor(r() * 15)
+    if (day >= end - 1) continue
+    if (r() < 0.42) add(day, stepper(day, '17:00')('opportunity', id, 'win', { make_quote: false }, '박영업'))
+    else add(day, stepper(day, '17:00')('opportunity', id, 'lose', { lost_reason: LOST[Math.floor(r() * LOST.length)] }, '박영업'))
+  }
+  return out
+}

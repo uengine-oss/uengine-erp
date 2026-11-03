@@ -87,6 +87,9 @@
 | `pnl_outlook` 손익 전망 | 판매, 회계 | 전표 3개월 |
 | `stat_headcount` 인원 추이·입퇴사 | 인사 | 가장 이른 입사일부터 3개월 |
 | `stat_expense` 부서별 경비 추이 | 경비 | 승인 경비가 있었던 달 3개월 |
+| `crm_conversion` 단계별 전환율 | CRM | 끝난 건 20건 |
+| `crm_forecast` 파이프라인 수주 전망 | CRM | 끝난 건 20건. 모자라면 범위만 제시 |
+| `crm_repurchase` 재구매 후보 | CRM, 판매 | 두 번 이상 주문한 고객 3곳 |
 
 임계값은 정답을 아는 가상 회사로 재서 정했다. 그 아래에서 얼마나 틀리는지는 `docs/modules/analytics.md` 에 있다. 실제 회사에서는 다시 재야 한다.
 

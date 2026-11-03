@@ -118,6 +118,21 @@
 | `ExpenseReceiptAttached` | `number, receipt_id, sha256, mime, size`. **파일 이름과 위치는 없다** |
 | `ExpenseReceiptRemoved` | `number, receipt_id` |
 
+## CRM 이 내는 것
+
+공통 사실: `number, name, stage, partner_id, partner_name, company_name, expected_amount, expected_close, owner_id, source`. 영업 기회 ID 는 `ev.stream_id` 다. `stage` 는 그 이벤트 뒤의 단계다. `owner_id` 는 구성원 레코드 ID 다. 담당자 연락처는 어떤 이벤트에도 없다.
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `OpportunityCreated` | 공통 사실 + `created_on` |
+| `OpportunityChanged` | `changed:{칸:{from, to}}` + 공통 사실 |
+| `OpportunityStageChanged` | `from, to` + 공통 사실 |
+| `OpportunityWon` | `won_on, make_quote, stage_before` + 공통 사실. 구독자는 `make_quote` 가 거짓이면 견적을 만들지 않는다 |
+| `OpportunityLost` | `lost_on, lost_reason, lost_note, stage_before` + 공통 사실 |
+| `OpportunityReopened` | `was(won, lost)` + 공통 사실 |
+| `OpportunityDeleted` | `number` |
+| `OpportunityPrivateChanged`, `OpportunityPrivateErased` | `opportunity_id, fields` / `opportunity_id, erased_at`. **값은 없다.** `sales`, `admin` 만 읽는다 |
+
 ## 기초데이터가 내는 것
 
 | 이벤트 | `data` 의 사실 |
@@ -136,6 +151,7 @@
 | 판매 | `PickingStateChanged`, `PickingValidated` | 납품 상태, `qty_delivered` |
 | 판매 | `InvoiceDrafted`, `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled` | 청구 상태, `qty_invoiced` |
 | 판매 | `ModuleEnabled` | 재고·청구가 켜진 시점을 기록해 그 뒤의 주문만 추적 대상으로 본다 |
+| 판매 | `OpportunityWon`, `OpportunityReopened` | 견적 초안(`origin_type: opportunity`, `origin_id`). 다시 열면 보내지 않은 초안을 취소한다. 켠 뒤의 이벤트만 듣는다 |
 | 구매 | `ReorderRequested` | 견적 요청 초안 |
 | 구매 | `PickingStateChanged`, `PickingValidated` | 입고 상태, `qty_received` |
 | 구매 | `InvoiceDrafted`, `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled` | 청구 상태, `qty_billed` |
@@ -144,4 +160,5 @@
 | 회계 | `ExpenseApproved`, `ExpensePaid`, `ExpenseCancelled` | 경비 분개(처음부터 다시 읽는다) |
 | 인사 | 없음 | 아무 이벤트도 듣지 않는다 |
 | 경비 | 없음 | 아무 이벤트도 듣지 않는다. 직원은 명령을 처리하는 동안 `erp.peek` 로 읽는다 |
+| CRM | 없음 | 아무 이벤트도 듣지 않는다 |
 | 분석 | 원장 전체 | 구독하지 않고 직접 읽는다 |

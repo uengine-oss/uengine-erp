@@ -349,6 +349,25 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 경비 유형은 회계 담당자가 다룬다 | `expense.test.mjs` 1 | SQL | ✅ |
 | 가상 회사에 경비가 더해져도 판매와 재고 수치는 그대로다 | `expense.test.mjs` 2 | SQL | ✅ |
 
+### 15. CRM (spec `erp-crm`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| CRM 은 꺼진 채 시작하고 다른 모듈 없이 동작한다 | `crm.test.mjs` 1<br>`crm.spec.mjs` 1<br>`isolation.test.mjs` 7 | SQL, 브라우저 | ✅ |
+| 쓰기는 sales 와 관리자, 읽기는 모든 구성원이다 | `crm.test.mjs` 1<br>`crm.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 단계는 넷이고 건너뛰거나 되돌릴 수 있다 | `crm.test.mjs` 1<br>`crm.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 잘못된 값은 칸 이름으로 알려 주고 아무것도 남기지 않는다 | `crm.test.mjs` 1<br>`crm.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 수주에는 거래처나 회사명이 있어야 하고 실주에는 사유가 있어야 한다 | `crm.test.mjs` 2<br>`crm.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 수주가 판매에서 견적 초안이 된다 | `crm.test.mjs` 5<br>`crm.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 담당자 연락처는 원장 밖에 두고 지울 수 있다 | `crm.test.mjs` 1<br>`crm.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 되돌릴 수 없는 상태가 없으므로 사가는 되돌리기다 | `crm.test.mjs` 2 | SQL | ✅ |
+| MCP 는 구성원의 권한만큼만 한다 | `crm.test.mjs` 1 | SQL | ✅ |
+| 전환율은 근거가 찰 때까지 믿을 만하지 않다고 말한다 | `crm.test.mjs` 2<br>`crm.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 수주 전망은 근거가 모자라면 범위로만 말한다 | `crm.test.mjs` 1<br>`crm.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 재구매 후보는 주문 이력을 세어 보여 준다 | `crm.test.mjs` 1<br>`crm.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 꺼도 이력과 전환율이 남는다 | `crm.test.mjs` 1 | SQL | ✅ |
+| 가상 회사에 영업 기회가 더해져도 다른 수치는 그대로다 | `crm.test.mjs` 1 | SQL | ✅ |
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |

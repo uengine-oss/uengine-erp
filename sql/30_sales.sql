@@ -1463,6 +1463,41 @@ begin
   end loop;
 end $$;
 
+-- A won deal becomes a draft quote. All this module knows is the event: who bought, who sold it and roughly how much. There are
+-- no products to put on it yet, so a note line carries the figure and the salesperson fills in the rest.
+create or replace function erp.sales_on_opportunity(ev erp.events) returns void
+language plpgsql as $$
+declare
+  d jsonb := ev.data;
+  quote uuid := erp.seed_id('quote-from-opportunity:' || ev.seq);
+  partner uuid := (d ->> 'partner_id')::uuid;
+  r record;
+begin
+  if ev.event_type = 'OpportunityReopened' then
+    -- Reopened: a draft nobody has sent goes. One that has reached the customer is someone's decision.
+    for r in select id from erp.records where type = 'sales_order' and not deleted and status = 'draft' and state ->> 'origin_id' = ev.stream_id::text order by id for update loop
+      perform erp.dispatch('sales_order', r.id, 'cancel', jsonb_build_object('reason', format('영업 기회 %s 를 다시 열었습니다', d ->> 'number')));
+    end loop;
+    return;
+  end if;
+  if not coalesce((d ->> 'make_quote')::boolean, true) or exists (select 1 from erp.records where id = quote) then return; end if;
+  if partner is null then
+    select id into partner from erp.records
+     where type = 'partner' and not deleted and active and state ->> 'name' = d ->> 'company_name' order by created_at, id limit 1;
+    if partner is null then
+      partner := erp.seed_id('partner-from-opportunity:' || ev.stream_id);
+      if not exists (select 1 from erp.records where id = partner) then
+        perform erp.dispatch('partner', partner, 'create', jsonb_build_object('name', d ->> 'company_name', 'company_type', 'company'));
+      end if;
+    end if;
+  end if;
+  perform erp.dispatch('sales_order', quote, 'create', jsonb_strip_nulls(jsonb_build_object(
+    'partner_id', partner, 'salesperson_id', d ->> 'owner_id', 'origin', d ->> 'number',
+    'lines', jsonb_build_array(jsonb_build_object('display_type', 'note', 'name', format('영업 기회 %s: %s. 예상 금액 %s', d ->> 'number', d ->> 'name', to_char(erp.num(d -> 'expected_amount'), 'FM999,999,999,999,990')))))));
+  perform erp.emit('sales_order', quote, 'QuotationFromOpportunity', jsonb_build_object('set', jsonb_build_object('origin_type', 'opportunity', 'origin_id', ev.stream_id),
+    'origin_type', 'opportunity', 'origin_id', ev.stream_id, 'expected_amount', d -> 'expected_amount'));
+end $$;
+
 ------------------------------------------------------------------------------------------------
 -- Customer portal. The token is the whole credential: it opens this one quotation and nothing else, and what
 -- comes back is what the customer would see on paper. No cost, no margin, no internal notes.
@@ -1753,7 +1788,8 @@ select erp.module_put('{
   "subscribes": [
     {"name": "sales.delivery", "handler": "erp.sales_on_delivery", "replay": true, "events": ["PickingStateChanged", "PickingValidated"]},
     {"name": "sales.invoicing", "handler": "erp.sales_on_invoice", "replay": true, "events": ["InvoiceDrafted", "InvoicePosted", "InvoiceResetToDraft", "InvoiceCancelled"]},
-    {"name": "sales.modules", "handler": "erp.sales_on_module", "replay": true, "events": ["ModuleEnabled"]}
+    {"name": "sales.modules", "handler": "erp.sales_on_module", "replay": true, "events": ["ModuleEnabled"]},
+    {"name": "sales.crm", "handler": "erp.sales_on_opportunity", "events": ["OpportunityWon", "OpportunityReopened"]}
   ],
   "publishes": [
     {"event": "SalesOrderConfirmed", "fields": ["number", "partner_id", "partner_name", "delivery_partner_id", "region", "warehouse_id", "shipping_policy", "commitment_date", "date_order", "currency", "amount_untaxed", "amount_tax", "amount_total", "lines"]},

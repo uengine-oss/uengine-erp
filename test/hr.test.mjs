@@ -931,8 +931,8 @@ const BEFORE = {
 }
 const SHORT = { inventory: '2023-11-11', purchase: '2023-11-21', invoicing: '2023-12-01', accounting: '2023-12-11', end: '2024-01-10' }
 // What came after people has its own stage and random stream too, so it is left out with them. test/expense.test.mjs checks its own part.
-const isPeopleStep = (s) => ['employee', 'department', 'expense'].includes(s.type)
-  || (s.type === 'module' && ['hr', 'expense'].includes(s.payload?.id)) || (s.type === 'member' && s.payload?.name === '한인사')
+const isPeopleStep = (s) => ['employee', 'department', 'expense', 'opportunity'].includes(s.type)
+  || (s.type === 'module' && ['hr', 'expense', 'crm'].includes(s.payload?.id)) || (s.type === 'member' && s.payload?.name === '한인사')
 const hashOf = (stages, keep = () => true) => {
   const h = crypto.createHash('sha256')
   let steps = 0

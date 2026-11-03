@@ -63,7 +63,7 @@ export interface NavScreen {
   /** Filters offered above this type's list. */
   filters?: ListFilter[]
   /** Other ways to look at the list: a board by state, and with these, a calendar, a table of sums and columns. */
-  views?: { date?: string; amount?: string; groups?: string[] }
+  views?: { date?: string; amount?: string; groups?: string[]; moves?: boolean; title?: string; subtitle?: string }
   /** A word beside some rows of the list, worked out by the database. */
   marks?: (rows: ErpRecord[]) => Promise<Record<string, { label: string; color: string }>>
   /** Fields never drawn on the form. */
@@ -118,6 +118,13 @@ const mayApproveExpense = (r: ErpRecord | null) => {
   if (!r || !me) return false
   if (r.state.approver_user_id) return me === r.state.approver_user_id || (isAdmin() && me !== r.state.employee_user_id)
   return isAdmin()
+}
+
+// A next step that has gone by. The list only reads what is on screen and says so beside it.
+function overdueActivity(rows: ErpRecord[]): Promise<Record<string, { label: string; color: string }>> {
+  const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(new Date())
+  const late = rows.filter((r) => r.state.next_activity_date && r.state.next_activity_date < today && !['won', 'lost'].includes(r.status ?? ''))
+  return Promise.resolve(Object.fromEntries(late.map((r) => [r.id, { label: '활동 지남', color: 'red' }])))
 }
 
 export const NAV: NavModule[] = [
@@ -280,6 +287,17 @@ export const NAV: NavModule[] = [
       { type: 'employee', readonlyIn: ['left'], formPanel: loader('EmployeePrivatePanel'), advanced: ['department_since'] },
       { type: 'department' },
       { label: '인원 현황', route: '/hr/headcount', needs: 'employee' },
+    ],
+  },
+  {
+    key: 'crm', label: 'CRM', icon: 'crm',
+    screens: [
+      {
+        type: 'opportunity', formPanel: loader('OpportunityPanel'), readonlyIn: ['won', 'lost'], marks: overdueActivity,
+        views: { date: 'next_activity_date', amount: 'expected_amount', groups: ['owner_id', 'partner_id'], moves: true, title: 'name', subtitle: 'company_name' },
+        advanced: ['source', 'note', 'created_on'],
+      },
+      { label: '영업 분석', route: '/crm/analysis', needs: 'opportunity', roles: ['sales'] },
     ],
   },
   {
