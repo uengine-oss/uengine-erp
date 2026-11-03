@@ -106,3 +106,14 @@
 - `public.erp_stock_overview()`: 창고·유형별 준비·대기·지연·백오더 건수.
 - `public.erp_replenish_list()`: 규칙별 예측과 주문 수량, 납기, 멈춘 이유.
 - `public.erp_stock_check_all(ids)`: 대기 전표 일괄 재고 확인.
+
+## 손으로 적은 납품
+
+재고를 켜기 전에 판매 주문에 손으로 적은 납품(`SalesOrderDelivered`, `manual: true`)은 `import_since` 재생에서 뒤따라온다. 앞서 만든 출고 전표의 요구 수량이 그만큼 줄고, 남은 것이 없으면 전표가 취소된다. 그래서 이미 나간 물건이 다시 나가지 않는다. 전표가 없는 주문의 손 납품은 무시한다.
+
+## 조회 더
+
+- `erp_stock_move_report(filters{from, to, picking_type, product_id, is_return}, group_by[])`: `rows[{<묶음>, moves, qty, value}]`. 묶음은 `picking_type, product_id, variant_id, location_from, location_to, document_id, is_return, category_id, day, month`.
+- `erp_stock_availability(variant_ids[], warehouse_id)`: `[{variant_id, on_hand, reserved, available, incoming, outgoing, forecast, next_incoming_date, short, no_future_supply}]`. 주문 줄에 예약·가용을 보여 줄 때 쓴다.
+- 재고 추적을 끈 제품에는 재주문 규칙을 둘 수 없다(`ERP_INVALID`).
+- 재고 모듈이 꺼져 있으면 함수는 `ERP_MODULE_OFF` 다. 뷰(`erp_stock`, `erp_stock_moves`)는 쌓인 것을 그대로 보여 준다.

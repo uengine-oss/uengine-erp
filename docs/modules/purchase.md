@@ -73,3 +73,12 @@
 - `public.erp_purchase_dashboard()`: 보낼 것, 답 대기, 승인 대기, 지연(전체와 내 것), 최근 7일 금액·납기·발송 수.
 - `public.erp_vendor_catalog(partner_id)`: 그 공급사에서 살 수 있는 제품과 조건.
 - `erp.preview_purchase_order(payload)`: 저장 없이 금액 계산.
+
+## 보고
+
+- `erp_purchase_analysis(from, to, group_by[], filters{kind(all/rfq/po), date_field(date_order/date_confirmed), partner_id, product_id, category_id, buyer_id}, compare(previous_period/previous_year))`: `rows[{<묶음>, lines, orders, qty, qty_received, qty_billed, subtotal, total, avg_cost, days_to_confirm, days_to_receive, weight, volume, previous?, change_percent?}]`. 묶음은 `partner_id, product_id, variant_id, category_id, state, buyer_id, month, quarter, year`.
+- `erp_vendor_cost_report(from, to, partner_id)`: 확정 주문의 공급사·제품·월별 평균 원가.
+- `erp_purchase_spend(from, to, by(partner/category))`: 확정 주문의 지출.
+- `erp_vendor_prices(partner_id)`: 공급사 가격표를 줄로. 줄의 `id` 는 `erp_import('vendor_price', ...)` 로 돌아올 때의 외부 ID 다.
+
+승인은 관리자만 한다. 구매 역할이 부르면 `ERP_FORBIDDEN` 이다. 관찰은 조용히 아무 일도 하지 않는데, 그러면 화면이 "승인 완료" 라고 말하고 주문은 그대로다(`docs/plan.md` 결정 13). 이미 보낸 견적 요청의 `send` 는 아무 일도 하지 않는다.

@@ -38,7 +38,7 @@ after(async () => { await c.close() })
 
 test('every master type in the domain document has a catalog entry with the same fields', async () => {
   const types = domainTypes(path.join(root, 'docs', 'domain.md'), '## 2.')
-  assert.equal(types.length, 12)
+  assert.equal(types.length, 16)
   for (const { type, fields } of types) {
     assertCatalogMatches(await q1('select erp.catalog_of($1) as r', [type]), type, fields)
   }
@@ -93,16 +93,16 @@ test('running the install script again changes no data', async () => {
   assert.ok((await q1(`select erp.catalog_of('company') as r`)).fields.some((f) => f.name === 'default_sale_tax_id'))
 })
 
-test('fields and nested columns outside the catalog are not stored', async () => {
+test('a field outside the catalog is refused, a nested column outside it is not stored', async () => {
+  await rejects(c.admin('payment_term', null, 'create', { name: uniq('조건'), secret: 'x' }), 'ERP_UNKNOWN_FIELD')
+  await rejects(product({ internal: 1 }), 'ERP_UNKNOWN_FIELD')
   const r = await c.admin('payment_term', null, 'create', {
-    name: uniq('조건'), secret: 'x', active: false, lines: [{ value: 'percent', amount: 100, days: 3, hacker: true }],
+    name: uniq('조건'), active: false, lines: [{ value: 'percent', amount: 100, days: 3, hacker: true }],
   })
-  assert.equal(r.state.secret, undefined)
   assert.equal(r.state.active, true)
   assert.equal(r.state.lines[0].hacker, undefined)
   assert.deepEqual(Object.keys(r.state.lines[0]).sort(), ['amount', 'days', 'days_next_month', 'delay_type', 'id', 'value'])
-  const p = await product({ internal: 1, vendors: [{ partner_id: (await c.admin('partner', null, 'create', { name: uniq('공급') })).id, price: 5, x: 1 }] })
-  assert.equal(p.state.internal, undefined)
+  const p = await product({ vendors: [{ partner_id: (await c.admin('partner', null, 'create', { name: uniq('공급') })).id, price: 5, x: 1 }] })
   assert.equal(p.state.vendors[0].x, undefined)
 })
 

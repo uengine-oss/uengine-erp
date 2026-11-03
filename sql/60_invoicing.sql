@@ -11,12 +11,14 @@ select erp.module_put('{
   "not_rebuilt": "켜기 전의 입금 기록은 다시 만들 수 없습니다.",
   "publishes": [
     {"event": "InvoiceDrafted", "fields": ["move_type", "origin_type", "origin_id", "partner_id", "reversal_of", "lines"]},
-    {"event": "InvoicePosted", "fields": ["move_type", "number", "origin_type", "origin_id", "partner_id", "partner_name", "region", "date", "invoice_date", "due_date", "currency", "amount_untaxed", "amount_tax", "amount_total", "reversal_of", "installments", "lines"]},
+    {"event": "InvoicePosted", "fields": ["move_type", "number", "origin_type", "origin_id", "partner_id", "partner_name", "region", "date", "invoice_date", "due_date", "currency", "fiscal_position_id", "journal_id", "journal_account_id", "amount_untaxed", "amount_tax", "amount_total", "reversal_of", "installments", "lines"]},
     {"event": "InvoiceResetToDraft", "fields": ["move_type", "number", "origin_type", "origin_id", "partner_id", "lines"]},
     {"event": "InvoiceCancelled", "fields": ["move_type", "number", "origin_type", "origin_id", "partner_id", "lines"]},
     {"event": "InvoicePaymentApplied", "fields": ["payment_id", "credit_move_id", "amount", "residual", "payment_state", "partner_id", "due_date", "date"]},
-    {"event": "PaymentPosted", "fields": ["payment_type", "partner_type", "number", "partner_id", "amount", "date", "journal", "allocations", "unallocated", "writeoff_amount", "writeoff_account_id", "writeoff_label", "early_discount", "writeoff_taxes"]},
-    {"event": "PaymentCancelled", "fields": ["payment_type", "partner_type", "number", "partner_id", "amount", "date", "journal", "allocations"]}
+    {"event": "PaymentPosted", "fields": ["payment_type", "partner_type", "number", "partner_id", "amount", "date", "journal", "journal_id", "journal_account_id", "payment_method_id", "allocations", "unallocated", "writeoff_amount", "writeoff_account_id", "writeoff_label", "early_discount", "writeoff_taxes"]},
+    {"event": "PaymentCancelled", "fields": ["payment_type", "partner_type", "number", "partner_id", "amount", "date", "journal", "allocations"]},
+    {"event": "BankLineBooked", "fields": ["date", "amount", "account_id", "journal_account_id", "journal_id", "partner_id", "name"]},
+    {"event": "BankLineUnbooked", "fields": ["date", "journal_id"]}
   ],
   "subscribes": []
 }'::jsonb);
@@ -26,6 +28,7 @@ select erp.catalog_put('{
   "read_roles": ["accounting", "sales", "purchase"], "write_roles": ["accounting"],
   "revert_blocked_states": ["posted"],
   "revert_blocked_reason": "게시된 청구서는 되돌릴 수 없습니다. 대변 메모로 정정하세요",
+  "lock_fn": "erp.inv_lock_problem",
   "fields": [
     {"name": "move_type", "label": "구분", "type": "enum", "required": true, "default": "out_invoice", "list": true, "create_only": true,
      "options": [{"value": "out_invoice", "label": "고객 청구서"}, {"value": "out_refund", "label": "고객 대변 메모"},
@@ -37,13 +40,18 @@ select erp.catalog_put('{
     {"name": "due_date", "label": "만기일", "type": "date", "list": true},
     {"name": "payment_term_id", "label": "결제 조건", "type": "ref", "ref": "payment_term"},
     {"name": "fiscal_position_id", "label": "세금 조정", "type": "ref", "ref": "fiscal_position"},
-    {"name": "currency", "label": "통화", "type": "text"},
+    {"name": "currency", "label": "통화", "type": "text", "readonly": true},
     {"name": "ref", "label": "참조", "type": "text", "search": true},
     {"name": "payment_reference", "label": "결제 참조", "type": "text"},
     {"name": "narration", "label": "메모", "type": "text", "multiline": true},
-    {"name": "incoterm", "label": "인코텀즈", "type": "text"},
+    {"name": "incoterm", "label": "인코텀즈", "type": "enum", "options": [{"value": "EXW", "label": "EXW"}, {"value": "FCA", "label": "FCA"}, {"value": "FAS", "label": "FAS"}, {"value": "FOB", "label": "FOB"}, {"value": "CFR", "label": "CFR"}, {"value": "CIF", "label": "CIF"}, {"value": "CPT", "label": "CPT"}, {"value": "CIP", "label": "CIP"}, {"value": "DAP", "label": "DAP"}, {"value": "DPU", "label": "DPU"}, {"value": "DDP", "label": "DDP"}]},
     {"name": "incoterm_place", "label": "인코텀즈 장소", "type": "text"},
     {"name": "partner_bank", "label": "수취 계좌", "type": "text"},
+    {"name": "partner_bank_id", "label": "거래처 계좌", "type": "ref", "ref": "partner_bank"},
+    {"name": "journal_id", "label": "분개장", "type": "ref", "ref": "journal"},
+    {"name": "preferred_payment_method_id", "label": "선호 결제 수단", "type": "ref", "ref": "payment_method", "list": true},
+    {"name": "sending_method", "label": "발송 방식", "type": "enum",
+     "options": [{"value": "manual", "label": "내려받기"}, {"value": "email", "label": "메일"}, {"value": "post", "label": "우편"}]},
     {"name": "should_be_paid", "label": "지급 여부", "type": "enum",
      "options": [{"value": "yes", "label": "지급"}, {"value": "no", "label": "보류"}, {"value": "exception", "label": "예외"}]},
     {"name": "origin_type", "label": "원본 유형", "type": "text", "readonly": true, "hidden": true},
@@ -111,7 +119,10 @@ select erp.catalog_put('{
       {"name": "credit_move_id", "label": "대변 메모", "type": "ref", "ref": "account_move", "required": true},
       {"name": "amount", "label": "금액", "type": "money"}]},
     "remove_credit": {"roles": ["accounting"], "label": "대변 메모 적용 해제", "params": [
-      {"name": "credit_move_id", "label": "대변 메모", "type": "ref", "ref": "account_move", "required": true}]}
+      {"name": "credit_move_id", "label": "대변 메모", "type": "ref", "ref": "account_move", "required": true}]},
+    "change_number": {"roles": ["accounting"], "label": "번호 형식 바꾸기", "params": [{"name": "number", "label": "새 번호", "type": "text", "required": true}]},
+    "fill_from_order": {"roles": ["accounting"], "label": "주문에서 채우기", "params": [
+      {"name": "from_purchase_order", "label": "구매 주문", "type": "text"}, {"name": "from_sales_order", "label": "판매 주문", "type": "text"}]}
   }
 }'::jsonb);
 
@@ -120,6 +131,7 @@ select erp.catalog_put('{
   "read_roles": ["accounting"], "write_roles": ["accounting"],
   "revert_blocked_states": ["in_process", "paid", "rejected"],
   "revert_blocked_reason": "게시된 입금은 되돌릴 수 없습니다. 입금 취소로 정정하세요",
+  "lock_fn": "erp.pay_lock_problem",
   "fields": [
     {"name": "number", "label": "번호", "type": "text", "readonly": true, "list": true, "search": true},
     {"name": "payment_type", "label": "방향", "type": "enum", "required": true, "default": "inbound", "list": true, "create_only": true,
@@ -131,6 +143,11 @@ select erp.catalog_put('{
     {"name": "date", "label": "입금일", "type": "date", "list": true},
     {"name": "journal", "label": "수단", "type": "enum", "required": true, "default": "bank", "list": true,
      "options": [{"value": "bank", "label": "은행"}, {"value": "cash", "label": "현금"}]},
+    {"name": "journal_id", "label": "분개장", "type": "ref", "ref": "journal", "list": true},
+    {"name": "payment_method_id", "label": "결제 수단", "type": "ref", "ref": "payment_method"},
+    {"name": "partner_bank_id", "label": "수취 계좌", "type": "ref", "ref": "partner_bank"},
+    {"name": "bank_line_id", "label": "은행 거래", "type": "text", "readonly": true},
+    {"name": "is_matched", "label": "은행과 맞춤", "type": "boolean", "readonly": true, "list": true},
     {"name": "memo", "label": "메모", "type": "text", "search": true},
     {"name": "writeoff_amount", "label": "탈락 금액", "type": "money", "default": 0},
     {"name": "writeoff_account_id", "label": "탈락 계정", "type": "ref", "ref": "account", "module": "accounting"},
@@ -187,6 +204,41 @@ begin
   if k is not null then
     perform erp.fail('ERP_UNKNOWN_FIELD', format('%s 에 없는 항목입니다: %s', erp.catalog_of(p_type) ->> 'label', k));
   end if;
+end $$;
+
+-- Which period locks hold a document: its side of the business, and the tax lock when it carries tax.
+create or replace function erp.inv_lock_kinds(p_state jsonb) returns text[]
+language sql immutable as $$
+  select array[case when p_state ->> 'move_type' like 'out_%' then 'sale' else 'purchase' end]
+      || case when exists (select 1 from jsonb_array_elements(coalesce(p_state -> 'lines', '[]'::jsonb)) l
+                            where erp.num(l -> 'tax_amount') <> 0 or exists (select 1 from jsonb_array_elements(coalesce(l -> 'taxes', '[]'::jsonb)) t where erp.num(t -> 'amount') <> 0))
+              then array['tax'] else array[]::text[] end
+$$;
+
+-- A document with no date yet belongs to no period: it gets one when it is posted.
+create or replace function erp.inv_lock_problem(p_state jsonb) returns text
+language sql stable as $$
+  select erp.lock_problem(coalesce((p_state ->> 'date')::date, (p_state ->> 'invoice_date')::date), erp.inv_lock_kinds(p_state),
+    coalesce(p_state ->> 'number', '청구서'))
+$$;
+
+create or replace function erp.inv_lock_check(p_state jsonb) returns void
+language plpgsql stable as $$
+declare m text := erp.inv_lock_problem(p_state);
+begin
+  if m is not null then perform erp.fail('ERP_LOCKED', m); end if;
+end $$;
+
+create or replace function erp.pay_lock_problem(p_state jsonb) returns text
+language sql stable as $$
+  select erp.lock_problem((p_state ->> 'date')::date, array[]::text[], coalesce(p_state ->> 'number', '입금'))
+$$;
+
+create or replace function erp.pay_lock_check(p_state jsonb) returns void
+language plpgsql stable as $$
+declare m text := erp.pay_lock_problem(p_state);
+begin
+  if m is not null then perform erp.fail('ERP_LOCKED', m); end if;
 end $$;
 
 -- Takes row locks in one order so two documents touching the same pair cannot deadlock each other.
@@ -322,6 +374,12 @@ begin
       r := r || jsonb_build_object('tax_ids', coalesce(nullif(v -> case when side = 'out' then 'sale_tax_ids' else 'purchase_tax_ids' end, 'null'::jsonb), '[]'::jsonb));
       map_fiscal := true;
     end if;
+  end if;
+  -- A line typed against an account takes that account's usual taxes.
+  if vid is null and p_is_new and r ->> 'account_id' is not null and not coalesce(p_raw, '{}'::jsonb) ? 'tax_ids' then
+    r := r || jsonb_build_object('tax_ids', coalesce((select jsonb_agg(t #>> '{}') from jsonb_array_elements(coalesce(erp.state_of((r ->> 'account_id')::uuid) -> 'tax_ids', '[]'::jsonb)) t
+      where erp.state_of((t #>> '{}')::uuid) ->> 'scope' = case when side = 'out' then 'sale' else 'purchase' end), '[]'::jsonb));
+    map_fiscal := true;
   end if;
   if r ->> 'name' is null then perform erp.fail('ERP_REQUIRED', '제품이 없는 줄에는 설명이 필요합니다'); end if;
   if r ->> 'price_unit' is null then r := r || '{"price_unit": 0}'::jsonb; end if;
@@ -553,19 +611,36 @@ declare
   term text := p ->> case when p_move_type like 'out_%' then 'payment_term_id' else 'vendor_payment_term_id' end;
 begin
   if h ->> 'payment_term_id' is null and h ->> 'due_date' is null and term is not null then h := h || jsonb_build_object('payment_term_id', term); end if;
-  if h ->> 'fiscal_position_id' is null and p ->> 'fiscal_position_id' is not null then h := h || jsonb_build_object('fiscal_position_id', p -> 'fiscal_position_id'); end if;
+  if h ->> 'fiscal_position_id' is null then
+    h := h || jsonb_strip_nulls(jsonb_build_object('fiscal_position_id', coalesce(p ->> 'fiscal_position_id', erp.fiscal_auto(p))));
+  end if;
   if h ->> 'currency' is null then h := h || jsonb_build_object('currency', erp.setting('currency')); end if;
+  if h ->> 'preferred_payment_method_id' is null then
+    h := h || jsonb_strip_nulls(jsonb_build_object('preferred_payment_method_id', p ->> case when p_move_type like 'out_%' then 'inbound_payment_method_id' else 'outbound_payment_method_id' end));
+  end if;
+  if p_move_type like 'out_%' and h ->> 'sending_method' is null then h := h || jsonb_strip_nulls(jsonb_build_object('sending_method', p -> 'invoice_sending_method')); end if;
+  if p_move_type like 'in_%' and h ->> 'partner_bank_id' is null then h := h || jsonb_strip_nulls(jsonb_build_object('partner_bank_id', erp.jr_partner_bank(p_partner::text))); end if;
   return h;
 end $$;
+
+-- Lines under a term that always taxes after the discount. Every path that makes a document ends here.
+create or replace function erp.inv_epd_lines(p_lines jsonb, p_pct numeric) returns jsonb
+language sql stable as $$
+  select coalesce(jsonb_agg(case when erp.inv_is_product_line(l) then erp.tax_epd_row(l, p_pct) else l end order by o), '[]'::jsonb)
+    from jsonb_array_elements(coalesce(p_lines, '[]'::jsonb)) with ordinality t(l, o)
+$$;
 
 create or replace function erp.inv_emit_new(p_id uuid, p_head jsonb, p_lines jsonb) returns uuid
 language plpgsql as $$
 declare
-  totals jsonb := erp.inv_totals(p_lines);
+  pct numeric := erp.tax_epd_pct(p_head ->> 'payment_term_id');
+  lines_ jsonb := case when pct <> 0 then erp.inv_epd_lines(p_lines, pct) else p_lines end;
+  totals jsonb := erp.inv_totals(lines_);
   s jsonb;
+  head jsonb := p_head || jsonb_strip_nulls(jsonb_build_object('journal_id', erp.jr_for_move(p_head ->> 'move_type', p_head ->> 'journal_id')));
 begin
-  perform erp.emit('account_move', p_id, 'InvoiceCreated', jsonb_build_object('set', p_head || totals || jsonb_build_object(
-    'lines', p_lines, 'state', 'draft', 'payment_state', 'not_paid', 'amount_residual', totals -> 'amount_total',
+  perform erp.emit('account_move', p_id, 'InvoiceCreated', jsonb_build_object('set', head || totals || jsonb_build_object(
+    'lines', lines_, 'state', 'draft', 'payment_state', 'not_paid', 'amount_residual', totals -> 'amount_total',
     'installments', '[]'::jsonb, 'applied', '[]'::jsonb, 'active', true)));
   s := erp.state_of(p_id);
   perform erp.emit('account_move', p_id, 'InvoiceDrafted', jsonb_build_object('move_type', s -> 'move_type', 'origin_type', s -> 'origin_type',
@@ -593,6 +668,7 @@ begin
   if o is null then
     perform erp.fail('ERP_NOT_FOUND', '주문을 읽을 수 없습니다. 주문이 없거나 그 모듈이 꺼져 있습니다');
   end if;
+  perform erp.currency_check(o ->> 'currency');
   if (p_kind = 'sales' and o ->> 'state' <> 'sale') or (p_kind <> 'sales' and o ->> 'state' not in ('purchase', 'done')) then
     perform erp.fail('ERP_INVALID', format('확정된 주문만 청구할 수 있습니다 (%s)', coalesce(o ->> 'number', order_id::text)));
   end if;
@@ -652,6 +728,7 @@ begin
   if exists (select 1 from erp.records where id = new_id) then
     perform erp.fail('ERP_DUPLICATE', format('이미 있는 레코드입니다: %s', new_id));
   end if;
+  perform erp.currency_check(p ->> 'currency');
   if p ? 'from_sales_order' then return erp.inv_from_order(new_id, 'sales', p); end if;
   if p ? 'from_purchase_order' then return erp.inv_from_order(new_id, 'purchase', p); end if;
   perform erp.inv_check_fields('account_move', p);
@@ -682,19 +759,33 @@ declare
   totals jsonb;
   changed jsonb;
   touched boolean := false;
+  pct_old numeric;
+  pct_new numeric;
 begin
   if cur ->> 'state' <> 'draft' then
     perform erp.fail('ERP_POSTED', '게시되었거나 취소된 청구서는 고칠 수 없습니다. 초안으로 되돌리거나 대변 메모로 정정하세요');
   end if;
   perform erp.inv_check_fields('account_move', p);
+  perform erp.currency_check(p ->> 'currency');
   if exists (select 1 from jsonb_object_keys(p) k where k in ('from_sales_order', 'from_purchase_order', 'from_move', 'method', 'amount', 'deduct_downpayments', 'line_ids', 'move_type')) then
     perform erp.fail('ERP_INVALID', '만들 때만 정할 수 있는 항목입니다');
   end if;
   vals := erp.validate('account_move', erp.clean_payload('account_move', p - 'lines', cur), false);
   select coalesce(jsonb_object_agg(key, value), '{}'::jsonb) into head from jsonb_each(vals) where (cur -> key) is distinct from value;
+  if head ? 'journal_id' then
+    if cur ->> 'number' is not null then perform erp.fail('ERP_INVALID', '번호가 붙은 문서의 분개장은 바꿀 수 없습니다'); end if;
+    perform erp.jr_for_move(cur ->> 'move_type', head ->> 'journal_id');
+  end if;
 
   if p ? 'lines' then
     lines_ := erp.inv_lines(cur ->> 'move_type', nullif(coalesce(head ->> 'fiscal_position_id', cur ->> 'fiscal_position_id'), '')::uuid, p -> 'lines', cur -> 'lines');
+  end if;
+  -- The tax of every line depends on the term here, so a change of term alone rewrites them.
+  pct_old := erp.tax_epd_pct(cur ->> 'payment_term_id');
+  pct_new := case when head ? 'payment_term_id' then erp.tax_epd_pct(head ->> 'payment_term_id') else pct_old end;
+  if pct_old <> 0 or pct_new <> 0 then lines_ := erp.inv_epd_lines(coalesce(lines_, cur -> 'lines'), pct_new); end if;
+
+  if lines_ is not null then
     d := erp.rows_diff(cur -> 'lines', lines_);
     if d -> 'removed' <> '[]'::jsonb then
       perform erp.emit('account_move', p_id, 'InvoiceLineRemoved', jsonb_build_object(
@@ -891,17 +982,108 @@ end $$;
 ------------------------------------------------------------------------------------------------
 -- Document life cycle
 ------------------------------------------------------------------------------------------------
-create or replace function erp.inv_number(p_move_type text, p_date date) returns text
+alter table erp.sequences add column if not exists doc text, add column if not exists prefix text, add column if not exists pad int;
+
+-- A number comes from a journal's format: {C} its code, {Y} the year, {M} the month. A refund has a series of its own.
+-- A customer series runs by year and a vendor one by month until someone gives the journal another format.
+drop function if exists erp.inv_number(text, date);
+create or replace function erp.inv_number(p_move_type text, p_date date, p_journal text default null) returns text
 language plpgsql as $$
 declare
-  y text := to_char(p_date, 'YYYY');
-  m text := to_char(p_date, 'MM');
+  j jsonb := case when p_journal is not null then erp.state_of(p_journal::uuid) end;
+  refund boolean := erp.inv_is_refund(p_move_type);
+  customer boolean := p_move_type like 'out_%';
+  code_ text := coalesce(j ->> 'code', case when customer then 'INV' else 'BILL' end);
+  fmt jsonb := j -> 'number_formats' -> case when refund then 'refund' else 'document' end;
+  template text := coalesce(fmt ->> 'template', case when customer then '{C}/{Y}/' else '{C}/{Y}/{M}/' end);
+  pad_ int := coalesce((fmt ->> 'pad')::int, case when customer then 5 else 4 end);
+  prefix_ text;
+  n text;
 begin
-  return case p_move_type
-    when 'out_invoice' then erp.next_number('INV/' || y, 'INV/' || y || '/', 5)
-    when 'out_refund' then erp.next_number('RINV/' || y, 'RINV/' || y || '/', 5)
-    when 'in_invoice' then erp.next_number('BILL/' || y || '/' || m, 'BILL/' || y || '/' || m || '/', 4)
-    else erp.next_number('RBILL/' || y || '/' || m, 'RBILL/' || y || '/' || m || '/', 4) end;
+  prefix_ := replace(replace(replace(template, '{C}', case when refund then 'R' else '' end || code_), '{Y}', to_char(p_date, 'YYYY')), '{M}', to_char(p_date, 'MM'));
+  n := erp.next_number(rtrim(prefix_, '/'), prefix_, pad_);
+  update erp.sequences set doc = 'account_move', prefix = prefix_, pad = pad_ where code = rtrim(prefix_, '/');
+  return n;
+end $$;
+
+-- Renumbering the newest document of a series teaches the journal a new format, as observed: type the number you want
+-- next and what follows continues from it. Only the newest, or a number would be left behind with a hole under it.
+create or replace function erp.inv_change_number(p_id uuid, p jsonb) returns void
+language plpgsql as $$
+declare
+  s jsonb := erp.require_state(p_id, 'account_move');
+  old_ text := s ->> 'number';
+  new_ text := btrim(coalesce(p ->> 'number', ''));
+  m text[];
+  o text[];
+  pfx text;
+  n bigint;
+  d date := coalesce((s ->> 'date')::date, (s ->> 'invoice_date')::date, erp.today());
+  y text := to_char(d, 'YYYY');
+  mo text := to_char(d, 'MM');
+  template text;
+  key_ text := case when erp.inv_is_refund(s ->> 'move_type') then 'refund' else 'document' end;
+  jid uuid := nullif(s ->> 'journal_id', '')::uuid;
+  j jsonb;
+begin
+  if s ->> 'state' <> 'draft' or old_ is null then
+    perform erp.fail('ERP_STATE', '번호가 붙었다가 초안으로 돌아온 문서만 번호를 바꿀 수 있습니다');
+  end if;
+  m := regexp_match(new_, '^(.*?)([0-9]+)$');
+  if m is null then perform erp.fail('ERP_INVALID', '번호는 숫자로 끝나야 합니다'); end if;
+  if new_ = old_ then return; end if;
+  o := regexp_match(old_, '^(.*?)([0-9]+)$');
+  if (select last_value from erp.sequences where code = rtrim(o[1], '/')) is distinct from o[2]::bigint then
+    perform erp.fail('ERP_INVALID', '그 번호 묶음의 마지막 문서만 번호를 바꿀 수 있습니다. 앞 문서를 바꾸면 빈 번호가 남습니다');
+  end if;
+  pfx := m[1]; n := m[2]::bigint;
+  if exists (select 1 from erp.records r where r.type = 'account_move' and r.id <> p_id and r.state ->> 'number' = new_) then
+    perform erp.fail('ERP_DUPLICATE', format('이미 있는 번호입니다: %s', new_));
+  end if;
+  if (select last_value from erp.sequences where code = rtrim(pfx, '/')) >= n then
+    perform erp.fail('ERP_INVALID', format('그 묶음은 이미 %s 번까지 나갔습니다', (select last_value from erp.sequences where code = rtrim(pfx, '/'))));
+  end if;
+  template := pfx;
+  if position(y in template) > 0 then
+    template := regexp_replace(template, y, '{Y}');
+    template := regexp_replace(template, '(\{Y\}[^0-9]*)' || mo, '\1{M}');
+  end if;
+  update erp.sequences set last_value = last_value - 1 where code = rtrim(o[1], '/');
+  insert into erp.sequences(code, last_value, doc, prefix, pad) values (rtrim(pfx, '/'), n, 'account_move', pfx, length(m[2]))
+    on conflict (code) do update set last_value = excluded.last_value, doc = excluded.doc, prefix = excluded.prefix, pad = excluded.pad;
+  perform erp.emit('account_move', p_id, 'InvoiceNumberChanged', jsonb_build_object('set', jsonb_build_object('number', new_), 'from', old_, 'to', new_));
+  if jid is not null then
+    j := erp.state_of(jid);
+    perform erp.emit('journal', jid, 'JournalNumberFormatChanged', jsonb_build_object(
+      'set', jsonb_build_object('number_formats', coalesce(j -> 'number_formats', '{}'::jsonb) || jsonb_build_object(key_, jsonb_build_object('template', replace(template, 'R' || (j ->> 'code'), '{C}'), 'pad', length(m[2])))),
+      'move_id', p_id, 'from', old_, 'to', new_, 'format', template));
+  end if;
+end $$;
+
+-- A line's taxes carry the invoice distribution. A refund goes where the tax says refunds go, grids included.
+create or replace function erp.inv_doc_taxes(p_lines jsonb, p_move_type text) returns jsonb
+language plpgsql stable as $$
+declare
+  l jsonb;
+  t jsonb;
+  taxes_ jsonb;
+  d jsonb;
+  out_ jsonb := '[]'::jsonb;
+begin
+  if not erp.inv_is_refund(p_move_type) then return p_lines; end if;
+  for l in select value from jsonb_array_elements(coalesce(p_lines, '[]'::jsonb)) loop
+    taxes_ := '[]'::jsonb;
+    for t in select value from jsonb_array_elements(coalesce(l -> 'taxes', '[]'::jsonb)) loop
+      d := erp.state_of(nullif(t ->> 'tax_id', '')::uuid) -> 'refund_repartition';
+      if t ? 'repartition' and coalesce(d, '[]'::jsonb) <> '[]'::jsonb then
+        t := t || jsonb_build_object('repartition', erp.tax_split(erp.num(t -> 'gross'), d),
+          'base_grids', coalesce((select x -> 'grids' from jsonb_array_elements(d) x where x ->> 'kind' = 'base' limit 1), '[]'::jsonb));
+      end if;
+      taxes_ := taxes_ || t;
+    end loop;
+    out_ := out_ || (l || jsonb_build_object('taxes', taxes_));
+  end loop;
+  return out_;
 end $$;
 
 create or replace function erp.inv_post(p_id uuid) returns void
@@ -917,6 +1099,8 @@ declare
   due text;
   p jsonb;
   target uuid;
+  j jsonb;
+  reference_ text;
 begin
   s := erp.require_state(p_id, 'account_move');
   mt := s ->> 'move_type';
@@ -938,7 +1122,8 @@ begin
   end if;
   inv_date := coalesce((s ->> 'invoice_date')::date, erp.today());
   acct_date := coalesce((s ->> 'date')::date, inv_date);
-  number_ := coalesce(s ->> 'number', erp.inv_number(mt, acct_date));
+  perform erp.inv_lock_check(s || jsonb_build_object('date', acct_date));
+  number_ := coalesce(s ->> 'number', erp.inv_number(mt, acct_date, s ->> 'journal_id'));
   if s ->> 'payment_term_id' is not null or s ->> 'due_date' is null then
     sched := erp.payment_term_schedule(nullif(s ->> 'payment_term_id', '')::uuid, total, inv_date, erp.num(s -> 'amount_untaxed'));
     select value ->> 'due_date' into due from jsonb_array_elements(sched) with ordinality t(value, o) order by o desc limit 1;
@@ -951,14 +1136,17 @@ begin
     sched := jsonb_build_array(jsonb_build_object('due_date', due, 'amount', total));
   end if;
   p := erp.state_of((s ->> 'partner_id')::uuid);
+  j := erp.state_of(nullif(s ->> 'journal_id', '')::uuid);
+  reference_ := coalesce(s ->> 'payment_reference', case j ->> 'payment_reference_model' when 'invoice' then number_ when 'partner' then coalesce(p ->> 'ref', p ->> 'name') end);
   perform erp.emit('account_move', p_id, 'InvoicePosted', jsonb_build_object(
     'set', jsonb_build_object('state', 'posted', 'number', number_, 'invoice_date', inv_date::text, 'date', acct_date::text, 'due_date', due,
-      'installments', sched, 'amount_residual', total, 'payment_state', case when total = 0 then 'paid' else 'not_paid' end),
+      'installments', sched, 'amount_residual', total, 'payment_state', case when total = 0 then 'paid' else 'not_paid' end) || jsonb_strip_nulls(jsonb_build_object('payment_reference', reference_)),
+    'fiscal_position_id', s -> 'fiscal_position_id', 'journal_id', s -> 'journal_id', 'journal_account_id', j -> 'account_id',
     'move_type', mt, 'number', number_, 'origin_type', s -> 'origin_type', 'origin_id', s -> 'origin_id',
     'partner_id', s -> 'partner_id', 'partner_name', p -> 'name', 'region', p -> 'region',
     'date', acct_date::text, 'invoice_date', inv_date::text, 'due_date', due, 'currency', s -> 'currency',
     'amount_untaxed', s -> 'amount_untaxed', 'amount_tax', s -> 'amount_tax', 'amount_total', s -> 'amount_total',
-    'reversal_of', s -> 'reversal_of', 'installments', sched, 'lines', erp.inv_line_facts(s -> 'lines')));
+    'reversal_of', s -> 'reversal_of', 'installments', sched, 'lines', erp.inv_line_facts(erp.inv_doc_taxes(s -> 'lines', mt))));
   -- A credit note closes the document it corrects at once, up to what is still open on it.
   target := nullif(s ->> 'reversal_of', '')::uuid;
   if target is not null and erp.state_of(target) ->> 'state' = 'posted' then
@@ -974,6 +1162,7 @@ begin
   if s ->> 'state' not in ('posted', 'cancelled') then
     perform erp.fail('ERP_STATE', '게시되었거나 취소된 문서만 초안으로 되돌릴 수 있습니다');
   end if;
+  perform erp.inv_lock_check(s);
   perform erp.inv_release(p_id);
   s := erp.state_of(p_id);
   -- An accounting date nobody chose follows the invoice date, which may now be edited.
@@ -990,6 +1179,7 @@ begin
   if s ->> 'state' not in ('draft', 'posted') then
     perform erp.fail('ERP_STATE', '이미 취소된 문서입니다');
   end if;
+  perform erp.inv_lock_check(s);
   perform erp.inv_release(p_id);
   s := erp.state_of(p_id);
   perform erp.emit('account_move', p_id, 'InvoiceCancelled', erp.inv_doc_facts(s) || jsonb_build_object(
@@ -1008,6 +1198,7 @@ begin
   if s ->> 'number' is not null then
     perform erp.fail('ERP_NUMBERED', '번호가 붙은 문서는 삭제할 수 없습니다. 취소하세요');
   end if;
+  perform erp.inv_lock_check(s);
   perform erp.emit('account_move', p_id, 'InvoiceCancelled', erp.inv_doc_facts(s) || jsonb_build_object(
     'set', jsonb_build_object('state', 'cancelled', 'deleted', true, 'active', false)));
 end $$;
@@ -1047,9 +1238,11 @@ begin
   if mode_ not in ('reverse', 'reverse_and_create') then
     perform erp.fail('ERP_INVALID', format('알 수 없는 정정 방식입니다: %s', mode_));
   end if;
+  -- The correction lands on its own date. A date inside a closed period is refused; the original stays as it is.
+  perform erp.inv_lock_check(s || jsonb_build_object('date', day_));
   refund_type := case s ->> 'move_type' when 'out_invoice' then 'out_refund' when 'in_invoice' then 'in_refund'
                                         when 'out_refund' then 'out_invoice' else 'in_invoice' end;
-  head := jsonb_strip_nulls(jsonb_build_object('move_type', refund_type, 'partner_id', s -> 'partner_id', 'invoice_date', day_::text,
+  head := jsonb_strip_nulls(jsonb_build_object('move_type', refund_type, 'partner_id', s -> 'partner_id', 'invoice_date', day_::text, 'journal_id', s -> 'journal_id',
     'payment_term_id', s -> 'payment_term_id', 'fiscal_position_id', s -> 'fiscal_position_id', 'currency', s -> 'currency',
     'origin_type', s -> 'origin_type', 'origin_id', s -> 'origin_id', 'origin_name', s -> 'origin_name',
     'reversal_of', p_id, 'reversal_reason', reason_, 'ref', format('정정: %s%s', s ->> 'number', coalesce(' (' || reason_ || ')', '')),
@@ -1060,7 +1253,7 @@ begin
     -- Correcting a document in full frees whatever had settled it: the money goes back to being a credit.
     perform erp.inv_release(p_id);
     perform erp.inv_post(cn_id);
-    perform erp.inv_emit_new(gen_random_uuid(), jsonb_strip_nulls(jsonb_build_object('move_type', s -> 'move_type', 'partner_id', s -> 'partner_id',
+    perform erp.inv_emit_new(gen_random_uuid(), jsonb_strip_nulls(jsonb_build_object('move_type', s -> 'move_type', 'partner_id', s -> 'partner_id', 'journal_id', s -> 'journal_id',
       'payment_term_id', s -> 'payment_term_id', 'fiscal_position_id', s -> 'fiscal_position_id', 'currency', s -> 'currency',
       'origin_type', s -> 'origin_type', 'origin_id', s -> 'origin_id', 'origin_name', s -> 'origin_name', 'ref', s -> 'ref')),
       erp.inv_copy_lines(s -> 'lines'));
@@ -1080,10 +1273,54 @@ begin
   if s ->> 'move_type' not in ('out_invoice', 'in_invoice') then
     perform erp.fail('ERP_INVALID', '청구서에만 차변 메모를 만들 수 있습니다');
   end if;
-  return erp.inv_emit_new(new_id, jsonb_strip_nulls(jsonb_build_object('move_type', s -> 'move_type', 'partner_id', s -> 'partner_id',
+  return erp.inv_emit_new(new_id, jsonb_strip_nulls(jsonb_build_object('move_type', s -> 'move_type', 'partner_id', s -> 'partner_id', 'journal_id', s -> 'journal_id',
       'invoice_date', p -> 'date', 'payment_term_id', s -> 'payment_term_id', 'fiscal_position_id', s -> 'fiscal_position_id', 'currency', s -> 'currency',
       'debit_note_of', p_id, 'ref', format('차변 메모: %s%s', s ->> 'number', coalesce(' (' || (p ->> 'reason') || ')', '')))),
     case when coalesce((p ->> 'copy_lines')::boolean, true) then erp.inv_copy_lines(s -> 'lines', false) else '[]'::jsonb end);
+end $$;
+
+-- A draft someone started by hand can take the lines of an order, as if it had been made from it.
+create or replace function erp.inv_fill_from_order(p_id uuid, p jsonb) returns void
+language plpgsql as $$
+declare
+  s jsonb := erp.require_state(p_id, 'account_move');
+  kind text := case when p ? 'from_sales_order' then 'sales' else 'purchase' end;
+  doc_type text := case when p ? 'from_sales_order' then 'sales_order' else 'purchase_order' end;
+  order_id uuid := erp.inv_uuid_or_fail(coalesce(p ->> 'from_sales_order', p ->> 'from_purchase_order'), '주문');
+  o jsonb;
+  rows_ jsonb;
+  term_ text;
+  pct numeric;
+  totals jsonb;
+begin
+  if s ->> 'state' <> 'draft' then perform erp.fail('ERP_POSTED', '초안에만 주문을 채울 수 있습니다'); end if;
+  if (s ->> 'move_type' like 'out_%') <> (kind = 'sales') then perform erp.fail('ERP_INVALID', '고객 문서에는 판매 주문을, 공급사 문서에는 구매 주문을 채웁니다'); end if;
+  if s ->> 'origin_id' is not null and s ->> 'origin_id' <> order_id::text then perform erp.fail('ERP_INVALID', '이미 다른 주문에서 만든 문서입니다'); end if;
+  perform pg_advisory_xact_lock(hashtextextended('invoice-from:' || order_id::text, 0));
+  o := erp.peek(order_id, doc_type);
+  if o is null then perform erp.fail('ERP_NOT_FOUND', '주문을 읽을 수 없습니다. 주문이 없거나 그 모듈이 꺼져 있습니다'); end if;
+  if (kind = 'sales' and o ->> 'state' <> 'sale') or (kind <> 'sales' and o ->> 'state' not in ('purchase', 'done')) then
+    perform erp.fail('ERP_INVALID', format('확정된 주문만 청구할 수 있습니다 (%s)', coalesce(o ->> 'number', order_id::text)));
+  end if;
+  if erp.inv_partner_root(s ->> 'partner_id') <> erp.inv_partner_root(coalesce(o ->> 'invoice_partner_id', o ->> 'partner_id')) then
+    perform erp.fail('ERP_INVALID', '문서의 거래처와 주문의 거래처가 다릅니다');
+  end if;
+  rows_ := erp.inv_order_lines(kind, order_id, o);
+  if not exists (select 1 from jsonb_array_elements(rows_) l where erp.inv_is_product_line(l)) then
+    perform erp.fail('ERP_NOTHING_TO_INVOICE', '청구할 항목이 없습니다. 납품이나 입고 수량과 청구 기준을 확인하세요');
+  end if;
+  term_ := coalesce(s ->> 'payment_term_id', o ->> 'payment_term_id');
+  pct := erp.tax_epd_pct(term_);
+  if pct <> 0 then rows_ := erp.inv_epd_lines(rows_, pct); end if;
+  totals := erp.inv_totals(coalesce(s -> 'lines', '[]'::jsonb) || rows_);
+  -- These rows keep their link to the order line, which a screen's edit could not set.
+  perform erp.emit('account_move', p_id, 'InvoiceLineAdded', jsonb_build_object('col', jsonb_build_object('lines', jsonb_build_object('add', rows_))));
+  perform erp.emit('account_move', p_id, 'InvoiceUpdated', jsonb_build_object('set', jsonb_strip_nulls(jsonb_build_object(
+    'origin_type', doc_type, 'origin_id', order_id, 'origin_name', o -> 'number', 'payment_term_id', term_,
+    'ref', coalesce(s ->> 'ref', o ->> 'client_ref', o ->> 'vendor_ref'))) || totals || jsonb_build_object('amount_residual', totals -> 'amount_total')));
+  s := erp.state_of(p_id);
+  perform erp.emit('account_move', p_id, 'InvoiceDrafted', jsonb_build_object('move_type', s -> 'move_type', 'origin_type', s -> 'origin_type',
+    'origin_id', s -> 'origin_id', 'partner_id', s -> 'partner_id', 'reversal_of', s -> 'reversal_of', 'lines', erp.inv_line_facts(s -> 'lines')));
 end $$;
 
 create or replace function erp.h_account_move(p_id uuid, p_command text, p_p jsonb) returns uuid
@@ -1100,6 +1337,8 @@ begin
     when 'delete' then perform erp.inv_delete(p_id);
     when 'reverse' then return erp.inv_reverse(p_id, p_p);
     when 'debit_note' then return erp.inv_debit_note(p_id, p_p);
+    when 'change_number' then perform erp.inv_change_number(p_id, p_p);
+    when 'fill_from_order' then perform erp.inv_fill_from_order(p_id, p_p);
     when 'apply_credit' then
       credit := erp.inv_uuid_or_fail(p_p ->> 'credit_move_id', '대변 메모');
       if erp.inv_is_refund(erp.require_state(p_id, 'account_move') ->> 'move_type') then
@@ -1197,6 +1436,8 @@ begin
   if amount_ <= 0 then perform erp.fail('ERP_INVALID', '금액은 0보다 커야 합니다'); end if;
   if wo < 0 then perform erp.fail('ERP_INVALID', '탈락 금액은 0 이상이어야 합니다'); end if;
   day_ := coalesce((s ->> 'date')::date, erp.today());
+  perform erp.pay_lock_check(s || jsonb_build_object('date', day_));
+  perform erp.jr_check_outbound(s);
   number_ := coalesce(s ->> 'number', erp.next_number('PAY/' || to_char(day_, 'YYYY'), 'PAY/' || to_char(day_, 'YYYY') || '/', 5));
   ptype := coalesce(s ->> 'partner_type', case when s ->> 'payment_type' = 'inbound' then 'customer' else 'supplier' end);
 
@@ -1234,7 +1475,8 @@ begin
   perform erp.emit('payment', p_id, 'PaymentPosted', jsonb_build_object(
     'set', jsonb_build_object('state', 'in_process', 'number', number_, 'date', day_::text, 'partner_type', ptype, 'allocations', alloc, 'unallocated', remaining),
     'payment_type', s -> 'payment_type', 'partner_type', ptype, 'number', number_, 'partner_id', s -> 'partner_id',
-    'amount', amount_, 'date', day_::text, 'journal', s -> 'journal',
+    'amount', amount_, 'date', day_::text, 'journal', s -> 'journal', 'journal_id', s -> 'journal_id', 'payment_method_id', s -> 'payment_method_id',
+    'journal_account_id', erp.state_of(nullif(s ->> 'journal_id', '')::uuid) -> 'account_id',
     'allocations', (select coalesce(jsonb_agg(jsonb_build_object('move_id', x -> 'move_id', 'amount', x -> 'amount')), '[]'::jsonb) from jsonb_array_elements(alloc) x),
     'unallocated', remaining, 'writeoff_amount', wo, 'writeoff_account_id', s -> 'writeoff_account_id', 'writeoff_label', s -> 'writeoff_label',
     'early_discount', coalesce((s ->> 'early_discount')::boolean, false), 'writeoff_taxes', wo_taxes));
@@ -1256,6 +1498,8 @@ declare
   mv record;
 begin
   if s ->> 'state' = 'cancelled' then perform erp.fail('ERP_STATE', '이미 취소된 입금입니다'); end if;
+  perform erp.pay_lock_check(s);
+  if s ->> 'bank_line_id' is not null then perform erp.fail('ERP_MATCHED', '은행 거래에 맞춘 입금은 취소할 수 없습니다. 먼저 맞춤을 푸세요'); end if;
   was_posted := s ->> 'state' <> 'draft';
   rows_ := coalesce(s -> 'allocations', '[]'::jsonb);
   if was_posted then
@@ -1336,7 +1580,8 @@ begin
 
   if grp then
     for docs in
-      select r.state ->> 'partner_id' as partner, array_agg(r.id order by r.created_at, r.id) as members
+      -- Merged contacts are one partner: their documents settle together, under the contact that survived.
+      select erp.inv_partner_root(r.state ->> 'partner_id') as partner, array_agg(r.id order by r.created_at, r.id) as members
         from erp.records r where r.id = any (ids) group by 1 order by 1
     loop
       -- Credit notes settle invoices of the same partner before any money moves.
@@ -1370,7 +1615,7 @@ begin
       discount := case when early is not null and erp.num(amount_) = early and not coalesce(erp.num(extra -> 'writeoff_amount'), 0) > 0
                        then jsonb_build_object('writeoff_amount', erp.num(docs.s -> 'amount_residual') - early, 'early_discount', true)
                        else '{}'::jsonb end;
-      perform erp.pay_make(pid, extra || discount || jsonb_build_object(
+      perform erp.pay_make(pid, jsonb_strip_nulls(jsonb_build_object('partner_bank_id', docs.s -> 'partner_bank_id')) || extra || discount || jsonb_build_object(
         'partner_id', docs.s -> 'partner_id',
         'payment_type', erp.pay_direction(docs.s ->> 'move_type'), 'partner_type', erp.pay_partner_type(docs.s ->> 'move_type'),
         'amount', amount_,
@@ -1390,7 +1635,7 @@ declare
   alloc jsonb;
   partner_type_ text;
 begin
-  vals := erp.validate('payment', erp.clean_payload('payment', p - 'allocations' - 'post' - 'from_moves' - 'group'), true);
+  vals := erp.validate('payment', erp.clean_payload('payment', erp.jr_payment_defaults(p) - 'allocations' - 'post' - 'from_moves' - 'group'), true);
   alloc := case when p ? 'allocations' then erp.clean_rows(
       (select f from jsonb_array_elements(erp.catalog_of('payment') -> 'fields') f where f ->> 'name' = 'allocations'), p -> 'allocations')
     else '[]'::jsonb end;
@@ -1413,6 +1658,10 @@ begin
   if exists (select 1 from jsonb_object_keys(p) k where k in ('post', 'from_moves', 'group', 'payment_type', 'partner_type')) then
     perform erp.fail('ERP_INVALID', '만들 때만 정할 수 있는 항목입니다');
   end if;
+  if p ? 'journal_id' or p ? 'payment_method_id' or p ? 'journal' then
+    p := erp.jr_payment_defaults(p || jsonb_strip_nulls(jsonb_build_object('payment_type', cur -> 'payment_type', 'partner_id', coalesce(p -> 'partner_id', cur -> 'partner_id'))));
+    p := p - 'payment_type';
+  end if;
   vals := erp.validate('payment', erp.clean_payload('payment', p, cur), false);
   select coalesce(jsonb_object_agg(key, value), '{}'::jsonb) into changed from jsonb_each(vals) where (cur -> key) is distinct from value;
   if changed ? 'amount' then changed := changed || jsonb_build_object('unallocated', changed -> 'amount'); end if;
@@ -1428,6 +1677,10 @@ declare
   s jsonb;
   new_id uuid;
 begin
+  if p_command in ('create', 'update') then
+    perform erp.currency_check(p_p ->> 'currency');
+    p_p := p_p - 'currency';
+  end if;
   case p_command
     when 'create' then
       new_id := coalesce(p_id, gen_random_uuid());
@@ -1444,6 +1697,7 @@ begin
     when 'reset_to_draft' then
       s := erp.require_state(p_id, 'payment');
       if s ->> 'state' <> 'cancelled' then perform erp.fail('ERP_STATE', '취소된 입금만 초안으로 되돌릴 수 있습니다'); end if;
+      perform erp.pay_lock_check(s);
       perform erp.emit('payment', p_id, 'PaymentResetToDraft', '{"set": {"state": "draft"}}');
     when 'reject' then
       s := erp.require_state(p_id, 'payment');
@@ -1461,6 +1715,7 @@ begin
       s := erp.require_state(p_id, 'payment');
       if s ->> 'state' not in ('draft', 'cancelled') then perform erp.fail('ERP_POSTED', '게시된 입금은 삭제할 수 없습니다. 먼저 취소하세요'); end if;
       if s ->> 'number' is not null then perform erp.fail('ERP_NUMBERED', '번호가 붙은 입금은 삭제할 수 없습니다'); end if;
+      perform erp.pay_lock_check(s);
       perform erp.emit('payment', p_id, 'PaymentDeleted', '{"set": {"state": "cancelled", "deleted": true, "active": false}}');
     else
       perform erp.fail('ERP_COMMAND', format('입금: 지원하지 않는 명령입니다 (%s)', p_command));
@@ -1476,7 +1731,9 @@ language plpgsql as $$
 declare
   mt text := coalesce(p ->> 'move_type', 'out_invoice');
   lines_ jsonb := erp.inv_lines(mt, nullif(p ->> 'fiscal_position_id', '')::uuid, coalesce(p -> 'lines', '[]'::jsonb));
+  pct numeric := erp.tax_epd_pct(p ->> 'payment_term_id');
 begin
+  if pct <> 0 then lines_ := erp.inv_epd_lines(lines_, pct); end if;
   return p || jsonb_build_object('lines', lines_, 'amount_residual', erp.inv_totals(lines_) -> 'amount_total') || erp.inv_totals(lines_);
 end $$;
 
@@ -1609,6 +1866,7 @@ language plpgsql stable security definer set search_path = erp, extensions, pg_t
 declare
   at_ date := coalesce(p_at, erp.today());
 begin
+  perform erp.require_module('invoicing');
   if p_kind not in ('receivable', 'payable') then perform erp.fail('ERP_INVALID', format('알 수 없는 구분입니다: %s', p_kind)); end if;
   if not erp.has_role(case when p_kind = 'receivable' then array['accounting', 'sales'] else array['accounting', 'purchase'] end) then
     perform erp.fail('ERP_FORBIDDEN', '권한이 없습니다');
@@ -1639,6 +1897,7 @@ end $$;
 create or replace function public.erp_outstanding(p_partner_id uuid, p_side text default 'customer') returns jsonb
 language plpgsql stable security definer set search_path = erp, extensions, pg_temp as $$
 begin
+  perform erp.require_module('invoicing');
   if not erp.has_role(array['accounting']) then perform erp.fail('ERP_FORBIDDEN', '권한이 없습니다'); end if;
   return (select coalesce(jsonb_agg(x order by x ->> 'date', x ->> 'id'), '[]'::jsonb) from (
     select jsonb_build_object('kind', 'payment', 'id', r.id, 'number', r.state ->> 'number', 'date', r.state ->> 'date', 'amount', r.state -> 'unallocated', 'payment_type', r.state ->> 'payment_type') as x
@@ -1657,16 +1916,92 @@ end $$;
 create or replace function public.erp_invoice_number_gaps() returns jsonb
 language plpgsql stable security definer set search_path = erp, extensions, pg_temp as $$
 begin
+  perform erp.require_module('invoicing');
   if not erp.has_role(array['accounting']) then perform erp.fail('ERP_FORBIDDEN', '권한이 없습니다'); end if;
   return jsonb_build_object(
     'cancelled', (select coalesce(jsonb_agg(jsonb_build_object('id', r.id, 'number', r.state ->> 'number') order by r.state ->> 'number'), '[]'::jsonb)
                     from erp.records r where r.type = 'account_move' and r.status = 'cancelled' and r.state ->> 'number' is not null),
     'missing', (select coalesce(jsonb_agg(n order by n), '[]'::jsonb) from (
-      select s.code || '/' || lpad(g::text, case when s.code ~ '^R?BILL/' then 4 else 5 end, '0') as n
+      select coalesce(s.prefix, s.code || '/') || lpad(g::text, coalesce(s.pad, case when s.code ~ '^R?BILL/' then 4 else 5 end), '0') as n
         from erp.sequences s, generate_series(1, s.last_value) g
-       where s.code ~ '^(INV|RINV|BILL|RBILL)/'
+       where (s.doc = 'account_move' or s.code ~ '^(INV|RINV|BILL|RBILL)/')
          and not exists (select 1 from erp.records r where r.type = 'account_move'
-                          and r.state ->> 'number' = s.code || '/' || lpad(g::text, case when s.code ~ '^R?BILL/' then 4 else 5 end, '0'))) t));
+                          and r.state ->> 'number' = coalesce(s.prefix, s.code || '/') || lpad(g::text, coalesce(s.pad, case when s.code ~ '^R?BILL/' then 4 else 5 end), '0'))) t));
+end $$;
+
+------------------------------------------------------------------------------------------------
+-- What goes on the tax return, from the posted documents themselves, so it works with or without books
+------------------------------------------------------------------------------------------------
+-- Documents by accounting date. A refund counts against its tax. A discount that lowered the tax when money came in
+-- counts on the day of the payment, the way the books took it.
+create or replace function public.erp_tax_report(p_from date, p_to date) returns jsonb
+language plpgsql stable security definer set search_path = erp, extensions, pg_temp as $$
+begin
+  perform erp.require_module('invoicing');
+  if not erp.has_role(array['accounting']) then perform erp.fail('ERP_FORBIDDEN', '회계 권한이 필요합니다'); end if;
+  return (
+    with docs as (
+      select r.state ->> 'move_type' as mt, case when erp.inv_is_refund(r.state ->> 'move_type') then -1 else 1 end as sign_,
+             erp.inv_doc_taxes(r.state -> 'lines', r.state ->> 'move_type') as lines_
+        from erp.records r
+       where r.type = 'account_move' and not r.deleted and r.status = 'posted'
+         and (r.state ->> 'date')::date between p_from and p_to
+    ), tx as (
+      select d.mt, d.sign_, t, l from docs d, jsonb_array_elements(d.lines_) l, jsonb_array_elements(coalesce(l -> 'taxes', '[]'::jsonb)) t
+       where erp.inv_is_product_line(l)
+    ), per_tax as (
+      select t ->> 'tax_id' as tax_id, max(t ->> 'name') as name,
+             sum(erp.num(t -> 'base') * sign_) as base, sum(erp.num(t -> 'amount') * sign_) as tax,
+             sum(erp.num(t -> 'base')) filter (where sign_ < 0) as base_refund, sum(erp.num(t -> 'amount')) filter (where sign_ < 0) as tax_refund
+        from tx group by 1
+    ), discounts as (
+      select w ->> 'tax_id' as tax_id, sum(erp.num(w -> 'amount')) as amt
+        from erp.records r, jsonb_array_elements(coalesce((select e.data -> 'writeoff_taxes' from erp.events e where e.stream_id = r.id and e.event_type = 'PaymentPosted' order by e.seq desc limit 1), '[]'::jsonb)) w
+       where r.type = 'payment' and not r.deleted and r.status in ('in_process', 'paid', 'rejected') and (r.state ->> 'date')::date between p_from and p_to
+       group by 1
+    ), grid_rows as (
+      select g #>> '{}' as grid, erp.num(t -> 'base') * sign_ as base, 0::numeric as tax from tx, jsonb_array_elements(coalesce(t -> 'base_grids', '[]'::jsonb)) g
+      union all
+      select g #>> '{}', 0, erp.num(r -> 'amount') * sign_ from tx, jsonb_array_elements(coalesce(t -> 'repartition', '[]'::jsonb)) r, jsonb_array_elements(coalesce(r -> 'grids', '[]'::jsonb)) g
+    ), rows_ as (
+      select p.tax_id, p.name, s.state ->> 'scope' as scope, s.state ->> 'amount_type' as amount_type, s.state -> 'amount' as rate,
+             p.base, p.tax - coalesce(d.amt, 0) as tax, coalesce(p.base_refund, 0) as base_refund, coalesce(p.tax_refund, 0) as tax_refund, coalesce(d.amt, 0) as discount_tax
+        from per_tax p left join erp.records s on s.id::text = p.tax_id left join discounts d on d.tax_id = p.tax_id
+    )
+    select jsonb_build_object('from', p_from, 'to', p_to,
+      'rows', (select coalesce(jsonb_agg(to_jsonb(x) order by x.scope, x.name), '[]'::jsonb) from rows_ x),
+      'grids', (select coalesce(jsonb_agg(jsonb_build_object('grid', g.grid, 'base', g.base, 'tax', g.tax) order by g.grid), '[]'::jsonb)
+                  from (select grid, sum(base) as base, sum(tax) as tax from grid_rows group by grid) g),
+      'totals', jsonb_build_object('output_tax', (select coalesce(sum(tax), 0) from rows_ where scope = 'sale'), 'input_tax', (select coalesce(sum(tax), 0) from rows_ where scope = 'purchase'),
+                                   'payable', (select coalesce(sum(case when scope = 'sale' then tax when scope = 'purchase' then -tax else 0 end), 0) from rows_))));
+end $$;
+
+-- The periods of a year under the company's filing rhythm, with when each is due and whether it has been closed.
+create or replace function public.erp_tax_periods(p_year int default null) returns jsonb
+language plpgsql stable security definer set search_path = erp, extensions, pg_temp as $$
+declare
+  y int := coalesce(p_year, extract(year from erp.today())::int);
+  rhythm text := coalesce(erp.setting('tax_periodicity'), 'quarterly');
+  months int := case rhythm when 'monthly' then 1 when 'quarterly' then 3 when 'semiannual' then 6 else 12 end;
+  due_day int := coalesce(nullif(erp.setting('tax_due_day'), '')::int, 25);
+  remind int := coalesce(nullif(erp.setting('tax_reminder_days'), '')::int, 7);
+  closed date := (erp.setting('lock_date_tax'))::date;
+  today_ date := erp.today();
+  a date;
+  b date;
+  due date;
+  out_ jsonb := '[]'::jsonb;
+begin
+  perform erp.require_module('invoicing');
+  if not erp.has_role(array['accounting']) then perform erp.fail('ERP_FORBIDDEN', '회계 권한이 필요합니다'); end if;
+  for i in 0 .. (12 / months) - 1 loop
+    a := make_date(y, 1 + i * months, 1);
+    b := (a + make_interval(months => months) - interval '1 day')::date;
+    due := least(make_date(extract(year from b + 1)::int, extract(month from b + 1)::int, 1) + (due_day - 1), (date_trunc('month', b + 1) + interval '1 month - 1 day')::date);
+    out_ := out_ || jsonb_build_object('from', a, 'to', b, 'due', due, 'remind_on', due - remind,
+      'state', case when closed >= b then 'closed' when today_ > due then 'overdue' when today_ >= due - remind then 'due_soon' when today_ > b then 'to_file' else 'open' end);
+  end loop;
+  return jsonb_build_object('year', y, 'periodicity', rhythm, 'journal_id', erp.setting('tax_journal_id'), 'periods', out_);
 end $$;
 
 ------------------------------------------------------------------------------------------------
@@ -1683,20 +2018,23 @@ declare
   n int := 0;
 begin
   for doc in
-    select r.id, r.state ->> 'partner_id' as partner, r.state ->> 'move_type' as mt from erp.records r
+    select r.id, erp.inv_partner_root(r.state ->> 'partner_id') as partner, r.state ->> 'move_type' as mt from erp.records r
      where r.type = 'account_move' and not r.deleted and r.status = 'posted' and not erp.inv_is_refund(r.state ->> 'move_type')
-       and erp.num(r.state -> 'amount_residual') <> 0 and (p_partner is null or r.state ->> 'partner_id' = p_partner::text)
+       and erp.num(r.state -> 'amount_residual') <> 0
+       and (p_partner is null or erp.inv_partner_root(r.state ->> 'partner_id') = erp.inv_partner_root(p_partner::text))
      order by r.created_at, r.id
   loop
     for cr in
       select * from (
         select 'payment' as kind, r.id, erp.num(r.state -> 'unallocated') as amount, r.created_at from erp.records r
          where r.type = 'payment' and not r.deleted and r.status in ('in_process', 'paid') and erp.num(r.state -> 'unallocated') > 0
-           and r.state @> jsonb_build_object('partner_id', doc.partner, 'payment_type', erp.pay_direction(doc.mt), 'partner_type', erp.pay_partner_type(doc.mt))
+           and r.state @> jsonb_build_object('payment_type', erp.pay_direction(doc.mt), 'partner_type', erp.pay_partner_type(doc.mt))
+           and erp.inv_partner_root(r.state ->> 'partner_id') = doc.partner
         union all
         select 'credit', r.id, erp.num(r.state -> 'amount_residual'), r.created_at from erp.records r
          where r.type = 'account_move' and not r.deleted and r.status = 'posted' and erp.num(r.state -> 'amount_residual') > 0
-           and r.state @> jsonb_build_object('partner_id', doc.partner, 'move_type', split_part(doc.mt, '_', 1) || '_refund')) t
+           and r.state @> jsonb_build_object('move_type', split_part(doc.mt, '_', 1) || '_refund')
+           and erp.inv_partner_root(r.state ->> 'partner_id') = doc.partner) t
        order by t.created_at, t.id
     loop
       open_ := erp.num(erp.state_of(doc.id) -> 'amount_residual');
@@ -1725,6 +2063,26 @@ begin
   perform set_config('erp.source', 'auto_reconcile', true);
   return jsonb_build_object('matched', erp.inv_auto_reconcile(p_mode, p_partner_id));
 end $$;
+
+------------------------------------------------------------------------------------------------
+-- Period locks: what this module holds back from being closed
+------------------------------------------------------------------------------------------------
+-- A hard lock cannot be taken back, so a draft dated inside it could never be posted, moved or deleted.
+create or replace function erp.inv_on_company(ev erp.events, before_state jsonb, after_state jsonb) returns void
+language plpgsql as $$
+declare
+  hard date := (after_state ->> 'lock_date_hard')::date;
+  n int;
+begin
+  if not erp.module_on('invoicing') or hard is null or before_state ->> 'lock_date_hard' is not distinct from after_state ->> 'lock_date_hard' then return; end if;
+  select count(*) into n from erp.records r
+   where r.type = 'account_move' and not r.deleted and r.status = 'draft'
+     and coalesce((r.state ->> 'date')::date, (r.state ->> 'invoice_date')::date) <= hard;
+  if n > 0 then
+    perform erp.fail('ERP_LOCKED_DRAFTS', format('되돌릴 수 없는 잠금일 안에 초안 청구서 %s건이 있습니다. 게시하거나 날짜를 옮긴 뒤 다시 하세요', n));
+  end if;
+end $$;
+select erp.register_hook('react', 'company', 'erp.inv_on_company');
 
 ------------------------------------------------------------------------------------------------
 -- Credit notes dated ahead post themselves on their day
@@ -1761,8 +2119,11 @@ create or replace function public.erp_invoice_auto_post() returns jsonb
 language plpgsql security definer set search_path = erp, extensions, pg_temp as $$
 begin
   if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '이 회사의 구성원이 아닙니다'); end if;
+  perform erp.require_module('invoicing');
   return jsonb_build_object('posted', erp.inv_auto_post_due());
 end $$;
+
+select erp.periodic_register('erp.inv_auto_post_due', interval '1 hour');
 
 do $$ begin
   perform cron.schedule('erp-invoice-auto-post', '11 * * * *', 'select erp.inv_auto_post_due()');

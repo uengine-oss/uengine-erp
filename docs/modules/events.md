@@ -19,6 +19,7 @@
 | `SalesOrderLineAdded` | 확정 뒤 추가. `line:{...위와 같은 줄}, warehouse_id, partner_id, number` |
 | `SalesOrderLineQtyChanged` | 확정 뒤 수량 변경. `line_id, variant_id, product_id, from, to, uom_id, name, type, warehouse_id, partner_id, number` |
 | `SalesOrderCancelled` | `number, partner_id, was, reason` |
+| `SalesOrderDelivered` | 납품 수량이 바뀔 때. `lines:[{line_id, qty_delivered}]`. `manual: true` 는 사람이 적은 납품이고, 이때 줄에 `qty, uom_id, variant_id, product_id, name, type` 도 싣는다 |
 
 `warehouse_id` 는 재고 모듈이 꺼져 있으면 `null` 이고, 그때는 기본 창고를 쓴다. `region` 은 납품처의 지역이고 없으면 거래처의 지역이다.
 
@@ -52,12 +53,16 @@
 | 이벤트 | `data` 의 사실 |
 |---|---|
 | `InvoiceDrafted` | 초안이 생기거나 바뀔 때. `move_type, origin_type, origin_id, partner_id, reversal_of, lines` |
-| `InvoicePosted` | `move_type, number, origin_type, origin_id, partner_id, partner_name, region, date, invoice_date, due_date, installments, currency, amount_untaxed, amount_tax, amount_total, reversal_of, lines` |
+| `InvoicePosted` | `move_type, number, origin_type, origin_id, partner_id, partner_name, region, date, invoice_date, due_date, installments, currency, fiscal_position_id, journal_id, journal_account_id, amount_untaxed, amount_tax, amount_total, reversal_of, lines` |
 | `InvoiceResetToDraft` | `move_type, number, origin_type, origin_id, partner_id, lines` |
 | `InvoiceCancelled` | 초안 또는 게시 취소. `move_type, number, origin_type, origin_id, partner_id, lines` |
-| `PaymentPosted` | `payment_type, partner_type, number, partner_id, amount, date, journal, allocations:[{move_id, amount}], unallocated, writeoff_amount, writeoff_account_id, writeoff_label, early_discount, writeoff_taxes` |
+| `PaymentPosted` | `payment_type, partner_type, number, partner_id, amount, date, journal, journal_id, journal_account_id, payment_method_id, allocations:[{move_id, amount}], unallocated, writeoff_amount, writeoff_account_id, writeoff_label, early_discount, writeoff_taxes` |
 | `PaymentCancelled` | `payment_type, partner_type, number, partner_id, amount, date, journal, allocations` |
 | `InvoicePaymentApplied` | 청구서 스트림. `payment_id, credit_move_id, amount, residual, payment_state, partner_id, due_date, date`. 맞물림을 풀면 같은 이벤트가 음수 `amount` 로 나간다 |
+| `BankLineBooked` | 은행 거래 스트림. 문서 없이 계정으로 처리한 돈. `date, amount, account_id, journal_account_id, journal_id, partner_id, name`. `amount` 는 들어온 돈이 양수다 |
+| `BankLineUnbooked` | 그 처리를 풀었을 때. `date, journal_id` |
+
+세금 분배가 있는 세금은 줄의 `taxes[]` 에 `gross, repartition:[{account_id, amount, grids, factor_percent}], base_grids` 를 더 싣는다. `amount` 는 줄에 남는 세액이다(역과세면 0). `account_id` 가 비면 그 몫은 줄의 계정으로 간다. `InvoicePosted` 의 대변 메모는 대변 메모 분배로 나간다.
 
 청구는 초안일 때부터 `qty` 를 알린다. 판매와 구매의 `qty_invoiced`·`qty_billed` 는 초안 시점에 움직인다.
 
@@ -84,7 +89,7 @@
 
 | 구독자 | 듣는 이벤트 | 하는 일 |
 |---|---|---|
-| 재고 | `SalesOrderConfirmed`, `SalesOrderLineAdded`, `SalesOrderLineQtyChanged`, `SalesOrderCancelled` | 출고 전표 |
+| 재고 | `SalesOrderConfirmed`, `SalesOrderLineAdded`, `SalesOrderLineQtyChanged`, `SalesOrderCancelled`, `SalesOrderDelivered`(`manual` 만) | 출고 전표. 손으로 납품한 만큼 열린 전표가 줄고, 남은 것이 없으면 취소된다 |
 | 재고 | `PurchaseOrderConfirmed`, `PurchaseOrderLineAdded`, `PurchaseOrderLineQtyChanged`, `PurchaseOrderLinePriceChanged`, `PurchaseOrderCancelled`, `PurchaseDraftQtyChanged` | 입고 전표, 예측 |
 | 판매 | `PickingStateChanged`, `PickingValidated` | 납품 상태, `qty_delivered` |
 | 판매 | `InvoiceDrafted`, `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled` | 청구 상태, `qty_invoiced` |
@@ -92,6 +97,6 @@
 | 구매 | `ReorderRequested` | 견적 요청 초안 |
 | 구매 | `PickingStateChanged`, `PickingValidated` | 입고 상태, `qty_received` |
 | 구매 | `InvoiceDrafted`, `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled` | 청구 상태, `qty_billed` |
-| 회계 | `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled`, `PaymentPosted`, `PaymentCancelled` | 분개(처음부터 다시 읽는다) |
+| 회계 | `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled`, `PaymentPosted`, `PaymentCancelled`, `BankLineBooked`, `BankLineUnbooked` | 분개(처음부터 다시 읽는다) |
 | 회계 | `PickingValidated`, `StockAdjusted`, `StockScrapped` | 재고 평가 분개(처음부터 다시 읽는다) |
 | 분석 | 원장 전체 | 구독하지 않고 직접 읽는다 |

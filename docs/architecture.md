@@ -164,3 +164,14 @@ MES 와의 차이: MES 는 서비스마다 DB 가 따로고 Kafka 로 잇는다.
 ## 7. 서버가 필요한 것
 
 메일 발송, 결제, 전자세금계산서, 은행 연동은 DB 함수만으로 어렵다. 필요하면 사용자 프로젝트의 Edge Function 으로 붙인다. MCP 도 SQL 함수로 시작했지만, 스트리밍이나 OAuth 가 필요하면 Edge Function 으로 옮긴다. PostgREST 는 `/orders/{id}/confirm` 같은 경로를 지원하지 않으므로, 꼭 필요하면 이것도 Edge Function 라우터로 해결한다. Java 는 트래픽이 큰 고객이나 우리가 호스팅하는 유료판에서 다시 검토한다.
+
+## 표 파일 가져오기 (`sql/85_import.sql`)
+
+`erp_import(type, rows, mode, options)`: 행마다 화면과 같은 `erp_command` 를 부른다. 규칙을 따로 쓰지 않고 원장에도 똑같이 남으며 한 번의 호출이 한 correlation 이라 통째로 되돌릴 수 있다.
+
+- `mode`: `dry_run` 은 다 돌려 보고 아무것도 남기지 않는다. `commit` 은 한 행이라도 실패하면 그 호출을 통째로 남기지 않는다. `options.keep_good: true` 면 성공한 행은 남긴다.
+- 8초 제한: 호출은 1000행까지, 6초가 차면 멈추고 `next` 를 돌려준다. 거기까지는 쓰였다. 남은 행은 `options.start` 로 다시 보낸다.
+- 열 이름은 필드 이름이나 화면 라벨이다. `options.columns` 로 화면이 잡은 대응을 넘긴다(`null` 이면 그 열을 뺀다). 참조 칸은 이름·코드·내부 참조로 찾고 없거나 여럿이면 그 행의 오류다. 빈 칸은 아무 말도 하지 않은 것이다.
+- 키: 카탈로그 `import_key`(제품 `internal_ref`, 연락처 `ref`, 계정 `code` 등)가 채워져 있고 한 건과 맞으면 고치고, 없으면 만든다. 은행 거래는 건너뛴다(`import_existing: skip`).
+- 결과: `{type, mode, written, correlation_id, total, processed, next, created, updated, skipped, failed, rows[{row, status, id?, code?, message?}]}`. `row` 는 0부터.
+- `erp_import_template(type)`: `{type, label, key, columns[{field, label, type, required, ref, options, help}]}`. `vendor_price` 는 카탈로그 유형이 아니라 제품의 공급사 줄을 다룬다(`id` 가 외부 ID).

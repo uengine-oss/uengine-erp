@@ -36,7 +36,8 @@ language plpgsql as $$
 declare
   po_uom uuid := coalesce((v ->> 'purchase_uom_id')::uuid, (v ->> 'uom_id')::uuid);
   base uuid := (v ->> 'uom_id')::uuid;
-  qty_ numeric := coalesce(p_qty, 0) * erp.uom_factor(p_uom, po_uom);
+  -- 12 x (1/12) comes out a hair under 1, so the noise goes before it meets a minimum quantity.
+  qty_ numeric := round(coalesce(p_qty, 0) * erp.uom_factor(p_uom, po_uom), 10);
   r jsonb;
   any_row jsonb;
 begin
@@ -81,7 +82,7 @@ begin
   same_product := o ->> 'variant_id' = vid::text;
   uom := coalesce((r ->> 'uom_id')::uuid, case when same_product then (o ->> 'uom_id')::uuid end, (v ->> 'purchase_uom_id')::uuid, (v ->> 'uom_id')::uuid);
   perform erp.uom_factor(uom, (v ->> 'uom_id')::uuid);
-  qty_ := coalesce(erp.num(r -> 'qty', null), erp.num(o -> 'qty', null), 1);
+  qty_ := erp.uom_line_qty(coalesce(erp.num(r -> 'qty', null), erp.num(o -> 'qty', null), 1), uom);
   if qty_ < 0 then perform erp.fail('ERP_INVALID', '수량은 0 이상이어야 합니다'); end if;
   auto := erp.purchase_price(partner, v, qty_, uom, on_date);
   manual := (r ? 'price_unit' and erp.num(r -> 'price_unit', null) is distinct from erp.num(o -> 'price_unit', null))
@@ -360,6 +361,10 @@ declare
   limit_ numeric;
   relines boolean := false;
 begin
+  if p_command in ('create', 'update') then
+    perform erp.currency_check(p ->> 'currency');
+    p := p - 'currency';
+  end if;
   case p_command
     when 'create' then
       if exists (select 1 from erp.records where id = new_id) then
@@ -369,7 +374,7 @@ begin
       vals := erp.validate('purchase_order', erp.clean_payload('purchase_order', p - 'lines'), true);
       partner := erp.state_of((vals ->> 'partner_id')::uuid);
       vals := jsonb_strip_nulls(jsonb_build_object(
-          'payment_term_id', partner -> 'vendor_payment_term_id', 'fiscal_position_id', partner -> 'fiscal_position_id',
+          'payment_term_id', partner -> 'vendor_payment_term_id', 'fiscal_position_id', coalesce(partner ->> 'fiscal_position_id', erp.fiscal_auto(partner)),
           'buyer_id', (select record_id from erp.members where user_id = erp.current_actor()), 'date_order', erp.now())) || jsonb_strip_nulls(vals);
       perform erp.po_create(new_id, vals, coalesce(p -> 'lines', '[]'::jsonb));
       perform erp.po_publish_draft(new_id);
@@ -404,6 +409,8 @@ begin
     when 'send' then
       s := erp.require_state(p_id, 'purchase_order');
       if s ->> 'state' not in ('draft', 'sent') then perform erp.fail('ERP_INVALID', '초안 상태에서만 견적 요청을 보낼 수 있습니다'); end if;
+      -- Marking it sent twice says nothing new, and the dashboard counts what went out.
+      if s ->> 'state' = 'sent' then return p_id; end if;
       perform erp.po_write(p_id, 'RfqSent', s, s -> 'lines', '{"state": "sent"}'::jsonb, jsonb_build_object('number', s -> 'number', 'partner_id', s -> 'partner_id', 'sent_at', erp.now()));
     when 'confirm' then
       s := erp.require_state(p_id, 'purchase_order');
@@ -417,11 +424,8 @@ begin
       end if;
     when 'approve' then
       s := erp.require_state(p_id, 'purchase_order');
-      -- Someone without the authority presses the same button and nothing happens, as if the button were not theirs.
-      if erp.has_role(array['admin']) then
-        if s ->> 'state' <> 'to_approve' then perform erp.fail('ERP_INVALID', '승인 대기 중인 주문이 아닙니다'); end if;
-        perform erp.po_do_confirm(p_id, s);
-      end if;
+      if s ->> 'state' <> 'to_approve' then perform erp.fail('ERP_INVALID', '승인 대기 중인 주문이 아닙니다'); end if;
+      perform erp.po_do_confirm(p_id, s);
     when 'cancel' then
       s := erp.require_state(p_id, 'purchase_order');
       if s ->> 'state' = 'cancelled' then perform erp.fail('ERP_INVALID', '이미 취소된 주문입니다'); end if;
@@ -665,6 +669,7 @@ create or replace function public.erp_purchase_dashboard() returns jsonb
 language plpgsql security definer set search_path = erp, pg_temp as $$
 declare me uuid := (select record_id from erp.members where user_id = erp.current_actor());
 begin
+  perform erp.require_module('purchase');
   if not erp.has_role(array['purchase', 'accounting']) then perform erp.fail('ERP_FORBIDDEN', '구매 담당자만 볼 수 있습니다'); end if;
   return (select jsonb_build_object(
     'to_send', count(*) filter (where status = 'draft'),
@@ -681,10 +686,106 @@ begin
     from erp.records where type = 'purchase_order' and not deleted);
 end $$;
 
+-- The purchase report by any grouping, with the same period before it or a year earlier beside it. Group names come
+-- from this list only, so a caller's words never become SQL.
+create or replace function public.erp_purchase_analysis(p_from date, p_to date, p_group_by text[] default array['partner_id'], p_filters jsonb default '{}'::jsonb, p_compare text default null) returns jsonb
+language plpgsql stable security definer set search_path = erp, extensions, pg_temp as $$
+declare
+  allowed jsonb := '{"partner_id": "partner_id::text", "product_id": "product_id::text", "variant_id": "variant_id::text", "category_id": "category_id::text", "state": "state", "buyer_id": "buyer_id::text",
+                     "month": "to_char(day_, ''YYYY-MM'')", "quarter": "to_char(day_, ''YYYY-\"Q\"Q'')", "year": "to_char(day_, ''YYYY'')"}';
+  date_col text := case when p_filters ->> 'date_field' = 'date_confirmed' then 'date_confirmed' else 'date_order' end;
+  kind text := coalesce(p_filters ->> 'kind', 'all');
+  span int := p_to - p_from + 1;
+  g text;
+  exprs text[] := '{}';
+  groups_ text;
+  cur jsonb;
+  prev jsonb;
+  sql_ text;
+begin
+  perform erp.require_module('purchase');
+  if not erp.has_role(array['purchase', 'accounting']) then perform erp.fail('ERP_FORBIDDEN', '구매 담당자만 볼 수 있습니다'); end if;
+  if p_from is null or p_to is null or p_from > p_to then perform erp.fail('ERP_INVALID', '기간이 올바르지 않습니다'); end if;
+  if kind not in ('all', 'rfq', 'po') then perform erp.fail('ERP_INVALID', format('알 수 없는 구분입니다: %s', kind)); end if;
+  if p_compare is not null and p_compare not in ('previous_period', 'previous_year') then perform erp.fail('ERP_INVALID', format('알 수 없는 비교입니다: %s', p_compare)); end if;
+  foreach g in array coalesce(p_group_by, '{}') loop
+    if not allowed ? g then perform erp.fail('ERP_INVALID', format('이 항목으로는 묶을 수 없습니다: %s', g)); end if;
+    exprs := exprs || format('%s as %I', allowed ->> g, 'g_' || g);
+  end loop;
+  groups_ := (select string_agg(format('%I', 'g_' || x), ', ') from unnest(p_group_by) x);
+  sql_ := format($q$
+    with base as (
+      select r.*, (r.%1$I at time zone coalesce(erp.setting('timezone'), 'Asia/Seoul'))::date as day_
+        from public.erp_purchase_report r
+       where (%2$L = 'all' or (%2$L = 'po' and r.state = 'purchase') or (%2$L = 'rfq' and r.state in ('draft', 'sent', 'to_approve')))
+         and ($3 ->> 'partner_id' is null or r.partner_id = ($3 ->> 'partner_id')::uuid)
+         and ($3 ->> 'product_id' is null or r.product_id = ($3 ->> 'product_id')::uuid)
+         and ($3 ->> 'category_id' is null or r.category_id = ($3 ->> 'category_id')::uuid)
+         and ($3 ->> 'buyer_id' is null or r.buyer_id = ($3 ->> 'buyer_id')::uuid)
+    ), shown as (
+      select *%3$s from base where day_ between $1 and $2
+    ), per as (
+      select %4$s
+             count(*) as lines, count(distinct order_id) as orders, coalesce(sum(qty), 0) as qty, coalesce(sum(qty_received), 0) as qty_received, coalesce(sum(qty_billed), 0) as qty_billed,
+             coalesce(sum(subtotal), 0) as subtotal, coalesce(sum(total), 0) as total, case when sum(qty) > 0 then sum(subtotal) / sum(qty) end as avg_cost,
+             avg(days_to_confirm) as days_to_confirm, avg(days_to_receive) as days_to_receive, coalesce(sum(weight), 0) as weight, coalesce(sum(volume), 0) as volume
+        from shown %5$s
+    )
+    select coalesce(jsonb_agg(to_jsonb(per)), '[]'::jsonb) from per
+  $q$, date_col, kind,
+    case when cardinality(exprs) > 0 then ', ' || array_to_string(exprs, ', ') else '' end,
+    case when cardinality(exprs) > 0 then (select string_agg(format('%I as %I', 'g_' || x, x), ', ') from unnest(p_group_by) x) || ',' else '' end,
+    case when cardinality(exprs) > 0 then 'group by ' || groups_ else '' end);
+  execute sql_ into cur using p_from, p_to, coalesce(p_filters, '{}'::jsonb);
+  if p_compare is not null then
+    execute sql_ into prev using
+      case when p_compare = 'previous_year' then (p_from - interval '1 year')::date else p_from - span end,
+      case when p_compare = 'previous_year' then (p_to - interval '1 year')::date else p_from - 1 end,
+      coalesce(p_filters, '{}'::jsonb);
+    select coalesce(jsonb_agg(c || jsonb_build_object('previous', pr, 'change_percent', (
+        select jsonb_object_agg(m, case when erp.num(pr -> m, 0) = 0 then null else round((erp.num(c -> m) - erp.num(pr -> m)) / abs(erp.num(pr -> m)) * 100, 2) end)
+          from unnest(array['qty', 'subtotal', 'total', 'lines', 'orders']) m))), '[]'::jsonb) into cur
+      from jsonb_array_elements(cur) c
+      left join lateral (select p as pr from jsonb_array_elements(prev) p
+                          where not exists (select 1 from unnest(p_group_by) k where p ->> k is distinct from c ->> k) limit 1) x on true;
+  end if;
+  return jsonb_build_object('from', p_from, 'to', p_to, 'group_by', to_jsonb(p_group_by), 'compare', p_compare, 'rows', cur);
+end $$;
+
+-- What each vendor charged for each product, month by month, on confirmed orders.
+create or replace function public.erp_vendor_cost_report(p_from date, p_to date, p_partner_id uuid default null) returns jsonb
+language plpgsql stable security definer set search_path = erp, extensions, pg_temp as $$
+begin
+  return public.erp_purchase_analysis(p_from, p_to, array['partner_id', 'product_id', 'month'],
+    jsonb_strip_nulls(jsonb_build_object('kind', 'po', 'date_field', 'date_confirmed', 'partner_id', p_partner_id)));
+end $$;
+
+-- Where the money went, by vendor or by product category, on confirmed orders.
+create or replace function public.erp_purchase_spend(p_from date, p_to date, p_by text default 'partner') returns jsonb
+language plpgsql stable security definer set search_path = erp, extensions, pg_temp as $$
+begin
+  if p_by not in ('partner', 'category') then perform erp.fail('ERP_INVALID', format('알 수 없는 구분입니다: %s', p_by)); end if;
+  return public.erp_purchase_analysis(p_from, p_to, array[case when p_by = 'partner' then 'partner_id' else 'category_id' end], '{"kind": "po", "date_field": "date_confirmed"}'::jsonb);
+end $$;
+
+-- Vendor prices as rows, each with the id that finds it again when the file comes back through erp_import.
+create or replace function public.erp_vendor_prices(p_partner_id uuid default null) returns jsonb
+language plpgsql stable security definer set search_path = erp, extensions, pg_temp as $$
+begin
+  perform erp.require_module('purchase');
+  if not erp.has_role(array['purchase']) then perform erp.fail('ERP_FORBIDDEN', '구매 담당자만 볼 수 있습니다'); end if;
+  return (select coalesce(jsonb_agg(jsonb_build_object('id', x -> 'id', 'product_id', r.id, 'product', r.state -> 'name', 'internal_ref', r.state -> 'internal_ref', 'partner_id', x -> 'partner_id',
+             'partner', erp.state_of((x ->> 'partner_id')::uuid) -> 'name', 'min_qty', x -> 'min_qty', 'price', x -> 'price', 'discount', x -> 'discount', 'delay_days', x -> 'delay_days',
+             'vendor_code', x -> 'vendor_code', 'date_start', x -> 'date_start', 'date_end', x -> 'date_end') order by r.name, x ->> 'id'), '[]'::jsonb)
+    from erp.records r, jsonb_array_elements(coalesce(r.state -> 'vendors', '[]'::jsonb)) x
+   where r.type = 'product' and not r.deleted and (p_partner_id is null or x ->> 'partner_id' = p_partner_id::text));
+end $$;
+
 -- What can be ordered from one vendor right now, for filling a document from the vendor's side.
 create or replace function public.erp_vendor_catalog(p_partner_id uuid) returns jsonb
 language plpgsql security definer set search_path = erp, pg_temp as $$
 begin
+  perform erp.require_module('purchase');
   if not erp.has_role(array['purchase']) then perform erp.fail('ERP_FORBIDDEN', '구매 담당자만 볼 수 있습니다'); end if;
   return (select coalesce(jsonb_agg(jsonb_build_object('product_id', r.id, 'name', r.name, 'vendor_code', x -> 'vendor_code', 'min_qty', x -> 'min_qty', 'price', x -> 'price',
              'discount', x -> 'discount', 'delay_days', x -> 'delay_days', 'date_start', x -> 'date_start', 'date_end', x -> 'date_end') order by r.name), '[]'::jsonb)
@@ -753,7 +854,7 @@ select erp.catalog_put('{
   "transitions": [
     {"command": "send", "to": "sent", "from": ["draft"], "label": "보냄 표시", "roles": ["purchase"]},
     {"command": "confirm", "to": "purchase", "from": ["draft", "sent"], "label": "주문 확정", "roles": ["purchase"], "primary": true},
-    {"command": "approve", "to": "purchase", "from": ["to_approve"], "label": "승인", "roles": ["purchase"], "primary": true},
+    {"command": "approve", "to": "purchase", "from": ["to_approve"], "label": "승인", "roles": ["admin"], "primary": true},
     {"command": "cancel", "to": "cancelled", "from": ["draft", "sent", "to_approve", "purchase"], "label": "취소", "roles": ["purchase"], "danger": true},
     {"command": "set_draft", "to": "draft", "from": ["cancelled"], "label": "초안으로", "roles": ["purchase"]}
   ],

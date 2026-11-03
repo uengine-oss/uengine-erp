@@ -152,6 +152,7 @@ declare
   chk record;
   combined jsonb;
   messages jsonb;
+  lock_msg text;
 begin
   for r in
     select e.stream_id, e.stream_type, min(e.version) as first_version, count(*) as event_count,
@@ -183,6 +184,15 @@ begin
            and (doc -> 'revert_blocked_states') ? (e.data -> 'set' ->> 'state')) then
       blocked := blocked || jsonb_build_object('id', r.stream_id, 'type', r.stream_type, 'name', r.name,
         'reason', coalesce(doc ->> 'revert_blocked_reason', format('%s의 이 상태는 되돌릴 수 없습니다', doc ->> 'label')));
+    end if;
+
+    -- A rollback is one more way to book or unbook a document, so a closed period holds against it too.
+    -- A type names how to read its date and which locks apply; only a change of state moves the books.
+    if doc ? 'lock_fn' and (target ->> 'state') is distinct from (r.current_state ->> 'state') then
+      execute format('select coalesce(%1$s($1), %1$s($2))', doc ->> 'lock_fn') into lock_msg using r.current_state, target;
+      if lock_msg is not null then
+        blocked := blocked || jsonb_build_object('id', r.stream_id, 'type', r.stream_type, 'name', r.name, 'reason', lock_msg);
+      end if;
     end if;
 
     if doc ? 'external_events' then

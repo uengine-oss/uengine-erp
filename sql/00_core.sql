@@ -90,8 +90,8 @@ begin
     when p_code = 'ERP_AUTH' then 'PT401'
     when p_code in ('ERP_FORBIDDEN', 'ERP_MODULE_OFF') then 'PT403'
     when p_code in ('ERP_NOT_FOUND', 'ERP_UNKNOWN_TYPE') then 'PT404'
-    when p_code in ('ERP_CONFLICT', 'ERP_DUPLICATE', 'ERP_IN_USE') then 'PT409'
-    when p_code in ('ERP_REQUIRED', 'ERP_INVALID', 'ERP_INVALID_REF', 'ERP_UNKNOWN_FIELD') then 'PT422'
+    when p_code in ('ERP_CONFLICT', 'ERP_DUPLICATE', 'ERP_IN_USE', 'ERP_LOCKED') then 'PT409'
+    when p_code in ('ERP_REQUIRED', 'ERP_INVALID', 'ERP_INVALID_REF', 'ERP_UNKNOWN_FIELD', 'ERP_CURRENCY') then 'PT422'
     else 'PT400' end;
 end $$;
 
@@ -127,6 +127,86 @@ language sql immutable as $$
               when jsonb_typeof(p) = 'string' and (p #>> '{}') ~ '^-?[0-9]+(\.[0-9]+)?$' then (p #>> '{}')::numeric
               else p_default end
 $$;
+
+-- Amounts are never converted, so a document in another currency would book 100 USD as 100 of the company's
+-- money without a word. Refusing it is the only honest answer until conversion exists.
+create or replace function erp.currency_check(p_currency text) returns void
+language plpgsql stable as $$
+declare own text := coalesce(erp.setting('currency'), 'KRW');
+begin
+  if nullif(btrim(coalesce(p_currency, '')), '') is not null and upper(btrim(p_currency)) <> upper(own) then
+    perform erp.fail('ERP_CURRENCY', format('회사 통화(%s)와 다른 통화(%s)는 쓸 수 없습니다. 환산 기능이 없어 금액이 잘못 기록됩니다. 회사 통화 금액으로 입력하세요', own, btrim(p_currency)));
+  end if;
+end $$;
+
+------------------------------------------------------------------------------------------------
+-- Period locks. A closed period stays closed: nothing dated on or before a lock date may book, unbook or
+-- disappear. The company record holds the dates; an exception lowers one date for a while, with a reason.
+-- A correction belongs to an open period, so a reversal dated after the lock is not refused.
+------------------------------------------------------------------------------------------------
+create or replace function erp.lock_label(p_kind text) returns text
+language sql immutable as $$
+  select case p_kind when 'all' then '전체 잠금일' when 'tax' then '세금 잠금일' when 'sale' then '판매 잠금일'
+                     when 'purchase' then '구매 잠금일' when 'hard' then '되돌릴 수 없는 잠금일' else p_kind end
+$$;
+
+-- What holds for whoever is acting right now. An exception never reaches below the hard lock.
+create or replace function erp.lock_date_of(p_kind text) returns date
+language plpgsql stable as $$
+declare
+  d date := (erp.setting('lock_date_' || p_kind))::date;
+  x date;
+begin
+  if p_kind = 'hard' or d is null then return d; end if;
+  select min((r.state ->> 'lock_date')::date) into x from erp.records r
+   where r.type = 'lock_exception' and not r.deleted and r.status = 'active'
+     and r.state ->> 'field' = p_kind
+     and (r.state ->> 'end_at')::timestamptz > erp.now()
+     and (r.state ->> 'member_id' is null or (r.state ->> 'member_id')::uuid = (select record_id from erp.members where user_id = erp.current_actor()));
+  -- A person with no lock_date on the exception is exempt from this lock altogether.
+  if exists (select 1 from erp.records r where r.type = 'lock_exception' and not r.deleted and r.status = 'active'
+              and r.state ->> 'field' = p_kind and r.state ->> 'lock_date' is null
+              and (r.state ->> 'end_at')::timestamptz > erp.now()
+              and (r.state ->> 'member_id' is null or (r.state ->> 'member_id')::uuid = (select record_id from erp.members where user_id = erp.current_actor()))) then
+    return null;
+  end if;
+  return least(d, x);
+end $$;
+
+-- The newest date that blocks this document, as {kind, date}, or null. 'all' and 'hard' hold everything;
+-- the other kinds hold only what the caller says the document is.
+create or replace function erp.lock_hit(p_date date, p_kinds text[] default '{}') returns jsonb
+language plpgsql stable as $$
+declare
+  k text;
+  d date;
+  best jsonb;
+begin
+  if p_date is null then return null; end if;
+  foreach k in array array['hard', 'all'] || p_kinds loop
+    d := erp.lock_date_of(k);
+    if d is not null and p_date <= d and (best is null or d > (best ->> 'date')::date) then
+      best := jsonb_build_object('kind', k, 'date', d);
+    end if;
+  end loop;
+  return best;
+end $$;
+
+create or replace function erp.lock_problem(p_date date, p_kinds text[], p_what text) returns text
+language plpgsql stable as $$
+declare h jsonb := erp.lock_hit(p_date, p_kinds);
+begin
+  if h is null then return null; end if;
+  return format('%s의 날짜 %s 은(는) %s(%s) 안에 있어 바꿀 수 없습니다. 날짜를 %s 뒤로 정하거나 관리자에게 잠금 예외를 요청하세요',
+    p_what, p_date, erp.lock_label(h ->> 'kind'), h ->> 'date', h ->> 'date');
+end $$;
+
+create or replace function erp.lock_check(p_date date, p_kinds text[], p_what text) returns void
+language plpgsql stable as $$
+declare m text := erp.lock_problem(p_date, p_kinds, p_what);
+begin
+  if m is not null then perform erp.fail('ERP_LOCKED', m); end if;
+end $$;
 
 create or replace function erp.next_number(p_code text, p_format text default null, p_pad int default 5)
 returns text language plpgsql as $$
@@ -768,6 +848,12 @@ begin
   return jsonb_build_object('checked', checked, 'mismatches', bad, 'next', case when checked = p_limit then last_id end);
 end $$;
 
+-- ok below 80% of the limit, near from there, full from 95%. The screen says so before the project stops taking writes.
+create or replace function erp.usage_level(p_bytes bigint, p_limit bigint) returns text
+language sql immutable as $$
+  select case when p_bytes >= p_limit * 0.95 then 'full' when p_bytes >= p_limit * 0.80 then 'near' else 'ok' end
+$$;
+
 -- Free projects get 500 MB and no automatic backups, so the app shows usage and offers event export.
 create or replace function public.erp_usage() returns jsonb
 language plpgsql stable security definer set search_path = erp, pg_temp as $$
@@ -776,6 +862,7 @@ begin
   return jsonb_build_object(
     'db_bytes', pg_database_size(current_database()),
     'limit_bytes', 500 * 1024 * 1024,
+    'level', erp.usage_level(pg_database_size(current_database()), 500 * 1024 * 1024),
     'events', (select count(*) from erp.events),
     'records', (select count(*) from erp.records),
     'events_bytes', pg_total_relation_size('erp.events'),

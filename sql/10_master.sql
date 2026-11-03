@@ -219,6 +219,20 @@ language sql stable as $$
                       where f ->> 'name' = e.key and not erp.module_on(f ->> 'module'))
 $$;
 
+-- Silently dropping a field would let an app newer than this database think it saved something.
+create or replace function erp.check_known_fields(p_type text, p_payload jsonb, p_allowed text[] default array['active']) returns void
+language plpgsql stable as $$
+declare k text;
+begin
+  select key into k from jsonb_each(coalesce(p_payload, '{}'::jsonb))
+   where not key = any (p_allowed)
+     and not exists (select 1 from jsonb_array_elements(erp.catalog_of(p_type) -> 'fields') f where f ->> 'name' = key)
+   limit 1;
+  if k is not null then
+    perform erp.fail('ERP_UNKNOWN_FIELD', format('%s 에 없는 항목입니다: %s', erp.catalog_of(p_type) ->> 'label', k));
+  end if;
+end $$;
+
 -- Create and update for types without a state machine. p_check is erp.check_x(id, next state, current state).
 create or replace function erp.h_master(p_type text, p_id uuid, p_command text, p_p jsonb, p_check text default null)
 returns uuid language plpgsql as $$
@@ -232,6 +246,7 @@ begin
   if p_command not in ('create', 'update') then
     return erp.h_generic(p_type, p_id, p_command, p_p);
   end if;
+  perform erp.check_known_fields(p_type, p_p);
   if p_command = 'create' and exists (select 1 from erp.records where id = new_id) then
     perform erp.fail('ERP_DUPLICATE', format('이미 있는 레코드입니다: %s', new_id));
   end if;
@@ -308,6 +323,20 @@ begin
   return trim_scale(round(p_qty * erp.uom_factor(p_from, p_to) / r) * r);
 end $$;
 
+-- A line keeps the quantity that was typed: 1.5 boxes sold is 1.5 boxes billed. A unit's rounding applies when
+-- goods move in the base unit, not to what was agreed. Two places unless the unit itself is finer.
+create or replace function erp.uom_line_qty(p_qty numeric, p_uom uuid) returns numeric
+language plpgsql stable as $$
+declare r numeric := case when p_uom is null then 0.01 else erp.num(erp.require_state(p_uom, 'uom') -> 'rounding', 0.01) end;
+begin
+  return trim_scale(round(p_qty, greatest(2, case when r > 0 and r < 1 then ceil(-log(r))::int else 0 end)));
+end $$;
+
+create or replace function erp.uom_same_category(p_a uuid, p_b uuid) returns boolean
+language sql stable as $$
+  select p_a is null or p_b is null or p_a = p_b or erp.require_state(p_a, 'uom') ->> 'category' = erp.require_state(p_b, 'uom') ->> 'category'
+$$;
+
 ------------------------------------------------------------------------------------------------
 -- Simple types
 ------------------------------------------------------------------------------------------------
@@ -320,8 +349,166 @@ language sql as $$ select erp.h_master('product_category', p_id, p_command, p_p,
 create or replace function erp.h_tag(p_id uuid, p_command text, p_p jsonb) returns uuid
 language sql as $$ select erp.h_master('tag', p_id, p_command, p_p) $$;
 
+-- Receivables and payables are matched by their nature, so they cannot opt out.
+create or replace function erp.check_account(p_id uuid, p_next jsonb, p_cur jsonb) returns void
+language plpgsql as $$
+begin
+  if p_next ->> 'account_type' in ('asset_receivable', 'liability_payable') and (p_next ->> 'reconcile')::boolean is false then
+    perform erp.fail('ERP_INVALID', '매출채권과 매입채무 계정은 대사를 끌 수 없습니다');
+  end if;
+end $$;
+
 create or replace function erp.h_account(p_id uuid, p_command text, p_p jsonb) returns uuid
-language sql as $$ select erp.h_master('account', p_id, p_command, p_p) $$;
+language plpgsql as $$
+begin
+  if p_command in ('create', 'update') and p_p ->> 'account_type' in ('asset_receivable', 'liability_payable') and not p_p ? 'reconcile' then
+    return erp.h_master('account', p_id, p_command, p_p || '{"reconcile": true}'::jsonb, 'erp.check_account');
+  end if;
+  return erp.h_master('account', p_id, p_command, p_p, 'erp.check_account');
+end $$;
+
+-- Groups at the same length of prefix cannot overlap, so an account's group is always one answer: the narrowest.
+create or replace function erp.check_account_group(p_id uuid, p_next jsonb, p_cur jsonb) returns void
+language plpgsql as $$
+declare
+  a text := p_next ->> 'code_prefix_start';
+  b text := p_next ->> 'code_prefix_end';
+  hit text;
+begin
+  if length(a) <> length(b) or a > b then
+    perform erp.fail('ERP_INVALID', '코드 시작과 끝은 길이가 같고 시작이 끝보다 앞서야 합니다');
+  end if;
+  select r.name into hit from erp.records r
+   where r.type = 'account_group' and not r.deleted and r.id <> p_id and length(r.state ->> 'code_prefix_start') = length(a)
+     and r.state ->> 'code_prefix_start' <= b and r.state ->> 'code_prefix_end' >= a limit 1;
+  if hit is not null then perform erp.fail('ERP_INVALID', format('같은 자릿수의 계정 그룹과 겹칩니다: %s', hit)); end if;
+end $$;
+
+create or replace function erp.h_account_group(p_id uuid, p_command text, p_p jsonb) returns uuid
+language sql as $$ select erp.h_master('account_group', p_id, p_command, p_p, 'erp.check_account_group') $$;
+
+-- The narrowest group whose prefix range holds the code. The next wider one is its parent.
+create or replace function erp.account_group_of(p_code text) returns jsonb
+language sql stable as $$
+  select jsonb_build_object('id', r.id, 'name', r.state -> 'name') from erp.records r
+   where r.type = 'account_group' and not r.deleted and r.active
+     and left(p_code, length(r.state ->> 'code_prefix_start')) between r.state ->> 'code_prefix_start' and r.state ->> 'code_prefix_end'
+   order by length(r.state ->> 'code_prefix_start') desc limit 1
+$$;
+
+-- A number is the same whatever spaces and dashes it was typed with.
+create or replace function erp.check_partner_bank(p_id uuid, p_next jsonb, p_cur jsonb) returns void
+language plpgsql as $$
+declare clean_ text := regexp_replace(p_next ->> 'acc_number', '[^0-9A-Za-z]', '', 'g');
+begin
+  if exists (select 1 from erp.records r where r.type = 'partner_bank' and not r.deleted and r.id <> p_id
+              and r.state ->> 'partner_id' = p_next ->> 'partner_id'
+              and regexp_replace(r.state ->> 'acc_number', '[^0-9A-Za-z]', '', 'g') = clean_) then
+    perform erp.fail('ERP_DUPLICATE', format('이 거래처에 이미 있는 계좌입니다: %s', p_next ->> 'acc_number'));
+  end if;
+end $$;
+
+-- A new account is not trusted until someone has checked it, and a changed number has to be checked again.
+create or replace function erp.h_partner_bank(p_id uuid, p_command text, p_p jsonb) returns uuid
+language plpgsql as $$
+declare
+  s jsonb;
+  id_ uuid;
+begin
+  case p_command
+    when 'trust', 'untrust' then
+      s := erp.require_state(p_id, 'partner_bank');
+      if coalesce((s ->> 'trusted')::boolean, false) <> (p_command = 'trust') then
+        perform erp.emit('partner_bank', p_id, case when p_command = 'trust' then 'PartnerBankTrusted' else 'PartnerBankUntrusted' end,
+          jsonb_build_object('set', jsonb_build_object('trusted', p_command = 'trust')));
+      end if;
+      return p_id;
+    when 'update' then
+      s := erp.require_state(p_id, 'partner_bank');
+      id_ := erp.h_master('partner_bank', p_id, p_command, p_p, 'erp.check_partner_bank');
+      if p_p ? 'acc_number' and p_p ->> 'acc_number' is distinct from s ->> 'acc_number' and coalesce((s ->> 'trusted')::boolean, false) then
+        perform erp.emit('partner_bank', p_id, 'PartnerBankUntrusted', '{"set": {"trusted": false}, "because": "number_changed"}');
+      end if;
+      return id_;
+    when 'create' then
+      id_ := erp.h_master('partner_bank', p_id, p_command, p_p, 'erp.check_partner_bank');
+      perform erp.emit('partner_bank', id_, 'PartnerBankUntrusted', '{"set": {"trusted": false}}');
+      return id_;
+    else
+      return erp.h_master('partner_bank', p_id, p_command, p_p, 'erp.check_partner_bank');
+  end case;
+end $$;
+
+-- Each person's own searches and the ones others shared. Only the owner changes one; a person has one default per report.
+create or replace function erp.h_saved_search(p_id uuid, p_command text, p_p jsonb) returns uuid
+language plpgsql as $$
+declare
+  me text := (select record_id::text from erp.members where user_id = erp.current_actor());
+  id_ uuid;
+  s jsonb;
+  r record;
+begin
+  if p_command <> 'create' then
+    s := erp.require_state(p_id, 'saved_search');
+    if s ->> 'owner_id' is distinct from me and not erp.has_role(array['admin']) then
+      perform erp.fail('ERP_FORBIDDEN', '자기가 만든 검색만 바꿀 수 있습니다');
+    end if;
+  end if;
+  id_ := erp.h_master('saved_search', p_id, p_command, p_p);
+  if p_command = 'create' then
+    perform erp.emit('saved_search', id_, 'SavedSearchOwned', jsonb_build_object('set', jsonb_build_object('owner_id', me)));
+  end if;
+  if p_command in ('create', 'update') and (p_p ->> 'is_default')::boolean is true then
+    for r in select x.id from erp.records x where x.type = 'saved_search' and not x.deleted and x.id <> id_
+                and x.state ->> 'owner_id' = me and x.state ->> 'report' = erp.state_of(id_) ->> 'report' and (x.state ->> 'is_default')::boolean loop
+      perform erp.emit('saved_search', r.id, 'SavedSearchUpdated', '{"set": {"is_default": false}}');
+    end loop;
+  end if;
+  return id_;
+end $$;
+
+create or replace function public.erp_saved_searches(p_report text) returns jsonb
+language plpgsql stable security definer set search_path = erp, extensions, pg_temp as $$
+declare me text := (select record_id::text from erp.members where user_id = erp.current_actor());
+begin
+  if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '구성원만 볼 수 있습니다'); end if;
+  return (select coalesce(jsonb_agg(jsonb_build_object('id', r.id, 'name', r.state -> 'name', 'filters', r.state -> 'filters', 'group_by', r.state -> 'group_by',
+             'is_default', r.state -> 'is_default', 'shared', r.state -> 'shared', 'mine', r.state ->> 'owner_id' = me) order by r.state ->> 'name', r.id), '[]'::jsonb)
+    from erp.records r where r.type = 'saved_search' and not r.deleted and r.state ->> 'report' = p_report
+     and (r.state ->> 'owner_id' = me or (r.state ->> 'shared')::boolean));
+end $$;
+
+-- A distribution says where a tax goes: one base row and tax rows whose positive shares make 100. A negative row is
+-- how a reverse charge cancels what it charged, and an empty account keeps that share on the line's own account.
+-- Invoice and refund must mirror each other, or a credit note could not undo its invoice.
+create or replace function erp.check_tax_repartition(p_next jsonb) returns void
+language plpgsql as $$
+declare
+  a jsonb := coalesce(p_next -> 'invoice_repartition', '[]'::jsonb);
+  b jsonb := coalesce(p_next -> 'refund_repartition', '[]'::jsonb);
+  x jsonb;
+  net numeric;
+begin
+  if a = '[]'::jsonb and b = '[]'::jsonb then return; end if;
+  if jsonb_array_length(a) <> jsonb_array_length(b) then
+    perform erp.fail('ERP_INVALID', '청구서와 대변 메모의 세금 분배는 줄 수가 같아야 합니다');
+  end if;
+  foreach x in array array[a, b] loop
+    if (select count(*) from jsonb_array_elements(x) r where r ->> 'kind' = 'base') <> 1 then
+      perform erp.fail('ERP_INVALID', '세금 분배에는 기준 금액 줄이 정확히 하나 있어야 합니다');
+    end if;
+    if (select coalesce(sum(erp.num(r -> 'factor_percent')), 0) from jsonb_array_elements(x) r where r ->> 'kind' = 'tax' and erp.num(r -> 'factor_percent') > 0) <> 100 then
+      perform erp.fail('ERP_INVALID', '세금 분배의 양수 비율 합계는 100 이어야 합니다');
+    end if;
+  end loop;
+  select coalesce(sum(erp.num(r -> 'factor_percent')), 0) into net from jsonb_array_elements(a) r where r ->> 'kind' = 'tax';
+  if net <> (select coalesce(sum(erp.num(r -> 'factor_percent')), 0) from jsonb_array_elements(b) r where r ->> 'kind' = 'tax') then
+    perform erp.fail('ERP_INVALID', '청구서와 대변 메모의 세금 분배 합계가 같아야 합니다');
+  end if;
+  if net <> 100 and coalesce((p_next ->> 'price_include')::boolean, false) then
+    perform erp.fail('ERP_INVALID', '역과세처럼 세금이 상쇄되는 분배는 가격에 포함할 수 없습니다');
+  end if;
+end $$;
 
 -- A negative rate is how withholding is written, so only a division that would divide by zero or less is refused.
 create or replace function erp.check_tax(p_id uuid, p_next jsonb, p_cur jsonb) returns void
@@ -333,6 +520,7 @@ begin
   if p_next ->> 'amount_type' = 'division' and (erp.num(p_next -> 'amount') < 0 or erp.num(p_next -> 'amount') >= 100) then
     perform erp.fail('ERP_INVALID', '나눗셈 세금의 세율은 0 이상 100 미만이어야 합니다');
   end if;
+  perform erp.check_tax_repartition(p_next);
   if p_next ->> 'amount_type' = 'group' then
     if exists (select 1 from erp.records where type = 'tax' and not deleted and id <> p_id
                   and state @> jsonb_build_object('children_tax_ids', jsonb_build_array(p_id))) then
@@ -377,6 +565,7 @@ begin
   if erp.state_of((p_next ->> 'stock_location_id')::uuid) ->> 'usage' <> 'internal' then
     perform erp.fail('ERP_INVALID', '창고의 재고 위치는 사내 위치여야 합니다');
   end if;
+  if length(p_next ->> 'code') > 5 then perform erp.fail('ERP_INVALID', '창고 코드는 5자 이내여야 합니다'); end if;
 end $$;
 
 create or replace function erp.h_warehouse(p_id uuid, p_command text, p_p jsonb) returns uuid
@@ -481,7 +670,7 @@ begin
     rest := rest - amt;
     row_ := jsonb_build_object('due_date', erp.payment_term_due(l, p_date)::text, 'amount', sign_ * amt);
     if coalesce((p_term ->> 'early_discount')::boolean, false) then
-      disc_base := case when p_term ->> 'discount_mode' = 'excluded' then abs(coalesce(p_untaxed, total)) else abs(total) end;
+      disc_base := case when p_term ->> 'discount_mode' in ('excluded', 'mixed') then abs(coalesce(p_untaxed, total)) else abs(total) end;
       row_ := row_ || jsonb_build_object('discount_date', (p_date + erp.num(p_term -> 'discount_days')::int)::text,
         'discount_amount', sign_ * (amt - erp.money(disc_base * erp.num(p_term -> 'discount_percentage') / 100)));
     end if;
@@ -622,6 +811,42 @@ begin
              where r.type = 'partner' and not r.deleted and r.active
                and not exists (select 1 from unnest(p_fields) f where coalesce(btrim(r.state ->> f), '') = '')) x
      group by k having count(*) > 1) t);
+end $$;
+
+-- The same list, merged in one go into the oldest of each group. A contact on the books stays out of it, because a
+-- module can say its documents hold a contact in place. A dry run shows what would happen.
+create or replace function public.erp_partner_merge_duplicates(p_fields text[] default array['email'], p_dry_run boolean default true) returns jsonb
+language plpgsql security definer set search_path = erp, extensions, pg_temp as $$
+declare
+  g jsonb;
+  keep_ text;
+  m jsonb;
+  held boolean;
+  merged int := 0;
+  plan jsonb := '[]'::jsonb;
+  taken jsonb;
+begin
+  if not erp.has_role(array['sales', 'purchase', 'accounting']) then perform erp.fail('ERP_FORBIDDEN', '권한이 없습니다'); end if;
+  perform set_config('erp.correlation_id', gen_random_uuid()::text, true);
+  perform set_config('erp.causation_seq', '', true);
+  perform set_config('erp.depth', '0', true);
+  perform set_config('erp.source', 'merge_duplicates', true);
+  for g in select value from jsonb_array_elements(public.erp_partner_duplicates(p_fields)) loop
+    keep_ := g -> 'partners' -> 0 ->> 'id';
+    taken := '[]'::jsonb;
+    for m in select value from jsonb_array_elements(g -> 'partners') with ordinality t(value, o) where o > 1 loop
+      held := exists (select 1 from erp.records r join erp.catalog c on c.type = r.type
+                       where not r.deleted and (c.doc ->> 'holds_partner')::boolean and r.state @> jsonb_build_object('partner_id', m ->> 'id'));
+      continue when held;
+      taken := taken || m;
+      if not p_dry_run then
+        perform erp.dispatch('partner', (m ->> 'id')::uuid, 'merge', jsonb_build_object('into', keep_));
+        merged := merged + 1;
+      end if;
+    end loop;
+    if taken <> '[]'::jsonb then plan := plan || jsonb_build_object('into', g -> 'partners' -> 0, 'merge', taken); end if;
+  end loop;
+  return jsonb_build_object('dry_run', p_dry_run, 'merged', merged, 'groups', plan);
 end $$;
 
 ------------------------------------------------------------------------------------------------
@@ -892,6 +1117,7 @@ begin
     return erp.h_generic('product', p_id, p_command, p_p);
   end if;
   if jsonb_typeof(p) <> 'object' then perform erp.fail('ERP_INVALID', '요청 형식이 올바르지 않습니다'); end if;
+  perform erp.check_known_fields('product', p);
   if p_command = 'create' then
     if exists (select 1 from erp.records where id = new_id) then
       perform erp.fail('ERP_DUPLICATE', format('이미 있는 레코드입니다: %s', new_id));
@@ -901,7 +1127,8 @@ begin
            'uom_id', (select id from erp.records where id = erp.seed_id('개') and not deleted),
            'category_id', (select id from erp.records where id = erp.seed_id('기본 분류') and not deleted),
            'sale_tax_ids', case when erp.setting('default_sale_tax_id') is not null then jsonb_build_array(erp.setting('default_sale_tax_id')) end,
-           'purchase_tax_ids', case when erp.setting('default_purchase_tax_id') is not null then jsonb_build_array(erp.setting('default_purchase_tax_id')) end))) || p;
+           'purchase_tax_ids', case when erp.setting('default_purchase_tax_id') is not null then jsonb_build_array(erp.setting('default_purchase_tax_id')) end,
+           'bill_policy', erp.setting('default_bill_policy')))) || p;
     p := erp.fields_on('product', jsonb_build_object('purchase_uom_id', p -> 'uom_id')) || p;
   else
     cur := erp.require_state(p_id, 'product');
@@ -1057,7 +1284,7 @@ select erp.catalog_master('{
     {"name": "name", "label": "이름", "type": "text", "required": true, "list": true, "search": true},
     {"name": "parent_id", "label": "소속 회사", "type": "ref", "ref": "partner", "list": true},
     {"name": "address_type", "label": "주소 유형", "type": "enum", "default": "contact",
-     "options": [{"value": "contact", "label": "연락처"}, {"value": "invoice", "label": "청구지"}, {"value": "delivery", "label": "배송지"}, {"value": "other", "label": "기타"}]},
+     "options": [{"value": "contact", "label": "연락처"}, {"value": "invoice", "label": "청구지"}, {"value": "delivery", "label": "배송지"}, {"value": "followup", "label": "독촉"}, {"value": "other", "label": "기타"}]},
     {"name": "job_position", "label": "직책", "type": "text"},
     {"name": "phone", "label": "전화", "type": "text", "list": true, "search": true},
     {"name": "mobile", "label": "휴대전화", "type": "text", "search": true},
@@ -1078,6 +1305,13 @@ select erp.catalog_master('{
     {"name": "vendor_payment_term_id", "label": "공급사 결제 조건", "type": "ref", "ref": "payment_term"},
     {"name": "pricelist_id", "label": "가격표", "type": "ref", "ref": "pricelist"},
     {"name": "fiscal_position_id", "label": "세금 조정", "type": "ref", "ref": "fiscal_position"},
+    {"name": "inbound_payment_method_id", "label": "선호 수금 수단", "type": "ref", "ref": "payment_method"},
+    {"name": "outbound_payment_method_id", "label": "선호 지급 수단", "type": "ref", "ref": "payment_method"},
+    {"name": "invoice_sending_method", "label": "청구서 발송 방식", "type": "enum",
+     "options": [{"value": "manual", "label": "내려받기"}, {"value": "email", "label": "메일"}, {"value": "post", "label": "우편"}]},
+    {"name": "delivery_method", "label": "배송 방법", "type": "text"},
+    {"name": "receipt_reminder", "label": "입고 알림", "type": "boolean", "default": false},
+    {"name": "receipt_reminder_days", "label": "입고 알림 일수", "type": "integer"},
     {"name": "note", "label": "메모", "type": "text"},
     {"name": "merged_into", "label": "합쳐진 대상", "type": "ref", "ref": "partner", "readonly": true},
     {"name": "active", "label": "사용", "type": "boolean", "readonly": true, "list": true}
@@ -1203,7 +1437,7 @@ select erp.catalog_master('{
   "fields": [
     {"name": "name", "label": "세금명", "type": "text", "required": true, "list": true, "search": true},
     {"name": "scope", "label": "적용 범위", "type": "enum", "required": true, "default": "sale", "list": true,
-     "options": [{"value": "sale", "label": "매출"}, {"value": "purchase", "label": "매입"}]},
+     "options": [{"value": "sale", "label": "매출"}, {"value": "purchase", "label": "매입"}, {"value": "none", "label": "없음"}]},
     {"name": "amount_type", "label": "계산 방식", "type": "enum", "required": true, "default": "percent", "list": true,
      "options": [{"value": "percent", "label": "비율"}, {"value": "fixed", "label": "고정 금액"},
                  {"value": "division", "label": "나눗셈"}, {"value": "group", "label": "세금 그룹"}]},
@@ -1214,6 +1448,18 @@ select erp.catalog_master('{
     {"name": "sequence", "label": "계산 순서", "type": "integer", "default": 1},
     {"name": "children_tax_ids", "label": "그룹의 세금", "type": "refs", "ref": "tax", "default": []},
     {"name": "account_id", "label": "세금 계정", "type": "ref", "ref": "account"},
+    {"name": "invoice_repartition", "label": "청구서 세금 분배", "type": "lines", "default": [], "columns": [
+      {"name": "kind", "label": "구분", "type": "enum", "required": true, "default": "tax", "options": [{"value": "base", "label": "기준 금액"}, {"value": "tax", "label": "세금"}]},
+      {"name": "factor_percent", "label": "비율(%)", "type": "number", "default": 100},
+      {"name": "account_id", "label": "계정", "type": "ref", "ref": "account", "help": "비우면 그 줄의 계정으로 갑니다"},
+      {"name": "grids", "label": "신고 그리드", "type": "tags", "default": []}
+    ]},
+    {"name": "refund_repartition", "label": "대변 메모 세금 분배", "type": "lines", "default": [], "columns": [
+      {"name": "kind", "label": "구분", "type": "enum", "required": true, "default": "tax", "options": [{"value": "base", "label": "기준 금액"}, {"value": "tax", "label": "세금"}]},
+      {"name": "factor_percent", "label": "비율(%)", "type": "number", "default": 100},
+      {"name": "account_id", "label": "계정", "type": "ref", "ref": "account", "help": "비우면 그 줄의 계정으로 갑니다"},
+      {"name": "grids", "label": "신고 그리드", "type": "tags", "default": []}
+    ]},
     {"name": "description", "label": "설명", "type": "text"}
   ]
 }'::jsonb, '["accounting"]'::jsonb);
@@ -1222,11 +1468,20 @@ select erp.catalog_master('{
   "type": "fiscal_position", "sort": 90, "label": "세금 조정", "label_en": "Fiscal Position",
   "fields": [
     {"name": "name", "label": "이름", "type": "text", "required": true, "list": true, "search": true},
+    {"name": "sequence", "label": "순서", "type": "integer", "default": 10},
     {"name": "auto_apply", "label": "자동 적용", "type": "boolean", "default": false, "list": true},
+    {"name": "vat_required", "label": "세금 번호가 있어야 함", "type": "boolean", "default": false},
     {"name": "country", "label": "국가", "type": "text", "list": true, "help": "ISO 국가 코드 (KR, US ...)"},
+    {"name": "country_group", "label": "국가 묶음", "type": "tags", "default": [], "help": "ISO 국가 코드 목록"},
+    {"name": "zip_from", "label": "우편번호 시작", "type": "text"},
+    {"name": "zip_to", "label": "우편번호 끝", "type": "text"},
     {"name": "tax_map", "label": "세금 대응", "type": "lines", "default": [], "columns": [
       {"name": "from_tax_id", "label": "원래 세금", "type": "ref", "ref": "tax", "required": true},
       {"name": "to_tax_id", "label": "바꿀 세금", "type": "ref", "ref": "tax", "help": "비우면 세금을 뺍니다"}
+    ]},
+    {"name": "account_map", "label": "계정 대응", "type": "lines", "default": [], "columns": [
+      {"name": "from_account_id", "label": "원래 계정", "type": "ref", "ref": "account", "required": true},
+      {"name": "to_account_id", "label": "바꿀 계정", "type": "ref", "ref": "account", "required": true}
     ]}
   ]
 }'::jsonb, '["accounting"]'::jsonb);
@@ -1240,7 +1495,7 @@ select erp.catalog_master('{
     {"name": "discount_percentage", "label": "조기 할인율(%)", "type": "number", "default": 2},
     {"name": "discount_days", "label": "조기 할인 기한(일)", "type": "integer", "default": 10},
     {"name": "discount_mode", "label": "조기 할인 기준", "type": "enum", "default": "included",
-     "options": [{"value": "included", "label": "세금 포함 금액"}, {"value": "excluded", "label": "공급가액"}]},
+     "options": [{"value": "included", "label": "세금 포함 금액"}, {"value": "excluded", "label": "공급가액"}, {"value": "mixed", "label": "항상 할인 후 금액에 세금"}]},
     {"name": "lines", "label": "할부", "type": "lines", "default": [], "columns": [
       {"name": "value", "label": "방식", "type": "enum", "required": true, "default": "percent",
        "options": [{"value": "percent", "label": "비율"}, {"value": "fixed", "label": "고정 금액"}]},
@@ -1263,15 +1518,67 @@ select erp.catalog_master('{
      "options": [{"value": "asset_receivable", "label": "매출채권"}, {"value": "asset_cash", "label": "현금성 자산"},
                  {"value": "asset_current", "label": "유동 자산"}, {"value": "asset_non_current", "label": "비유동 자산"},
                  {"value": "liability_payable", "label": "매입채무"}, {"value": "liability_current", "label": "유동 부채"},
-                 {"value": "equity", "label": "자본"}, {"value": "income", "label": "수익"}, {"value": "expense", "label": "비용"}]}
+                 {"value": "equity", "label": "자본"}, {"value": "income", "label": "수익"}, {"value": "expense", "label": "비용"}]},
+    {"name": "reconcile", "label": "대사 허용", "type": "boolean", "default": false, "help": "허용한 계정만 은행 대사 후보로 보입니다. 매출채권과 매입채무는 항상 허용입니다"},
+    {"name": "tax_ids", "label": "기본 세금", "type": "refs", "ref": "tax", "default": []},
+    {"name": "tags", "label": "태그", "type": "refs", "ref": "tag", "default": []}
   ]
 }'::jsonb, '["accounting"]'::jsonb);
+
+select erp.catalog_master('{
+  "type": "account_group", "module": "accounting", "sort": 112, "label": "계정 그룹", "label_en": "Account Group", "import_key": ["code_prefix_start"],
+  "fields": [
+    {"name": "name", "label": "이름", "type": "text", "required": true, "list": true, "search": true},
+    {"name": "code_prefix_start", "label": "코드 시작", "type": "text", "required": true, "list": true},
+    {"name": "code_prefix_end", "label": "코드 끝", "type": "text", "required": true, "list": true}
+  ]
+}'::jsonb, '["accounting"]'::jsonb);
+
+select erp.catalog_master('{
+  "type": "bank", "module": "master", "sort": 114, "label": "은행", "label_en": "Bank",
+  "fields": [
+    {"name": "name", "label": "은행명", "type": "text", "required": true, "list": true, "search": true},
+    {"name": "bic", "label": "은행 식별 코드", "type": "text", "list": true, "search": true}
+  ]
+}'::jsonb, '["accounting"]'::jsonb);
+
+select erp.catalog_put(d || '{"extra_commands": {
+    "trust": {"roles": ["accounting"], "label": "신뢰 표시"},
+    "untrust": {"roles": ["accounting"], "label": "신뢰 해제"}}}'::jsonb)
+  from (select '{
+  "type": "partner_bank", "module": "master", "sort": 116, "label": "거래처 은행 계좌", "label_en": "Partner Bank Account",
+  "write_roles": ["accounting", "purchase"],
+  "commands": {"create": {"roles": ["accounting", "purchase"]}, "update": {"roles": ["accounting", "purchase"]}, "archive": {"roles": ["accounting", "purchase"]},
+               "unarchive": {"roles": ["accounting", "purchase"]}, "delete": {"roles": ["accounting", "purchase"]}},
+  "import_key": ["partner_id", "acc_number"],
+  "fields": [
+    {"name": "partner_id", "label": "거래처", "type": "ref", "ref": "partner", "required": true, "list": true},
+    {"name": "acc_number", "label": "계좌 번호", "type": "text", "required": true, "list": true, "search": true},
+    {"name": "bank_id", "label": "은행", "type": "ref", "ref": "bank", "list": true},
+    {"name": "holder_name", "label": "예금주", "type": "text"},
+    {"name": "trusted", "label": "송금 신뢰", "type": "boolean", "readonly": true, "list": true}
+  ]
+}'::jsonb as d) t;
+
+select erp.catalog_master('{
+  "type": "saved_search", "module": "master", "sort": 950, "label": "저장한 검색", "label_en": "Saved Search",
+  "fields": [
+    {"name": "name", "label": "이름", "type": "text", "required": true, "list": true, "search": true},
+    {"name": "report", "label": "보고서", "type": "text", "required": true, "list": true},
+    {"name": "filters", "label": "조건", "type": "json"},
+    {"name": "group_by", "label": "묶기", "type": "json"},
+    {"name": "is_default", "label": "기본값", "type": "boolean", "default": false, "list": true},
+    {"name": "shared", "label": "다른 사용자와 공유", "type": "boolean", "default": false, "list": true},
+    {"name": "owner_id", "label": "만든 사람", "type": "ref", "ref": "member", "readonly": true}
+  ]
+}'::jsonb, '["admin", "sales", "purchase", "inventory", "accounting", "viewer"]'::jsonb);
 
 select erp.catalog_master('{
   "type": "warehouse", "module": "inventory", "sort": 120, "label": "창고", "label_en": "Warehouse",
   "fields": [
     {"name": "name", "label": "창고명", "type": "text", "required": true, "list": true, "search": true},
-    {"name": "code", "label": "코드", "type": "text", "required": true, "unique": true, "list": true, "search": true},
+    {"name": "code", "label": "코드", "type": "text", "required": true, "unique": true, "list": true, "search": true, "help": "5자 이내"},
+    {"name": "address", "label": "주소", "type": "text"},
     {"name": "stock_location_id", "label": "재고 위치", "type": "ref", "ref": "location", "required": true, "list": true}
   ]
 }'::jsonb, '["inventory"]'::jsonb);
@@ -1291,14 +1598,176 @@ select erp.catalog_master('{
 -- The kernel owns the company entry and rewrites it on every install, so these fields are added back each time.
 select erp.catalog_put(d || jsonb_build_object('fields', (
     select jsonb_agg(value) from jsonb_array_elements(d -> 'fields')
-     where value ->> 'name' not in ('default_sale_tax_id', 'default_purchase_tax_id', 'default_price_include', 'early_discount_gain_account_id', 'early_discount_loss_account_id')) || '[
+     where value ->> 'name' not in ('default_sale_tax_id', 'default_purchase_tax_id', 'default_price_include', 'early_discount_gain_account_id', 'early_discount_loss_account_id',
+                                    'lock_date_all', 'lock_date_tax', 'lock_date_sale', 'lock_date_purchase', 'lock_date_hard',
+                                    'default_bill_policy', 'default_quote_template_id', 'logo_url', 'tax_periodicity', 'tax_reminder_days', 'tax_due_day', 'tax_journal_id')) || '[
+    {"name": "logo_url", "label": "로고 주소", "type": "text"},
+    {"name": "default_quote_template_id", "label": "기본 견적 양식", "type": "ref", "ref": "quote_template"},
+    {"name": "default_bill_policy", "label": "매입 청구 기준 기본값", "type": "enum", "default": "receipt",
+     "options": [{"value": "order", "label": "주문 수량"}, {"value": "receipt", "label": "입고 수량"}]},
+    {"name": "tax_periodicity", "label": "세금 신고 주기", "type": "enum", "default": "quarterly",
+     "options": [{"value": "monthly", "label": "매월"}, {"value": "quarterly", "label": "분기"}, {"value": "semiannual", "label": "반기"}, {"value": "annual", "label": "매년"}]},
+    {"name": "tax_reminder_days", "label": "신고 알림(기한 며칠 전)", "type": "integer", "default": 7},
+    {"name": "tax_due_day", "label": "신고 기한(다음 달 며칠)", "type": "integer", "default": 25},
+    {"name": "tax_journal_id", "label": "세금 기록 분개장", "type": "ref", "ref": "journal"},
     {"name": "default_sale_tax_id", "label": "기본 매출 세금", "type": "ref", "ref": "tax"},
     {"name": "default_purchase_tax_id", "label": "기본 매입 세금", "type": "ref", "ref": "tax"},
     {"name": "default_price_include", "label": "새 세금은 가격에 포함", "type": "boolean", "default": false},
     {"name": "early_discount_gain_account_id", "label": "조기 할인 이익 계정", "type": "ref", "ref": "account"},
-    {"name": "early_discount_loss_account_id", "label": "조기 할인 손실 계정", "type": "ref", "ref": "account"}
+    {"name": "early_discount_loss_account_id", "label": "조기 할인 손실 계정", "type": "ref", "ref": "account"},
+    {"name": "lock_date_all", "label": "전체 잠금일", "type": "date", "help": "이 날짜까지의 청구서·입금·전표를 게시하거나 되돌릴 수 없습니다"},
+    {"name": "lock_date_tax", "label": "세금 잠금일", "type": "date", "help": "세금이 있는 문서만 막습니다. 세금 신고를 마친 뒤 넣습니다"},
+    {"name": "lock_date_sale", "label": "판매 잠금일", "type": "date", "help": "고객 문서만 막습니다"},
+    {"name": "lock_date_purchase", "label": "구매 잠금일", "type": "date", "help": "공급사 문서만 막습니다"},
+    {"name": "lock_date_hard", "label": "되돌릴 수 없는 잠금일", "type": "date", "help": "넣은 뒤에는 앞당기거나 지울 수 없습니다"}
   ]'::jsonb))
   from (select erp.catalog_of('company') as d) t;
+
+------------------------------------------------------------------------------------------------
+-- Period locks on the company record, and the exceptions an admin can give
+------------------------------------------------------------------------------------------------
+-- A hard lock only moves forward. Modules that hold open items in the period add their refusals through a
+-- react hook on the company stream, which runs inside this transaction.
+create or replace function erp.h_company(p_id uuid, p_command text, p_p jsonb) returns uuid
+language plpgsql as $$
+declare
+  cur jsonb := erp.state_of(erp.company_id());
+  next_ date;
+begin
+  if p_command = 'update' and p_p ? 'default_price_include' and (p_p ->> 'default_price_include')::boolean is distinct from coalesce((cur ->> 'default_price_include')::boolean, false)
+     and exists (select 1 from erp.events e where e.event_type = 'InvoicePosted') then
+    perform erp.fail('ERP_INVALID', '게시한 청구서가 있으면 회사의 세금 포함 기준을 바꿀 수 없습니다');
+  end if;
+  if p_command = 'update' and p_p ? 'lock_date_hard' then
+    next_ := nullif(p_p ->> 'lock_date_hard', '')::date;
+    if cur ->> 'lock_date_hard' is not null and next_ is null then
+      perform erp.fail('ERP_INVALID', '되돌릴 수 없는 잠금일은 지울 수 없습니다');
+    end if;
+    if next_ < (cur ->> 'lock_date_hard')::date then
+      perform erp.fail('ERP_INVALID', format('되돌릴 수 없는 잠금일은 앞당길 수 없습니다 (지금 %s)', cur ->> 'lock_date_hard'));
+    end if;
+  end if;
+  return erp.h_generic('company', coalesce(p_id, erp.company_id()), p_command, p_p);
+end $$;
+
+select erp.catalog_put('{
+  "type": "lock_exception", "module": "settings", "sort": 905, "label": "잠금 예외", "label_en": "Lock Exception", "revertible": false, "rest": false,
+  "fields": [
+    {"name": "field", "label": "대상 잠금일", "type": "enum", "required": true, "list": true,
+     "options": [{"value": "all", "label": "전체 잠금일"}, {"value": "tax", "label": "세금 잠금일"}, {"value": "sale", "label": "판매 잠금일"}, {"value": "purchase", "label": "구매 잠금일"}]},
+    {"name": "lock_date", "label": "이 예외 동안의 잠금일", "type": "date", "list": true, "help": "비우면 이 기간 동안 그 잠금일을 적용하지 않습니다"},
+    {"name": "member_id", "label": "대상 구성원", "type": "ref", "ref": "member", "list": true, "help": "비우면 모든 구성원"},
+    {"name": "reason", "label": "사유", "type": "text", "required": true, "list": true},
+    {"name": "end_at", "label": "끝나는 때", "type": "datetime", "required": true, "list": true},
+    {"name": "state", "label": "상태", "type": "text", "readonly": true, "list": true}
+  ],
+  "states": [{"value": "active", "label": "유효", "color": "green"}, {"value": "revoked", "label": "철회", "color": "gray"}],
+  "transitions": [{"command": "revoke", "to": "revoked", "from": ["active"], "label": "철회", "roles": ["admin"]}],
+  "commands": {"create": {"roles": ["admin"]}}
+}'::jsonb);
+
+create or replace function erp.h_lock_exception(p_id uuid, p_command text, p_p jsonb) returns uuid
+language plpgsql as $$
+declare
+  new_id uuid := coalesce(p_id, gen_random_uuid());
+  vals jsonb;
+  s jsonb;
+begin
+  case p_command
+    when 'create' then
+      vals := erp.validate('lock_exception', erp.clean_payload('lock_exception', p_p), true);
+      if (vals ->> 'end_at')::timestamptz <= erp.now() then perform erp.fail('ERP_INVALID', '끝나는 때는 지금보다 뒤여야 합니다'); end if;
+      if vals ->> 'lock_date' is not null and (vals ->> 'lock_date')::date < (erp.setting('lock_date_hard'))::date then
+        perform erp.fail('ERP_INVALID', format('되돌릴 수 없는 잠금일(%s) 앞으로는 예외를 줄 수 없습니다', erp.setting('lock_date_hard')));
+      end if;
+      perform erp.emit('lock_exception', new_id, 'LockExceptionGranted', jsonb_build_object('set', vals || jsonb_build_object('state', 'active', 'active', true,
+        'granted_lock_date', erp.setting('lock_date_' || (vals ->> 'field')))));
+    when 'revoke' then
+      s := erp.require_state(p_id, 'lock_exception');
+      if s ->> 'state' <> 'active' then perform erp.fail('ERP_STATE', '이미 철회된 예외입니다'); end if;
+      perform erp.emit('lock_exception', p_id, 'LockExceptionRevoked', '{"set": {"state": "revoked", "active": false}}');
+    else
+      perform erp.fail('ERP_COMMAND', format('잠금 예외: 지원하지 않는 명령입니다 (%s)', p_command));
+  end case;
+  return new_id;
+end $$;
+
+-- What a screen shows before someone picks a date. next_open is the first day the locks allow for all documents.
+create or replace function public.erp_lock_status() returns jsonb
+language plpgsql stable security definer set search_path = erp, extensions, pg_temp as $$
+declare
+  co jsonb := erp.state_of(erp.company_id());
+begin
+  if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '구성원만 볼 수 있습니다'); end if;
+  return jsonb_build_object(
+    'lock_date_all', co -> 'lock_date_all', 'lock_date_tax', co -> 'lock_date_tax', 'lock_date_sale', co -> 'lock_date_sale',
+    'lock_date_purchase', co -> 'lock_date_purchase', 'lock_date_hard', co -> 'lock_date_hard',
+    'effective', jsonb_build_object('all', erp.lock_date_of('all'), 'tax', erp.lock_date_of('tax'), 'sale', erp.lock_date_of('sale'),
+                                    'purchase', erp.lock_date_of('purchase'), 'hard', erp.lock_date_of('hard')),
+    'next_open', (select max(d)::date + 1 from unnest(array[erp.lock_date_of('all'), erp.lock_date_of('tax'), erp.lock_date_of('sale'),
+                                                             erp.lock_date_of('purchase'), erp.lock_date_of('hard')]) d),
+    'exceptions', (select coalesce(jsonb_agg(jsonb_build_object('id', r.id, 'field', r.state -> 'field', 'lock_date', r.state -> 'lock_date', 'member_id', r.state -> 'member_id',
+                     'reason', r.state -> 'reason', 'end_at', r.state -> 'end_at', 'state',
+                     case when r.status = 'active' and (r.state ->> 'end_at')::timestamptz <= erp.now() then 'expired' else r.status end) order by r.created_at desc), '[]'::jsonb)
+                     from erp.records r where r.type = 'lock_exception' and not r.deleted));
+end $$;
+
+-- Which automatic position fits a contact: one that needs a tax number comes first for those who have it, then the
+-- most specific place (postcode, country, group of countries, anywhere), then the earlier in order. A contact with no
+-- country gets none. The goods' destination decides, when the document names one.
+create or replace function erp.fiscal_auto(p_partner jsonb, p_delivery jsonb default null) returns text
+language plpgsql stable as $$
+declare
+  place jsonb := case when p_delivery ->> 'country' is not null then p_delivery else p_partner end;
+  country_ text := place ->> 'country';
+  zip_ text := place ->> 'zip';
+  has_vat boolean := coalesce(p_partner ->> 'tax_id', '') <> '';
+begin
+  if country_ is null then return null; end if;
+  return (select r.id::text from erp.records r
+    where r.type = 'fiscal_position' and not r.deleted and r.active and r.state @> '{"auto_apply": true}'
+      and (not coalesce((r.state ->> 'vat_required')::boolean, false) or has_vat)
+      and (r.state ->> 'country' is null or r.state ->> 'country' = country_)
+      and (coalesce(r.state -> 'country_group', '[]'::jsonb) = '[]'::jsonb or r.state -> 'country_group' ? country_)
+      and (r.state ->> 'zip_from' is null or zip_ >= r.state ->> 'zip_from')
+      and (r.state ->> 'zip_to' is null or zip_ <= r.state ->> 'zip_to')
+    order by coalesce((r.state ->> 'vat_required')::boolean, false) desc,
+             case when r.state ->> 'country' is not null and r.state ->> 'zip_from' is not null then 0
+                  when r.state ->> 'country' is not null then 1
+                  when coalesce(r.state -> 'country_group', '[]'::jsonb) <> '[]'::jsonb then 2 else 3 end,
+             erp.num(r.state -> 'sequence', 10), r.created_at, r.id
+    limit 1);
+end $$;
+
+-- What points at a record, type by type, read from the catalog so any module's documents show up while it is on.
+create or replace function public.erp_references(p_id uuid, p_limit int default 20) returns jsonb
+language plpgsql stable security definer set search_path = erp, extensions, pg_temp as $$
+declare
+  me erp.records;
+  c record;
+  f jsonb;
+  rows_ jsonb;
+  out_ jsonb := '[]'::jsonb;
+begin
+  select * into me from erp.records where id = p_id;
+  if not found then perform erp.fail('ERP_NOT_FOUND', '레코드를 찾을 수 없습니다'); end if;
+  perform erp.require_readable(p_id);
+  for c in select x.type, x.doc from erp.catalog x
+            where erp.module_on(x.module) and x.type = any (erp.readable_types()) order by x.sort, x.type loop
+    for f in select value from jsonb_array_elements(c.doc -> 'fields')
+              where value ->> 'type' = 'ref' and value ->> 'ref' = me.type and erp.module_on(value ->> 'module') loop
+      select jsonb_agg(jsonb_build_object('id', r.id, 'name', r.name, 'status', r.status) order by r.updated_at desc, r.id) into rows_ from (
+        select x.id, x.name, x.status, x.updated_at from erp.records x
+         where x.type = c.type and not x.deleted and x.state @> jsonb_build_object(f ->> 'name', p_id)
+         order by x.updated_at desc, x.id limit least(coalesce(p_limit, 20), 200)) r;
+      if rows_ is not null then
+        out_ := out_ || jsonb_build_object('type', c.type, 'label', c.doc ->> 'label', 'field', f ->> 'name',
+          'count', (select count(*) from erp.records x where x.type = c.type and not x.deleted and x.state @> jsonb_build_object(f ->> 'name', p_id)), 'rows', rows_);
+      end if;
+    end loop;
+  end loop;
+  return out_;
+end $$;
 
 ------------------------------------------------------------------------------------------------
 -- Default data. Runs through the same handlers as a user would, and only creates what has never
@@ -1376,6 +1845,31 @@ begin
 end $$;
 insert into erp.default_seeds(fn, sort) values ('erp.seed_master', 10) on conflict (fn) do nothing;
 
+-- Korean chart of accounts by code range. A company may rename or add; an account finds its group by its code.
+create or replace function erp.seed_account_groups() returns void
+language plpgsql as $$
+declare r record;
+begin
+  for r in select * from (values
+      ('101', '175', '유동자산'), ('176', '250', '비유동자산'), ('251', '290', '유동부채'), ('291', '330', '비유동부채'),
+      ('331', '400', '자본'), ('401', '450', '매출'), ('451', '500', '매출원가'), ('801', '900', '판매비와 관리비'),
+      ('901', '950', '영업외수익'), ('951', '997', '영업외비용')) t(a, b, n) loop
+    perform erp.seed_put('account_group', '계정 그룹:' || r.a, jsonb_build_object('name', r.n, 'code_prefix_start', r.a, 'code_prefix_end', r.b));
+  end loop;
+end $$;
+insert into erp.default_seeds(fn, sort) values ('erp.seed_account_groups', 12) on conflict (fn) do nothing;
+
+-- A company installed before these existed gets them on upgrade; setup never runs twice.
+do $$ begin
+  if exists (select 1 from erp.records where id = erp.company_id()) then
+    perform set_config('erp.source', 'setup', true);
+    perform set_config('erp.seeding', 'on', true);
+    perform erp.seed_account_groups();
+    perform set_config('erp.seeding', '', true);
+    perform set_config('erp.source', '', true);
+  end if;
+end $$;
+
 -- Fields that mean nothing until the module that uses them is on.
 select erp.catalog_tag_fields('product', 'purchase', array['purchase_uom_id', 'purchase_ok', 'purchase_tax_ids', 'bill_policy', 'vendors', 'description_purchase']);
 select erp.catalog_tag_fields('product', 'inventory', array['tracking', 'weight', 'volume', 'is_storable']);
@@ -1385,4 +1879,9 @@ select erp.catalog_tag_fields('product', 'invoicing', array['invoice_policy']);
 select erp.catalog_tag_fields('product_category', 'accounting', array['income_account_id', 'expense_account_id']);
 select erp.catalog_tag_fields('product_category', 'inventory', array['cost_method']);
 select erp.catalog_tag_fields('tax', 'accounting', array['account_id']);
+select erp.catalog_tag_fields('partner', 'invoicing', array['inbound_payment_method_id', 'outbound_payment_method_id', 'invoice_sending_method']);
+select erp.catalog_tag_fields('partner', 'purchase', array['receipt_reminder', 'receipt_reminder_days']);
+select erp.catalog_tag_fields('company', 'purchase', array['default_bill_policy']);
+select erp.catalog_tag_fields('company', 'sales', array['default_quote_template_id']);
+select erp.catalog_tag_fields('company', 'invoicing', array['tax_periodicity', 'tax_reminder_days', 'tax_due_day', 'tax_journal_id']);
 select erp.catalog_tag_fields('partner', 'purchase', array['vendor_payment_term_id']);

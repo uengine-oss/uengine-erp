@@ -8,6 +8,7 @@ declare
   frontier uuid[];
   hops int := 0;
 begin
+  perform erp.currency_check(p_next ->> 'currency');
   for r in select value from jsonb_array_elements(coalesce(p_next -> 'rules', '[]'::jsonb)) loop
     if r ->> 'apply_on' = 'category' and r ->> 'category_id' is null then perform erp.fail('ERP_REQUIRED', '분류 규칙에는 분류가 필요합니다'); end if;
     if r ->> 'apply_on' = 'product' and r ->> 'product_id' is null then perform erp.fail('ERP_REQUIRED', '제품 규칙에는 제품이 필요합니다'); end if;
@@ -199,6 +200,42 @@ language sql stable as $$
     from jsonb_array_elements(p_defs) where (value ->> 'price_include')::boolean
 $$;
 
+-- Splits a tax over its distribution. Positive shares add up to the whole tax and negative ones to their own whole,
+-- each with its last row taking the rounding, so a reverse charge cancels to the cent. Null when there is none.
+create or replace function erp.tax_split(p_amount numeric, p_rows jsonb) returns jsonb
+language plpgsql stable as $$
+declare
+  r jsonb;
+  f numeric;
+  pos_left numeric;
+  neg_left numeric;
+  pos_n int;
+  neg_n int;
+  a numeric;
+  out_ jsonb := '[]'::jsonb;
+begin
+  if coalesce(p_rows, '[]'::jsonb) = '[]'::jsonb then return null; end if;
+  select coalesce(sum(erp.num(x -> 'factor_percent')) filter (where erp.num(x -> 'factor_percent') > 0), 0), coalesce(sum(erp.num(x -> 'factor_percent')) filter (where erp.num(x -> 'factor_percent') < 0), 0),
+         count(*) filter (where erp.num(x -> 'factor_percent') > 0), count(*) filter (where erp.num(x -> 'factor_percent') < 0)
+    into pos_left, neg_left, pos_n, neg_n from jsonb_array_elements(p_rows) x where x ->> 'kind' = 'tax';
+  pos_left := erp.money(p_amount * pos_left / 100);
+  neg_left := erp.money(p_amount * neg_left / 100);
+  for r in select value from jsonb_array_elements(p_rows) where value ->> 'kind' = 'tax' loop
+    f := erp.num(r -> 'factor_percent');
+    if f > 0 then
+      pos_n := pos_n - 1;
+      a := case when pos_n = 0 then pos_left else erp.money(p_amount * f / 100) end;
+      pos_left := pos_left - a;
+    else
+      neg_n := neg_n - 1;
+      a := case when neg_n = 0 then neg_left else erp.money(p_amount * f / 100) end;
+      neg_left := neg_left - a;
+    end if;
+    out_ := out_ || jsonb_build_object('account_id', r -> 'account_id', 'amount', a, 'grids', coalesce(r -> 'grids', '[]'::jsonb), 'factor_percent', f);
+  end loop;
+  return out_;
+end $$;
+
 -- Rounded per line. The line total rounds first. Included taxes come out of it, each tax rounds on its own,
 -- and the subtotal is what remains: fixed amounts leave first, a division rate is a share of what is left,
 -- and ordinary rates share one divisor (10% + 5% included is total / 1.15).
@@ -238,6 +275,8 @@ declare
   amt numeric;
   tax_sum numeric := 0;
   out_ jsonb := '[]'::jsonb;
+  split jsonb;
+  row_ jsonb;
 begin
   select * into inc from erp.tax_included(defs);
   if given <> '[]'::jsonb and not (given @> ids and ids @> given) then
@@ -275,12 +314,42 @@ begin
                 when (d ->> 'price_include')::boolean then erp.money(raw_base * erp.num(coef -> (d ->> 'tax_id')))
                 when d ->> 'amount_type' = 'division' then erp.money(base_ / (1 - excl_div / 100) * erp.num(d -> 'amount') / 100)
                 else erp.money(base_ * erp.num(d -> 'amount') / 100) end;
-    tax_sum := tax_sum + amt;
+    row_ := jsonb_build_object('tax_id', d ->> 'tax_id', 'name', d ->> 'name', 'base', base_, 'amount', amt, 'account_id', d ->> 'account_id');
+    -- With a distribution the line carries what stays on it: a reverse charge adds nothing to what the customer pays.
+    split := erp.tax_split(amt, d -> 'invoice_repartition');
+    if split is not null then
+      row_ := row_ || jsonb_build_object('gross', amt, 'repartition', split, 'amount', (select coalesce(sum(erp.num(x -> 'amount')), 0) from jsonb_array_elements(split) x),
+        'base_grids', coalesce((select x -> 'grids' from jsonb_array_elements(d -> 'invoice_repartition') x where x ->> 'kind' = 'base' limit 1), '[]'::jsonb));
+    end if;
+    tax_sum := tax_sum + erp.num(row_ -> 'amount');
     if coalesce((d ->> 'include_base_amount')::boolean, false) then extra := extra + amt; end if;
-    out_ := out_ || jsonb_build_object('tax_id', d ->> 'tax_id', 'name', d ->> 'name', 'base', base_, 'amount', amt, 'account_id', d ->> 'account_id');
+    out_ := out_ || row_;
   end loop;
   return jsonb_build_object('subtotal', subtotal, 'tax', tax_sum, 'total', subtotal + tax_sum, 'taxes', out_, 'tax_ids', ids,
                             'price_unit', case when adjusted then erp.price_round(price) else coalesce(p_price_unit, 0) end);
+end $$;
+
+-- A term that always takes tax after the discount taxes the discounted amount from the start, paid early or not.
+create or replace function erp.tax_epd_pct(p_term text) returns numeric
+language sql stable as $$
+  select coalesce((select erp.num(t.state -> 'discount_percentage') from erp.records t
+    where erp.is_uuid(p_term) and t.id = p_term::uuid and not t.deleted and (t.state ->> 'early_discount')::boolean and t.state ->> 'discount_mode' = 'mixed'), 0)
+$$;
+
+-- The amounts of one document line under such a term. The line's own subtotal does not change, only the tax on it.
+create or replace function erp.tax_epd_row(p_row jsonb, p_pct numeric) returns jsonb
+language plpgsql stable as $$
+declare
+  plain jsonb;
+  disc numeric := erp.num(p_row -> 'discount');
+begin
+  if p_row ->> 'display_type' is not null or coalesce((p_row ->> 'is_downpayment')::boolean, false) then return p_row; end if;
+  plain := erp.tax_compute(erp.num(p_row -> 'price_unit'), erp.num(p_row -> 'qty'), disc, coalesce(p_row -> 'tax_ids', '[]'::jsonb), null);
+  if p_pct <> 0 then
+    plain := plain || (select jsonb_build_object('tax', t -> 'tax', 'taxes', t -> 'taxes', 'total', erp.num(plain -> 'subtotal') + erp.num(t -> 'tax'))
+      from (select erp.tax_compute(erp.num(p_row -> 'price_unit'), erp.num(p_row -> 'qty'), 100 - (100 - disc) * (100 - p_pct) / 100, coalesce(p_row -> 'tax_ids', '[]'::jsonb), null) t) x);
+  end if;
+  return p_row || jsonb_build_object('tax_amount', plain -> 'tax', 'total', plain -> 'total', 'taxes', plain -> 'taxes');
 end $$;
 
 -- A combo costs what its parent is sold for. Each choice carries that price in proportion to the cheapest product
@@ -320,7 +389,7 @@ select erp.catalog_put('{
   "type": "pricelist", "module": "master", "sort": 30, "label": "가격표", "label_en": "Pricelist",
   "fields": [
     {"name": "name", "label": "가격표명", "type": "text", "required": true, "list": true, "search": true},
-    {"name": "currency", "label": "통화", "type": "text", "list": true},
+    {"name": "currency", "label": "통화", "type": "text", "list": true, "help": "회사 통화만 쓸 수 있습니다. 비우면 회사 통화입니다"},
     {"name": "sort", "label": "순서", "type": "integer", "default": 100, "list": true},
     {"name": "country_group", "label": "적용 국가", "type": "tags", "default": [], "help": "ISO 국가 코드 목록"},
     {"name": "rules", "label": "규칙", "type": "lines", "default": [], "columns": [

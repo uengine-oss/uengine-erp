@@ -76,14 +76,18 @@
 | `uom` | `name, category(unit/weight/time/length/volume), ratio, rounding`. `ratio` 는 분류 기준 단위 대비 배수 |
 | `product_category` | `name, parent_id, income_account_id, expense_account_id, cost_method(standard/average)` |
 | `tag` | `name, color` |
-| `account` | `code(unique), name, account_type(asset_receivable, asset_cash, asset_current, asset_non_current, liability_payable, liability_current, equity, income, expense)` |
-| `tax` | `name, scope(sale/purchase), amount_type(percent/fixed/division/group), amount, price_include, include_base_amount, is_base_affected, sequence, children_tax_ids, account_id, description` |
-| `fiscal_position` | `name, auto_apply, country, tax_map[{id, from_tax_id, to_tax_id}]` |
-| `payment_term` | `name, note, early_discount, discount_percentage, discount_days, discount_mode(included/excluded), lines[{id, value(percent/fixed), amount, days, delay_type(days_after/days_after_end_of_month/days_after_end_of_next_month/days_end_of_month_on_the), days_next_month}]`. 비율 합은 100, 줄이 없어도 된다 |
+| `account` | `code(unique), name, account_type(asset_receivable, asset_cash, asset_current, asset_non_current, liability_payable, liability_current, equity, income, expense), reconcile, tax_ids, tags`. 매출채권·매입채무는 `reconcile` 을 끌 수 없다 |
+| `account_group` | `name, code_prefix_start, code_prefix_end`. 같은 자릿수끼리 겹치지 않고, 계정은 코드가 들어가는 가장 좁은 그룹에 속한다 |
+| `bank` | `name, bic` |
+| `partner_bank` | `partner_id, acc_number, bank_id, holder_name, trusted`. 새 계좌와 번호를 바꾼 계좌는 믿지 않는다. 명령 `trust`, `untrust` |
+| `saved_search` | `name, report, filters, group_by, is_default, shared, owner_id` |
+| `tax` | `name, scope(sale/purchase/none), amount_type(percent/fixed/division/group), amount, price_include, include_base_amount, is_base_affected, sequence, children_tax_ids, account_id, invoice_repartition[{id, kind(base/tax), factor_percent, account_id, grids}], refund_repartition[{id, kind(base/tax), factor_percent, account_id, grids}], description` |
+| `fiscal_position` | `name, sequence, auto_apply, vat_required, country, country_group, zip_from, zip_to, tax_map[{id, from_tax_id, to_tax_id}], account_map[{id, from_account_id, to_account_id}]` |
+| `payment_term` | `name, note, early_discount, discount_percentage, discount_days, discount_mode(included/excluded/mixed), lines[{id, value(percent/fixed), amount, days, delay_type(days_after/days_after_end_of_month/days_after_end_of_next_month/days_end_of_month_on_the), days_next_month}]`. 비율 합은 100, 줄이 없어도 된다 |
 | `attribute` | `name, display_type(pills/color/radio/select/multi), create_variant(always/dynamic/no_variant), values[{id, name, color}]`. `multi` 는 `no_variant` 만. 제품에 쓰인 뒤 `create_variant` 변경 금지 |
-| `partner` | `company_type(company/person), name, parent_id, address_type(contact/invoice/delivery/other), job_position, phone, mobile, email, website, street, region, city, zip, country, tax_id, ref, industry, lang, tags, salesperson_id, payment_term_id, vendor_payment_term_id, pricelist_id, fiscal_position_id, note, merged_into, active`. 명령 `merge{into}` |
+| `partner` | `company_type(company/person), name, parent_id, address_type(contact/invoice/delivery/followup/other), job_position, phone, mobile, email, website, street, region, city, zip, country, tax_id, ref, industry, lang, tags, salesperson_id, payment_term_id, vendor_payment_term_id, pricelist_id, fiscal_position_id, inbound_payment_method_id, outbound_payment_method_id, invoice_sending_method(manual/email/post), delivery_method, receipt_reminder, receipt_reminder_days, note, merged_into, active`. 명령 `merge{into}` |
 | `product` | `type(goods/service/combo), is_storable, name, internal_ref, barcode, category_id, uom_id, purchase_uom_id, list_price, standard_price, sale_ok, purchase_ok, sale_tax_ids, purchase_tax_ids, invoice_policy(order/delivery), bill_policy(order/receipt), tracking(none/lot/serial), weight, volume, customer_lead_days, description_sale, description_purchase, attributes[{id, attribute_id, value_ids, extras:{value_id:price}}], variants[{id, sku, barcode, values:[value_id], name, price_extra, standard_price, active}], vendors[{id, partner_id, min_qty, price, delay_days, vendor_code, discount, date_start, date_end}], combos[{id, name, items[{id, variant_id, extra_price}]}], optional_product_ids` |
-| `warehouse` | `name, code, stock_location_id` |
+| `warehouse` | `name, code, address, stock_location_id`. 코드는 5자 이내 |
 | `location` | `name, parent_id, usage(view/internal/customer/supplier/inventory/transit), scrap` |
 
 - 속성 없는 제품도 기본 변형 한 줄이 생긴다. 주문·재고는 언제나 `variant_id` 를 쓴다.
@@ -92,7 +96,7 @@
 - 가격은 입력한 값을 그대로 저장한다(`list_price`, `standard_price`, 값별 추가 금액, 공급사 단가, 가격 규칙의 고정 가격·추가금·마진). 카탈로그에 `"precise": true` 로 표시한다. 통화 자릿수로 반올림되는 것은 줄 금액부터다.
 - 파생 표 `erp.variants(id, product_id, sku, barcode, name, active)` 를 project 훅으로 유지한다. 화면은 뷰 `public.erp_variants` 로 읽는다.
 - 함수 `erp.variant(variant_id) returns jsonb`: 변형 + 제품 필드 + `variant_id, product_id, product_name, list_price`(제품 가격 + `price_extra`), `standard_price`(변형 원가, 없으면 제품 원가), `active`(변형과 제품이 모두 사용 중), 없으면 `ERP_NOT_FOUND`. 보관된 변형도 읽힌다(옛 문서용).
-- 함수 `erp.uom_convert(qty, from_uom, to_uom)`: 대상 단위의 `rounding` 으로 반올림(반은 올림). 다른 분류면 `ERP_UOM`.
+- 함수 `erp.uom_convert(qty, from_uom, to_uom)`: 대상 단위의 `rounding` 으로 반올림(반은 올림). 다른 분류면 `ERP_UOM`. 재고가 움직일 때 쓴다. 문서 줄의 수량은 `erp.uom_line_qty` 로 입력한 값을 지킨다.
 - `dynamic` 은 주문 줄에서 처음 쓸 때 변형을 만든다: `erp.variant_ensure(product_id, value_ids jsonb) returns variant_id`. 변형을 만드는 속성마다 값이 정확히 하나 필요하고 아니면 `ERP_INVALID`. `no_variant` 값은 섞여 있어도 무시한다. 보관된 변형이면 되살린다. 제품을 잠그므로 동시에 불러도 하나만 생긴다.
 - 변형 생성: `always` 는 조합 전체(최대 1000개, 넘으면 `ERP_VARIANT_LIMIT`). `dynamic` 이 하나라도 있으면 미리 만들지 않는다. `no_variant` 는 변형을 늘리지 않고, 그 `extras` 는 변형 가격에 들어가지 않는다. 값이 빠지면 변형은 `active=false` 로 남고, 값이 돌아오면 같은 id 로 되살아난다. 값이 하나뿐인 속성을 더하면 기존 변형이 그대로 이어지고, 그 값은 변형 이름에 나오지 않는다.
 - 화면이 변형 줄에서 고칠 수 있는 것은 `sku, barcode, standard_price, active` 뿐이다. 줄을 넣거나 뺄 수 없다.
@@ -102,6 +106,13 @@
 - 기일: `days_after` 청구일 + 일수, `days_after_end_of_month` 청구일의 월말 + 일수, `days_after_end_of_next_month` 다음 달 말 + 일수, `days_end_of_month_on_the` 청구일 + 일수가 속한 달의 월말에서 다음 달 `days_next_month` 일(0 이면 그 월말, 그 달보다 크면 그 달 말일).
 - 조기 할인은 100% 한 줄인 조건에만 쓴다. `discount_amount` 는 기한 안에 내면 되는 금액이다. `included` 는 세금 포함 금액, `excluded` 는 `untaxed` 의 `discount_percentage` 를 뺀다. 조기 할인 이익·손실 계정은 회사 설정 `early_discount_gain_account_id`, `early_discount_loss_account_id`.
 - `erp.preview_payment_term({lines, early_discount, ..., amount, date, untaxed})` → 그대로 + `schedule`. 저장 전에 아무 금액·날짜로 미리 본다.
+- 모르는 필드: 기초데이터도 카탈로그에 없는 필드를 `ERP_UNKNOWN_FIELD` 로 거부한다. 시스템 필드 `active` 와 읽기 전용 필드는 보내도 무시한다. 줄 안의 모르는 칸은 저장하지 않고 넘어간다(화면이 계산 칸을 함께 보낸다).
+- 세금 분배: `invoice_repartition`, `refund_repartition` 은 기준 금액 줄 하나와 양수 합 100 인 세금 줄로 짠다. 음수 줄은 역과세, 계정이 빈 줄은 줄의 계정(공제 안 되는 매입세)이다. 두 쪽의 줄 수와 합이 같아야 한다. 비우면 세금 하나가 `account_id` 로 간다.
+- 세금 조정 자동 선택(`erp.fiscal_auto`): 국가 없는 연락처는 없음. 세금 번호가 필요한 조정이 먼저(번호가 있을 때), 그다음 우편번호와 국가, 국가, 국가 묶음, 아무 곳 순서, 같으면 `sequence`. 납품처 국가가 있으면 그쪽을 본다. 연락처에 직접 정한 값이 이긴다.
+- `public.erp_references(id, limit)`: 그 레코드를 가리키는 문서를 유형·필드별로 돌려준다. `[{type, label, field, count, rows[{id, name, status}]}]`. 켜진 모듈과 읽을 수 있는 유형만.
+- `public.erp_lock_status()`: 잠금일, 지금 사용자에게 적용되는 값(`effective`), 고를 수 있는 첫날(`next_open`), 예외 목록.
+- `public.erp_saved_searches(report)`: 자기 것과 공유된 저장 검색. `saved_search` 는 만든 사람만 고치고 보고서마다 기본값은 하나다.
+- `public.erp_partner_merge_duplicates(fields, dry_run)`: 묶음마다 가장 오래된 연락처로 합친다. 전표에 쓰인 연락처는 뺀다.
 - `public.erp_partner_duplicates(fields)`: 고른 항목(`email, name, company_type, tax_id, parent_id, phone`)이 모두 같은 사용 중 연락처 묶음을 돌려준다. 빈 값은 맞는 것으로 치지 않는다. 합치는 것은 사람이 `merge` 로 한다.
 - `merge{into}`: 원본은 `merged_into` + `active=false` 로 남고 더 고칠 수 없다(`ERP_MERGED`). 대상의 빈 칸을 원본 값으로 채우고 태그를 합치며, 하위 연락처와 제품 `vendors` 는 대상으로 옮긴다. 발행된 문서의 `partner_id` 는 사실이므로 바꾸지 않는다. 문서를 옮겨야 하는 모듈은 `PartnerMerged` 에 react 한다. 자신의 하위 연락처로는 합칠 수 없다.
 - 기본 시드(`erp.default_seeds`). ID 는 `erp.seed_id('이름')`(이름에서 만든 고정 uuid)으로 얻는다. 이름은 아래 그대로다.

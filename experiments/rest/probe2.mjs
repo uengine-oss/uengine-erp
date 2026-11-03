@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module'
-const pg = createRequire('/Users/uengine/uengine-platform/uengine-erp/')('pg')
+const pg = createRequire(import.meta.url)('pg')
 const URL_ = process.env.API_URL, KEY = process.env.ANON_KEY, DB = 'postgres://postgres:postgres@127.0.0.1:56322/postgres'
 const tok = (await (await fetch(`${URL_}/auth/v1/token?grant_type=password`, { method: 'POST', headers: { apikey: KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'owner@example.com', password: 'owner-pass-1234' }) })).json()).access_token
 const call = async (method, path, body, extra = {}) => {

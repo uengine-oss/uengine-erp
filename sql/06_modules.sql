@@ -56,6 +56,15 @@ language sql stable as $$
   select coalesce((select enabled from erp.modules where id = p_id), true)
 $$;
 
+-- A report of a module that is off answers the same way its commands do.
+create or replace function erp.require_module(p_id text) returns void
+language plpgsql stable as $$
+begin
+  if not erp.module_on(p_id) then
+    perform erp.fail('ERP_MODULE_OFF', format('%s 모듈이 꺼져 있습니다', coalesce((select doc ->> 'label' from erp.modules where id = p_id), p_id)));
+  end if;
+end $$;
+
 create or replace function erp.module_stream(p_id text) returns uuid
 language plpgsql immutable as $$
 begin
@@ -331,11 +340,43 @@ begin
     'pending', (select count(*) from erp.subscriptions x where active and failures = 0 and erp.bus_pending(x)));
 end $$;
 
+-- Work that waits for a date. Not every project has pg_cron, and the app's tick after each command comes either
+-- way, so a job a module registers here still runs in a company without cron.
+create table if not exists erp.periodic_jobs (
+  fn text primary key,
+  every interval not null,
+  last_run timestamptz
+);
+alter table erp.periodic_jobs enable row level security;
+
+create or replace function erp.periodic_register(p_fn text, p_every interval) returns void
+language sql as $$
+  insert into erp.periodic_jobs(fn, every) values (p_fn, p_every) on conflict (fn) do update set every = excluded.every
+$$;
+
+create or replace function erp.periodic_run() returns void
+language plpgsql as $$
+declare
+  j erp.periodic_jobs;
+  at_ timestamptz := erp.now();
+begin
+  for j in select * from erp.periodic_jobs where last_run is null or last_run > at_ or last_run + every <= at_ order by fn for update skip locked loop
+    update erp.periodic_jobs set last_run = at_ where fn = j.fn;
+    begin
+      execute format('select %s()', j.fn);
+    exception when others then
+      -- A job that fails must not take the tick with it. It tries again next time round.
+      raise notice 'periodic job % failed: %', j.fn, sqlerrm;
+    end;
+  end loop;
+end $$;
+
 -- The app calls this right after a command so the next module's work shows up at once; cron covers the rest.
 create or replace function public.erp_bus_tick(p_budget_ms int default 1500) returns jsonb
 language plpgsql security definer set search_path = erp, extensions, pg_temp as $$
 begin
   if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '이 회사의 구성원이 아닙니다'); end if;
+  perform erp.periodic_run();
   return erp.bus_run(least(coalesce(p_budget_ms, 1500), 5000));
 end $$;
 

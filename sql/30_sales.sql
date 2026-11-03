@@ -77,16 +77,8 @@ language plpgsql stable as $$
 declare
   c jsonb := erp.sales_commercial(p_partner);
   delivery uuid := erp.sales_address(p_partner, 'delivery');
-  fp text := c ->> 'fiscal_position_id';
-  country text;
+  fp text := coalesce(c ->> 'fiscal_position_id', erp.fiscal_auto(c, erp.state_of(delivery)));
 begin
-  if fp is null then
-    country := coalesce(erp.state_of(delivery) ->> 'country', c ->> 'country');
-    select id::text into fp from erp.records
-     where type = 'fiscal_position' and not deleted and active and country is not null
-       and state @> jsonb_build_object('auto_apply', true, 'country', country)
-     order by created_at, id limit 1;
-  end if;
   return jsonb_strip_nulls(jsonb_build_object(
     'invoice_partner_id', erp.sales_address(p_partner, 'invoice'),
     'delivery_partner_id', delivery,
@@ -173,6 +165,7 @@ declare
   tc jsonb;
   cost numeric;
   factor numeric;
+  same_unit boolean;
 begin
   -- A row nobody touched keeps what it said, even if a tax or a product has changed since.
   if coalesce((o ->> 'is_downpayment')::boolean, false) or r = o then return o; end if;
@@ -217,8 +210,11 @@ begin
   uom := case when p_raw ->> 'uom_id' is not null then (p_raw ->> 'uom_id')::uuid
               when product_changed then (v ->> 'uom_id')::uuid
               else (r ->> 'uom_id')::uuid end;
-  factor := erp.uom_factor(uom, (v ->> 'uom_id')::uuid);
-  qty := erp.uom_convert(erp.num(r -> 'qty', 1), uom, uom);
+  -- A quotation may hold a unit of another category until someone confirms it. On a confirmed order the line
+  -- reaches stock at once, so it is refused right here.
+  same_unit := coalesce(p_h ->> 'state', 'draft') not in ('draft', 'sent') or erp.uom_same_category(uom, (v ->> 'uom_id')::uuid);
+  factor := case when same_unit then erp.uom_factor(uom, (v ->> 'uom_id')::uuid) else 1 end;
+  qty := erp.uom_line_qty(erp.num(r -> 'qty', 1), uom);
   uom_changed := not is_new and (o ->> 'uom_id')::uuid is distinct from uom;
   qty_changed := not is_new and erp.num(o -> 'qty') <> qty;
   user_price := p_raw ? 'price_unit' and jsonb_typeof(p_raw -> 'price_unit') <> 'null' and (is_new or o -> 'price_unit' is distinct from r -> 'price_unit');
@@ -229,7 +225,7 @@ begin
     rule := jsonb_build_object('price_unit', ci -> 'price_unit', 'discount', pp -> 'discount');
   else
     rule := erp.price_resolve(pl, v || jsonb_build_object('list_price', erp.num(v -> 'list_price') + erp.num(nv -> 'extra')),
-                              qty, erp.sales_order_day(p_h), uom, 0);
+                              qty, erp.sales_order_day(p_h), case when same_unit then uom end, 0);
   end if;
 
   taxes := case when v ->> 'type' = 'combo' then '[]'::jsonb else coalesce(v -> 'sale_tax_ids', '[]'::jsonb) end;
@@ -400,7 +396,8 @@ end $$;
 ------------------------------------------------------------------------------------------------
 -- What the order says as a whole
 ------------------------------------------------------------------------------------------------
-create or replace function erp.sales_line_invoicing(p_l jsonb, p_state text) returns jsonb
+drop function if exists erp.sales_line_invoicing(jsonb, text);
+create or replace function erp.sales_line_invoicing(p_l jsonb, p_state text, p_delivery text default null) returns jsonb
 language plpgsql immutable as $$
 declare
   q numeric := erp.num(p_l -> 'qty');
@@ -422,6 +419,8 @@ begin
     'invoice_status', case when to_ <> 0 then 'to_invoice'
                            when coalesce(p_l ->> 'invoice_policy', 'order') = 'order' and d > q then 'upselling'
                            when i >= q then 'invoiced'
+                           -- Nothing more is coming and all that came is invoiced: the order is done, even though it fell short.
+                           when p_delivery = 'full' and i > 0 then 'invoiced'
                            else 'no' end);
 end $$;
 
@@ -464,8 +463,9 @@ declare
   invoiced numeric;
   day0 timestamptz := coalesce((p_s ->> 'date_order')::timestamptz, erp.now());
   lead_ numeric;
+  pct numeric := erp.tax_epd_pct(p_s ->> 'payment_term_id');
 begin
-  select coalesce(jsonb_agg(erp.sales_line_invoicing(value, st) order by o), '[]'::jsonb) into lines_
+  select coalesce(jsonb_agg(erp.sales_line_invoicing(case when pct <> 0 and erp.num(value -> 'qty_invoiced') = 0 then erp.tax_epd_row(value, pct) else value end, st, p_s ->> 'delivery_status') order by o), '[]'::jsonb) into lines_
     from jsonb_array_elements(coalesce(p_lines, '[]'::jsonb)) with ordinality t(value, o);
   select coalesce(sum(erp.num(value -> 'subtotal')), 0), coalesce(sum(erp.num(value -> 'tax_amount')), 0), coalesce(sum(erp.num(value -> 'margin')), 0)
     into untaxed, tax, margin_ from jsonb_array_elements(lines_);
@@ -602,7 +602,9 @@ begin
       'col', erp.sales_col('lines', 'set', (select jsonb_agg(v) from jsonb_array_elements(fin -> 'lines') v
                                              where exists (select 1 from jsonb_array_elements(manual) x where x ->> 'id' = v ->> 'id'))),
       'set', fin -> 'set', 'manual', true,
-      'lines', (select jsonb_agg(jsonb_build_object('line_id', value -> 'id', 'qty_delivered', value -> 'qty_delivered')) from jsonb_array_elements(manual))));
+      'lines', (select jsonb_agg(jsonb_build_object('line_id', m -> 'id', 'qty_delivered', m -> 'qty_delivered', 'qty', m -> 'qty', 'uom_id', m -> 'uom_id',
+                  'variant_id', m -> 'variant_id', 'product_id', m -> 'product_id', 'name', m -> 'name', 'type', m -> 'product_type'))
+                  from jsonb_array_elements(manual) m)));
   end if;
   for n in select value from jsonb_array_elements(d -> 'added') loop
     walk := walk || n;
@@ -760,6 +762,10 @@ begin
   p := p - 'copy_of';
   perform erp.sales_check_fields(p);
   hdr := erp.validate('sales_order', erp.clean_payload('sales_order', p - 'lines' - 'optional_lines', '{}'::jsonb), true) - 'lines' - 'optional_lines';
+  -- A company's usual template fills a quotation nobody has started on.
+  if hdr ->> 'template_id' is null and not p ? 'lines' and erp.setting('default_quote_template_id') is not null and erp.state_of(erp.setting('default_quote_template_id')::uuid) is not null then
+    hdr := hdr || jsonb_build_object('template_id', erp.setting('default_quote_template_id'));
+  end if;
   if hdr ->> 'template_id' is not null then tpl := erp.sales_template_rows((hdr ->> 'template_id')::uuid); end if;
   raw_lines := coalesce(p -> 'lines', tpl -> 'lines', '[]'::jsonb);
   raw_opts := coalesce(p -> 'optional_lines', tpl -> 'optional_lines', '[]'::jsonb);
@@ -840,6 +846,11 @@ begin
     end if;
     perform erp.emit('sales_order', p_id, case when st = 'sale' then 'SalesOrderUpdated' else 'QuotationUpdated' end, jsonb_build_object('set', changed));
   end if;
+  -- Leaving a term that taxed after the discount takes the tax back to what the lines say by themselves.
+  if raw_lines is null and changed ? 'payment_term_id' and erp.tax_epd_pct(cur ->> 'payment_term_id') <> erp.tax_epd_pct(next_ ->> 'payment_term_id') then
+    new_lines := erp.sales_finish(next_, (select coalesce(jsonb_agg(erp.tax_epd_row(v, 0) order by o), '[]'::jsonb) from jsonb_array_elements(old_lines) with ordinality t(v, o))) -> 'lines';
+    perform erp.sales_emit_rows(p_id, next_, old_lines, new_lines);
+  end if;
   if raw_lines is not null then
     new_lines := erp.sales_finish(next_, erp.sales_lines(next_, raw_lines, old_lines)) -> 'lines';
     perform erp.sales_emit_rows(p_id, next_, old_lines, new_lines);
@@ -870,6 +881,10 @@ begin
               where value ->> 'display_type' is null and not coalesce((value ->> 'is_downpayment')::boolean, false) and value ->> 'variant_id' is null) then
     perform erp.fail('ERP_INVALID', '제품이 없는 줄이 있어 확정할 수 없습니다');
   end if;
+  perform erp.uom_factor((value ->> 'uom_id')::uuid, (erp.variant((value ->> 'variant_id')::uuid) ->> 'uom_id')::uuid)
+     from jsonb_array_elements(coalesce(s -> 'lines', '[]'::jsonb))
+    where value ->> 'display_type' is null and value ->> 'variant_id' is not null;
+  perform erp.currency_check(erp.state_of((s ->> 'pricelist_id')::uuid) ->> 'currency');
   next_ := s || jsonb_build_object('state', 'sale', 'date_order', erp.now()::text,
     'locked', coalesce(erp.setting('lock_confirmed_sales')::boolean, false));
   fin := erp.sales_finish(next_, s -> 'lines');
@@ -1105,6 +1120,13 @@ declare
   p jsonb := coalesce(p_p, '{}'::jsonb);
   s jsonb;
 begin
+  if p_command in ('create', 'update') then
+    perform erp.currency_check(p ->> 'currency');
+    p := p - 'currency';
+    if p ->> 'pricelist_id' is not null and erp.is_uuid(p ->> 'pricelist_id') then
+      perform erp.currency_check(erp.state_of((p ->> 'pricelist_id')::uuid) ->> 'currency');
+    end if;
+  end if;
   case p_command
     when 'create' then return erp.sales_create(p_id, p);
     when 'update' then return erp.sales_update(p_id, p);
@@ -1161,6 +1183,8 @@ begin
      and not exists (select 1 from jsonb_array_elements(fin -> 'lines') x where x ->> 'product_id' = o)
      and not exists (select 1 from jsonb_array_elements(coalesce(h -> 'optional_lines', '[]'::jsonb)) x where x ->> 'product_id' = o);
   return h || (fin -> 'set') || jsonb_build_object('lines', fin -> 'lines', 'is_expired', erp.sales_is_expired(h), 'suggested_options', suggested,
+    'warnings', case when (h ->> 'commitment_date')::timestamptz < (fin -> 'set' ->> 'expected_date')::timestamptz
+                     then jsonb_build_array(format('납품 희망일이 예상 납품일 %s 보다 빠릅니다', to_char((fin -> 'set' ->> 'expected_date')::timestamptz, 'YYYY-MM-DD'))) else '[]'::jsonb end,
     'optional_lines', case when p ? 'optional_lines' then erp.sales_options(h, p -> 'optional_lines', cur -> 'optional_lines', true) else coalesce(cur -> 'optional_lines', '[]'::jsonb) end);
 end $$;
 
@@ -1597,7 +1621,7 @@ select erp.catalog_put('{
     {"name": "shipping_policy", "label": "배송 정책", "type": "enum", "default": "direct", "module": "inventory",
      "options": [{"value": "direct", "label": "가능한 대로"}, {"value": "one", "label": "한 번에"}]},
     {"name": "shipping_weight", "label": "운송 중량", "type": "number", "readonly": true, "computed": true, "module": "inventory"},
-    {"name": "incoterm", "label": "인코텀즈", "type": "text"},
+    {"name": "incoterm", "label": "인코텀즈", "type": "enum", "options": [{"value": "EXW", "label": "EXW"}, {"value": "FCA", "label": "FCA"}, {"value": "FAS", "label": "FAS"}, {"value": "FOB", "label": "FOB"}, {"value": "CFR", "label": "CFR"}, {"value": "CIF", "label": "CIF"}, {"value": "CPT", "label": "CPT"}, {"value": "CIP", "label": "CIP"}, {"value": "DAP", "label": "DAP"}, {"value": "DPU", "label": "DPU"}, {"value": "DDP", "label": "DDP"}]},
     {"name": "incoterm_location", "label": "인도 장소", "type": "text"},
     {"name": "warehouse_id", "label": "창고", "type": "ref", "ref": "warehouse", "module": "inventory"},
     {"name": "require_signature", "label": "온라인 서명 요구", "type": "boolean"},

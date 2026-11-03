@@ -482,7 +482,10 @@ test('selling in another unit converts price, cost and the quantity moved', asyn
   assert.deepEqual([l.price_unit, l.cost, l.subtotal, l.margin], [120, 72, 240, 96])
   assert.deepEqual([(await update(o.id, { lines: [{ ...l, uom_id: await seed('개') }] })).state.lines[0].price_unit], [10], 'changing the unit reprices even a typed price')
   await update(o.id, { lines: [l] })
-  await rejects(update(o.id, { lines: [{ variant_id: p.vid, qty: 1, uom_id: await seed('kg') }] }), 'ERP_UOM')
+  // A quotation may hold it, as observed; confirming is what refuses a unit that cannot reach stock.
+  const kg = await update(o.id, { lines: [{ variant_id: p.vid, qty: 1, uom_id: await seed('kg') }] })
+  assert.deepEqual([kg.state.lines[0].price_unit, kg.state.lines[0].subtotal], [10, 10], 'nothing to convert: the list price as it is')
+  await rejects(confirm(o.id), 'ERP_UOM')
   const r = await update(o.id, { lines: [{ variant_id: p.vid, qty: 2, uom_id: dozen }] })
   await confirm(o.id)
   const f = fake()
@@ -729,6 +732,8 @@ test('invoice policy "delivered": only what went out, cancelling a draft gives i
   let s = await state(o.id)
   assert.deepEqual([s.invoice_status, s.lines[0].qty_to_invoice, s.lines[0].invoice_status], ['no', 0, 'no'])
   await f.ship(o.id, [[l.id, 4]])
+  // The rest is still on its way, so the order is partly delivered. With nothing more to come it would count as invoiced.
+  await f.pickingState(o.id, uuid(), 'ready')
   assert.deepEqual([(await state(o.id)).invoice_status, (await state(o.id)).lines[0].qty_to_invoice], ['to_invoice', 4])
   s = await state(o.id)
   const inv = uuid()
@@ -1445,4 +1450,62 @@ test('only sales roles write, everyone reads', async () => {
 
 test('the projection always equals a replay of the ledger', async () => {
   assert.deepEqual(await c.verifyProjection(), [])
+})
+
+test('a line keeps the quantity typed: a unit that rounds to whole boxes still sells 1.5 of them (uom 11)', async () => {
+  const box = (await c.admin('uom', null, 'create', { name: uniq('세 개 박스'), category: 'unit', ratio: 3, rounding: 1 })).id
+  const p = await product({ list_price: 10, sale_tax_ids: [] })
+  const o = await quote([{ variant_id: p.vid, qty: 1.5, uom_id: box }])
+  const l = o.state.lines[0]
+  assert.deepEqual([l.qty, l.price_unit, l.subtotal], [1.5, 30, 45])
+  assert.deepEqual([(await quote([{ variant_id: p.vid, qty: 1.2345 }])).state.lines[0].qty], [1.23], 'two places on an ordinary unit')
+  const w = await product({ list_price: 10, uom_id: await seed('kg') })
+  assert.deepEqual([(await quote([{ variant_id: w.vid, qty: 1.2345 }])).state.lines[0].qty], [1.235], 'a finer unit keeps its finer places')
+  await editLine(o.id, l.id, { qty: 2.5 })
+  assert.equal((await state(o.id)).lines[0].qty, 2.5)
+})
+
+test('a confirmed order refuses a unit of another category at once, because the line goes straight to stock', async () => {
+  const p = await product({ list_price: 10 })
+  const o = await quote([{ variant_id: p.vid, qty: 1 }])
+  await confirm(o.id)
+  await rejects(update(o.id, { lines: [...(await state(o.id)).lines, { variant_id: p.vid, qty: 1, uom_id: await seed('kg') }] }), 'ERP_UOM')
+})
+
+test('delivery finished short and all of it invoiced: the order is invoiced; goods still coming leave it at no (returns 4, invoice-policy 12)', async () => {
+  const f = fake()
+  const p = await product({ list_price: 10, sale_tax_ids: [], invoice_policy: 'delivery' })
+  const o = await quote([{ variant_id: p.vid, qty: 5 }])
+  await confirm(o.id)
+  const line = (await state(o.id)).lines[0]
+  await f.ship(o.id, [[line.id, 3]])
+  await f.invoice('InvoiceDrafted', o.id, uuid(), [f.invoiceLine(line, 3)])
+  await c.settle()
+  let s = await state(o.id)
+  assert.deepEqual([s.delivery_status, s.invoice_status, s.lines[0].invoice_status, s.lines[0].qty_to_invoice], ['full', 'invoiced', 'invoiced', 0])
+
+  const q = await quote([{ variant_id: p.vid, qty: 5 }])
+  await confirm(q.id)
+  const ql = (await state(q.id)).lines[0]
+  await f.ship(q.id, [[ql.id, 3]])
+  await f.pickingState(q.id, uuid(), 'confirmed')
+  await f.invoice('InvoiceDrafted', q.id, uuid(), [f.invoiceLine(ql, 3)])
+  await c.settle()
+  s = await state(q.id)
+  assert.deepEqual([s.delivery_status, s.invoice_status, s.lines[0].invoice_status], ['partial', 'no', 'no'])
+})
+
+test('a line that never shipped keeps a short order at no even when the transfers are finished', async () => {
+  const f = fake()
+  const a = await product({ list_price: 10, sale_tax_ids: [], invoice_policy: 'delivery' })
+  const b = await product({ list_price: 10, sale_tax_ids: [], invoice_policy: 'delivery' })
+  const o = await quote([{ variant_id: a.vid, qty: 5 }, { variant_id: b.vid, qty: 2 }])
+  await confirm(o.id)
+  const [la, lb] = (await state(o.id)).lines
+  await f.ship(o.id, [[la.id, 3]])
+  await f.invoice('InvoiceDrafted', o.id, uuid(), [f.invoiceLine(la, 3)])
+  await c.settle()
+  const s = await state(o.id)
+  assert.deepEqual([s.delivery_status, s.invoice_status, s.lines[0].invoice_status, s.lines[1].invoice_status], ['full', 'no', 'invoiced', 'no'])
+  assert.equal(lb.qty, 2)
 })

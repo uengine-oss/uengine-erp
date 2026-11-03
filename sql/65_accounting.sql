@@ -13,7 +13,7 @@ select erp.module_put('{
   "not_rebuilt": "청구 모듈이 없던 기간에는 매출 전표를 만들 수 없습니다. 재고 전표만 과거로 올라가 손익이 어긋나지 않도록, 청구를 시작한 날을 고르고 그 전은 기초 잔액 전표로 넣으세요.",
   "subscribes": [{"name": "accounting.books", "handler": "erp.books_on_event", "replay": true, "since_option": "books_since",
     "events": ["InvoicePosted", "InvoiceResetToDraft", "InvoiceCancelled", "PaymentPosted", "PaymentCancelled",
-               "PickingValidated", "StockAdjusted", "StockScrapped"]}],
+               "PickingValidated", "StockAdjusted", "StockScrapped", "BankLineBooked", "BankLineUnbooked"]}],
   "publishes": [{"event": "JournalEntryPosted", "fields": ["number", "date", "origin_type", "origin_id", "lines"]}]
 }'::jsonb);
 
@@ -29,6 +29,7 @@ create table if not exists erp.gl_lines (
   name text,
   due_date date
 );
+alter table erp.gl_lines add column if not exists grids jsonb;
 create index if not exists gl_lines_account_date_idx on erp.gl_lines (account_id, date);
 create index if not exists gl_lines_date_idx on erp.gl_lines (date);
 create index if not exists gl_lines_move_idx on erp.gl_lines (move_id);
@@ -41,24 +42,38 @@ create or replace view public.erp_gl_lines with (security_invoker = on) as selec
 
 create or replace function erp.gl_apply(ev erp.events, r jsonb) returns void
 language sql as $$
-  insert into erp.gl_lines(event_seq, move_id, date, account_id, partner_id, debit, credit, name, due_date)
+  insert into erp.gl_lines(event_seq, move_id, date, account_id, partner_id, debit, credit, name, due_date, grids)
   values (ev.seq, (r ->> 'move_id')::uuid, (r ->> 'date')::date, (r ->> 'account_id')::uuid, (r ->> 'partner_id')::uuid,
-          erp.num(r -> 'debit'), erp.num(r -> 'credit'), r ->> 'name', (r ->> 'due_date')::date)
+          erp.num(r -> 'debit'), erp.num(r -> 'credit'), r ->> 'name', (r ->> 'due_date')::date, nullif(r -> 'grids', '[]'::jsonb))
 $$;
 
 create or replace function erp.gl_reset() returns void
 language sql as $$ truncate erp.gl_lines $$;
 
-select erp.register_effect('gl', 'erp.gl_apply', 'erp.gl_reset');
+-- A rollback that would move money in or out of a closed period is refused, whatever document it came from.
+-- What cancels out on the same day and account changes no figure, so it passes.
+create or replace function erp.gl_check_lock(p_rows jsonb) returns jsonb
+language sql stable as $$
+  select coalesce(jsonb_agg(m), '[]'::jsonb) from (
+    select distinct erp.lock_problem(d, array[]::text[], '전표') as m from (
+      select (r ->> 'date')::date as d from jsonb_array_elements(p_rows) r
+       group by (r ->> 'date')::date, r ->> 'account_id'
+      having sum(erp.num(r -> 'debit') - erp.num(r -> 'credit')) <> 0) x) y where m is not null
+$$;
+
+select erp.register_effect('gl', 'erp.gl_apply', 'erp.gl_reset', 'erp.gl_check_lock');
 
 select erp.catalog_put('{
   "type": "journal_entry", "module": "accounting", "sort": 500, "label": "전표", "label_en": "Journal Entry",
   "read_roles": ["accounting"], "write_roles": ["accounting"],
   "revert_blocked_states": ["posted"],
   "revert_blocked_reason": "게시된 전표는 되돌릴 수 없습니다. 역분개로 정정하세요",
+  "lock_fn": "erp.books_lock_problem",
+  "holds_partner": true,
   "fields": [
     {"name": "number", "label": "번호", "type": "text", "readonly": true, "list": true, "search": true},
     {"name": "date", "label": "회계일", "type": "date", "required": true, "list": true},
+    {"name": "journal_id", "label": "분개장", "type": "ref", "ref": "journal", "module": "invoicing"},
     {"name": "ref", "label": "참조", "type": "text", "list": true, "search": true},
     {"name": "narration", "label": "메모", "type": "text", "multiline": true},
     {"name": "kind", "label": "구분", "type": "enum", "default": "manual", "list": true,
@@ -77,7 +92,8 @@ select erp.catalog_put('{
       {"name": "name", "label": "적요", "type": "text"},
       {"name": "debit", "label": "차변", "type": "money", "default": 0},
       {"name": "credit", "label": "대변", "type": "money", "default": 0},
-      {"name": "due_date", "label": "만기일", "type": "date"}
+      {"name": "due_date", "label": "만기일", "type": "date"},
+      {"name": "grids", "label": "신고 그리드", "type": "tags", "default": []}
     ]},
     {"name": "total_debit", "label": "차변 합계", "type": "money", "readonly": true, "computed": true, "list": true},
     {"name": "total_credit", "label": "대변 합계", "type": "money", "readonly": true, "computed": true},
@@ -100,6 +116,19 @@ select erp.catalog_put('{
 ------------------------------------------------------------------------------------------------
 -- Reading the past
 ------------------------------------------------------------------------------------------------
+create or replace function erp.books_lock_problem(p_state jsonb) returns text
+language sql stable as $$
+  select case when p_state ->> 'kind' = 'auto' then null
+    else erp.lock_problem((p_state ->> 'date')::date, array[]::text[], coalesce(p_state ->> 'number', '전표')) end
+$$;
+
+create or replace function erp.books_lock_check(p_state jsonb) returns void
+language plpgsql stable as $$
+declare m text := erp.books_lock_problem(p_state);
+begin
+  if m is not null then perform erp.fail('ERP_LOCKED', m); end if;
+end $$;
+
 -- A record as it stood when an event happened. Someone may have changed a category's account since, and a
 -- company that turns this module on late must still book last year's invoice the way it would have then.
 create or replace function erp.books_state_at(p_id text, p_seq bigint) returns jsonb
@@ -252,8 +281,12 @@ begin
      and erp.books_module_was_on('inventory', ev.seq) then
     return erp.seed_id('미착품')::text;
   end if;
-  acct := erp.books_category_account(prod ->> 'category_id', case when customer then 'income_account_id' else 'expense_account_id' end, ev.seq);
-  return coalesce(acct, erp.seed_id(case when customer then '상품매출' else '상품매출원가' end)::text);
+  acct := coalesce(erp.books_category_account(prod ->> 'category_id', case when customer then 'income_account_id' else 'expense_account_id' end, ev.seq),
+                   ev.data ->> 'journal_account_id',
+                   erp.seed_id(case when customer then '상품매출' else '상품매출원가' end)::text);
+  -- A position may send an account elsewhere, but only one the system chose. A line that names its account stays.
+  return coalesce((select m ->> 'to_account_id' from jsonb_array_elements(coalesce(erp.books_state_at(ev.data ->> 'fiscal_position_id', ev.seq) -> 'account_map', '[]'::jsonb)) m
+                    where m ->> 'from_account_id' = acct limit 1), acct);
 end $$;
 
 create or replace function erp.books_on_invoice(ev erp.events) returns void
@@ -275,6 +308,9 @@ declare
   total numeric;
   inst jsonb := coalesce(d -> 'installments', '[]'::jsonb);
   i jsonb;
+  line_acct text;
+  base_grids jsonb;
+  r_ jsonb;
 begin
   if mt not in ('out_invoice', 'out_refund', 'in_invoice', 'in_refund') then
     perform erp.fail('ERP_INVALID', format('알 수 없는 문서 구분입니다: %s', coalesce(mt, '')));
@@ -284,11 +320,21 @@ begin
   seed_tax := erp.seed_id(case when mt like 'out_%' then '부가세예수금' else '부가세대급금' end)::text;
 
   for l in select value from jsonb_array_elements(coalesce(d -> 'lines', '[]'::jsonb)) loop
-    rows_ := rows_ || erp.books_row(erp.books_line_account(ev, mt, l), partner, l ->> 'name', dir * erp.num(l -> 'subtotal'));
+    line_acct := erp.books_line_account(ev, mt, l);
+    base_grids := (select coalesce(jsonb_agg(distinct g), '[]'::jsonb) from jsonb_array_elements(coalesce(l -> 'taxes', '[]'::jsonb)) x, jsonb_array_elements(coalesce(x -> 'base_grids', '[]'::jsonb)) g);
+    rows_ := rows_ || (erp.books_row(line_acct, partner, l ->> 'name', dir * erp.num(l -> 'subtotal'))
+                       || case when base_grids <> '[]'::jsonb then jsonb_build_object('grids', base_grids) else '{}'::jsonb end);
     line_taxes := 0;
     for t in select value from jsonb_array_elements(coalesce(l -> 'taxes', '[]'::jsonb)) loop
       acct := coalesce(t ->> 'account_id', erp.books_state_at(t ->> 'tax_id', ev.seq) ->> 'account_id', seed_tax);
-      taxes_ := taxes_ || jsonb_build_object('account_id', acct, 'name', coalesce(t ->> 'name', '세금'), 'amount', erp.num(t -> 'amount'));
+      if t ? 'repartition' then
+        -- A share with no account of its own stays on the line's account: tax that cannot be deducted is a cost.
+        for r_ in select value from jsonb_array_elements(t -> 'repartition') loop
+          taxes_ := taxes_ || jsonb_build_object('account_id', coalesce(r_ ->> 'account_id', line_acct), 'name', coalesce(t ->> 'name', '세금'), 'amount', erp.num(r_ -> 'amount'), 'grids', coalesce(r_ -> 'grids', '[]'::jsonb));
+        end loop;
+      else
+        taxes_ := taxes_ || jsonb_build_object('account_id', acct, 'name', coalesce(t ->> 'name', '세금'), 'amount', erp.num(t -> 'amount'));
+      end if;
       line_taxes := line_taxes + erp.num(t -> 'amount');
     end loop;
     -- A line may state only its tax total: that money still has to land somewhere.
@@ -296,9 +342,10 @@ begin
       taxes_ := taxes_ || jsonb_build_object('account_id', seed_tax, 'name', '세금', 'amount', erp.num(l -> 'tax_amount') - line_taxes);
     end if;
   end loop;
-  select rows_ || coalesce(jsonb_agg(erp.books_row(x.acct, partner, x.nm, dir * x.amt) order by x.first_at), '[]'::jsonb) into rows_
-    from (select v ->> 'account_id' as acct, v ->> 'name' as nm, sum(erp.num(v -> 'amount')) as amt, min(o) as first_at
-            from jsonb_array_elements(taxes_) with ordinality u(v, o) group by 1, 2) x;
+  select rows_ || coalesce(jsonb_agg(erp.books_row(x.acct, partner, x.nm, dir * x.amt)
+           || case when x.grids <> '[]'::jsonb then jsonb_build_object('grids', x.grids) else '{}'::jsonb end order by x.first_at), '[]'::jsonb) into rows_
+    from (select v ->> 'account_id' as acct, v ->> 'name' as nm, sum(erp.num(v -> 'amount')) as amt, min(o) as first_at, coalesce(v -> 'grids', '[]'::jsonb) as grids
+            from jsonb_array_elements(taxes_) with ordinality u(v, o) group by 1, 2, 5) x;
 
   total := erp.num(d -> 'amount_total', null);
   if total is null then
@@ -326,7 +373,7 @@ declare
   dir numeric := case when inbound then 1 else -1 end;
   amount_ numeric := erp.num(d -> 'amount');
   wo numeric := erp.num(d -> 'writeoff_amount');
-  cash text := erp.seed_id(case when d ->> 'journal' = 'cash' then '현금' else '보통예금' end)::text;
+  cash text := coalesce(d ->> 'journal_account_id', erp.seed_id(case when d ->> 'journal' = 'cash' then '현금' else '보통예금' end)::text);
   control text := erp.seed_id(case when customer then '외상매출금' else '외상매입금' end)::text;
   early boolean := coalesce((d ->> 'early_discount')::boolean, false);
   wo_account text;
@@ -417,11 +464,26 @@ begin
     erp.books_row(erp.seed_id('재고자산감모손실')::text, null, label_, -value_)));
 end $$;
 
+-- Money the bank moved with no document behind it: a fee, interest. The bank's date, the journal's account.
+create or replace function erp.books_on_bank_line(ev erp.events) returns void
+language plpgsql as $$
+declare
+  d jsonb := ev.data;
+  amount_ numeric := erp.num(d -> 'amount');
+  bank_ text := coalesce(d ->> 'journal_account_id', erp.seed_id('보통예금')::text);
+begin
+  perform erp.books_entry(ev, erp.seed_id('gl:' || ev.seq), erp.books_date(d ->> 'date', ev), d ->> 'name', d ->> 'partner_id', jsonb_build_array(
+    erp.books_row(bank_, d ->> 'partner_id', d ->> 'name', amount_),
+    erp.books_row(d ->> 'account_id', d ->> 'partner_id', d ->> 'name', -amount_)));
+end $$;
+
 create or replace function erp.books_on_event(ev erp.events) returns void
 language plpgsql as $$
 begin
   case
     when ev.event_type = 'InvoicePosted' then perform erp.books_on_invoice(ev);
+    when ev.event_type = 'BankLineBooked' then perform erp.books_on_bank_line(ev);
+    when ev.event_type = 'BankLineUnbooked' then perform erp.books_withdraw(ev);
     when ev.event_type = 'PaymentPosted' then perform erp.books_on_payment(ev);
     when ev.event_type in ('InvoiceResetToDraft', 'InvoiceCancelled', 'PaymentCancelled') then perform erp.books_withdraw(ev);
     when ev.event_type = 'PickingValidated' then perform erp.books_on_picking(ev);
@@ -466,8 +528,12 @@ declare
   t jsonb;
   number_ text;
   y text;
+  j jsonb;
+  hit text;
+  code_ text;
 begin
   if s ->> 'state' <> 'draft' then perform erp.fail('ERP_STATE', '초안만 게시할 수 있습니다'); end if;
+  perform erp.books_lock_check(s);
   select coalesce(jsonb_agg(l), '[]'::jsonb) into rows_ from jsonb_array_elements(coalesce(s -> 'lines', '[]'::jsonb)) l
    where erp.num(l -> 'debit') <> 0 or erp.num(l -> 'credit') <> 0;
   if rows_ = '[]'::jsonb then perform erp.fail('ERP_NO_LINES', '금액이 있는 줄을 넣어야 게시할 수 있습니다'); end if;
@@ -475,8 +541,15 @@ begin
   if erp.num(t -> 'total_debit') <> erp.num(t -> 'total_credit') then
     perform erp.fail('ERP_UNBALANCED', format('차변 %s 과 대변 %s 이 맞지 않습니다', t ->> 'total_debit', t ->> 'total_credit'));
   end if;
+  j := erp.peek(nullif(s ->> 'journal_id', '')::uuid, 'journal');
+  if coalesce(j -> 'allowed_account_ids', '[]'::jsonb) <> '[]'::jsonb then
+    select r.state ->> 'name' into hit from jsonb_array_elements(rows_) l left join erp.records r on r.id = (l ->> 'account_id')::uuid
+     where not (j -> 'allowed_account_ids') ? (l ->> 'account_id') limit 1;
+    if hit is not null then perform erp.fail('ERP_INVALID', format('이 분개장에서 쓸 수 없는 계정입니다: %s', hit)); end if;
+  end if;
   y := to_char((s ->> 'date')::date, 'YYYY');
-  number_ := coalesce(s ->> 'number', erp.next_number('MISC/' || y, 'MISC/' || y || '/', 5));
+  code_ := coalesce(j ->> 'code', 'MISC');
+  number_ := coalesce(s ->> 'number', erp.next_number(code_ || '/' || y, code_ || '/' || y || '/', 5));
   perform erp.emit('journal_entry', p_id, 'JournalEntryPosted', jsonb_build_object(
     'set', jsonb_build_object('state', 'posted', 'number', number_, 'open', true) || t,
     'number', number_, 'date', s -> 'date', 'origin_type', null, 'origin_id', null, 'lines', rows_,
@@ -533,6 +606,7 @@ begin
     when 'reset_to_draft' then
       if s ->> 'state' not in ('posted', 'cancelled') then perform erp.fail('ERP_STATE', '게시되었거나 취소된 전표만 초안으로 되돌릴 수 있습니다'); end if;
       if s ->> 'reversed_by' is not null then perform erp.fail('ERP_STATE', '이미 역분개한 전표입니다'); end if;
+      perform erp.books_lock_check(s);
       perform erp.emit('journal_entry', p_id, 'JournalEntryResetToDraft', jsonb_build_object(
         'set', jsonb_build_object('state', 'draft', 'open', false),
         'effects', case when s ->> 'state' = 'posted' then jsonb_build_object('gl', (
@@ -540,13 +614,16 @@ begin
             from jsonb_array_elements(s -> 'lines') l where erp.num(l -> 'debit') <> 0 or erp.num(l -> 'credit') <> 0)) else '{}'::jsonb end));
     when 'cancel' then
       if s ->> 'state' <> 'draft' then perform erp.fail('ERP_STATE', '초안만 취소할 수 있습니다. 게시된 전표는 역분개하세요'); end if;
+      perform erp.books_lock_check(s);
       perform erp.emit('journal_entry', p_id, 'JournalEntryCancelled', '{"set": {"state": "cancelled"}}');
     when 'delete' then
       if s ->> 'number' is not null then perform erp.fail('ERP_NUMBERED', '번호가 붙은 전표는 삭제할 수 없습니다'); end if;
+      perform erp.books_lock_check(s);
       perform erp.emit('journal_entry', p_id, 'JournalEntryDeleted', '{"set": {"deleted": true, "active": false}}');
     when 'reverse' then
       if s ->> 'state' <> 'posted' then perform erp.fail('ERP_STATE', '게시된 전표만 역분개할 수 있습니다'); end if;
       if s ->> 'reversed_by' is not null then perform erp.fail('ERP_STATE', '이미 역분개한 전표입니다'); end if;
+      -- With no date of its own a reversal takes the original's, and that date may be closed. books_manual_post says so.
       rid := gen_random_uuid();
       select jsonb_agg(l - 'id' || jsonb_build_object('debit', l -> 'credit', 'credit', l -> 'debit', 'id', gen_random_uuid())) into neg
         from jsonb_array_elements(s -> 'lines') l;
@@ -562,12 +639,29 @@ begin
   return new_id;
 end $$;
 
+-- A hard lock cannot be taken back, so a draft entry dated inside it could never be posted, moved or deleted.
+create or replace function erp.books_on_company(ev erp.events, before_state jsonb, after_state jsonb) returns void
+language plpgsql as $$
+declare
+  hard date := (after_state ->> 'lock_date_hard')::date;
+  n int;
+begin
+  if not erp.module_on('accounting') or hard is null or before_state ->> 'lock_date_hard' is not distinct from after_state ->> 'lock_date_hard' then return; end if;
+  select count(*) into n from erp.records r
+   where r.type = 'journal_entry' and not r.deleted and r.status = 'draft' and (r.state ->> 'date')::date <= hard;
+  if n > 0 then
+    perform erp.fail('ERP_LOCKED_DRAFTS', format('되돌릴 수 없는 잠금일 안에 초안 전표 %s건이 있습니다. 게시하거나 날짜를 옮긴 뒤 다시 하세요', n));
+  end if;
+end $$;
+select erp.register_hook('react', 'company', 'erp.books_on_company');
+
 ------------------------------------------------------------------------------------------------
 -- Reports. All of them go by the business date on the entry.
 ------------------------------------------------------------------------------------------------
 create or replace function erp.books_require_reader() returns void
 language plpgsql stable as $$
 begin
+  perform erp.require_module('accounting');
   if not erp.has_role(array['accounting']) then perform erp.fail('ERP_FORBIDDEN', '회계 권한이 필요합니다'); end if;
 end $$;
 
@@ -611,7 +705,7 @@ begin
     )
     select jsonb_build_object('account_id', p_account, 'account', erp.state_of(p_account) ->> 'name', 'code', erp.state_of(p_account) ->> 'code', 'from', p_from, 'to', p_to, 'opening', opening,
       'rows', coalesce(jsonb_agg(jsonb_build_object('date', s.date, 'event_seq', s.event_seq, 'move_id', s.move_id, 'partner_id', s.partner_id, 'name', s.name,
-        'number', erp.state_of(s.move_id) ->> 'number', 'debit', s.debit, 'credit', s.credit, 'balance', s.balance, 'due_date', s.due_date) order by s.date, s.event_seq, s.id), '[]'::jsonb),
+        'number', erp.state_of(s.move_id) ->> 'number', 'debit', s.debit, 'credit', s.credit, 'balance', s.balance, 'due_date', s.due_date, 'grids', s.grids) order by s.date, s.event_seq, s.id), '[]'::jsonb),
       'closing', opening + coalesce(sum(s.debit - s.credit), 0))
       from shown s);
 end $$;
@@ -636,6 +730,35 @@ begin
       'total_expense', coalesce(-sum(amount) filter (where kind = 'expense'), 0),
       'net_income', coalesce(sum(amount), 0))
       from per);
+end $$;
+
+-- Balances by code range, widest group first, with each account under the narrowest group that holds it.
+create or replace function public.erp_account_groups(p_from date default null, p_to date default null) returns jsonb
+language plpgsql stable security definer set search_path = erp, extensions, pg_temp as $$
+begin
+  perform erp.books_require_reader();
+  return (
+    with per as (
+      select a.id, a.state ->> 'code' as code, a.state ->> 'name' as name, a.state ->> 'account_type' as kind,
+             coalesce(sum(g.debit - g.credit) filter (where p_from is not null and g.date < p_from), 0) as opening,
+             coalesce(sum(g.debit) filter (where p_from is null or g.date >= p_from), 0) as debit,
+             coalesce(sum(g.credit) filter (where p_from is null or g.date >= p_from), 0) as credit
+        from erp.records a left join erp.gl_lines g on g.account_id = a.id and (p_to is null or g.date <= p_to)
+       where a.type = 'account' and not a.deleted group by 1, 2, 3, 4
+    ), tree as (
+      select p.*, (erp.account_group_of(p.code) ->> 'id')::uuid as group_id from per p
+    )
+    select jsonb_build_object('from', p_from, 'to', p_to, 'groups', (
+      select coalesce(jsonb_agg(jsonb_build_object('id', g.id, 'name', g.state -> 'name', 'code_prefix_start', g.state -> 'code_prefix_start', 'code_prefix_end', g.state -> 'code_prefix_end',
+        'opening', coalesce(x.opening, 0), 'debit', coalesce(x.debit, 0), 'credit', coalesce(x.credit, 0), 'closing', coalesce(x.opening, 0) + coalesce(x.debit, 0) - coalesce(x.credit, 0),
+        'accounts', coalesce(x.accounts, '[]'::jsonb)) order by g.state ->> 'code_prefix_start', g.id), '[]'::jsonb)
+        from erp.records g left join lateral (
+          select sum(t.opening) as opening, sum(t.debit) as debit, sum(t.credit) as credit,
+                 jsonb_agg(jsonb_build_object('id', t.id, 'code', t.code, 'name', t.name, 'account_type', t.kind, 'opening', t.opening, 'debit', t.debit, 'credit', t.credit, 'closing', t.opening + t.debit - t.credit) order by t.code) as accounts
+            from tree t where t.group_id = g.id) x on true
+       where g.type = 'account_group' and not g.deleted),
+      'ungrouped', (select coalesce(jsonb_agg(jsonb_build_object('id', t.id, 'code', t.code, 'name', t.name, 'closing', t.opening + t.debit - t.credit) order by t.code), '[]'::jsonb)
+                      from tree t where t.group_id is null)));
 end $$;
 
 -- Profit not yet moved to equity shows as its own line, so the sheet balances before any closing entry.

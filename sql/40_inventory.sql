@@ -1212,6 +1212,32 @@ begin
   end if;
 end $$;
 
+-- What someone recorded by hand has already left. Replaying an order from before this module was on must not ship
+-- it again, so its open transfer shrinks to what is still owed. A transfer with nothing left to ship is cancelled.
+create or replace function erp.stock_order_hand_delivered(ev erp.events) returns void
+language plpgsql as $$
+declare
+  l jsonb;
+  one erp.events;
+  r erp.records;
+begin
+  for l in select value from jsonb_array_elements(coalesce(ev.data -> 'lines', '[]'::jsonb)) loop
+    continue when l ->> 'qty' is null or l ->> 'variant_id' is null or coalesce(l ->> 'type', 'goods') <> 'goods';
+    -- An order this module never made a transfer for has nothing to correct.
+    continue when not exists (select 1 from erp.stock_origin_pickings(ev.stream_id) p, jsonb_array_elements(p.state -> 'moves') m where m ->> 'origin_line_id' = l ->> 'line_id');
+    one := ev;
+    one.data := jsonb_build_object('line_id', l -> 'line_id', 'variant_id', l -> 'variant_id', 'uom_id', l -> 'uom_id', 'name', l -> 'name', 'type', 'goods',
+      'to', greatest(erp.num(l -> 'qty') - erp.num(l -> 'qty_delivered'), 0));
+    perform erp.stock_order_qty(one, 'outgoing');
+  end loop;
+  for r in select * from erp.stock_origin_pickings(ev.stream_id) loop
+    continue when r.state ->> 'state' in ('done', 'cancelled') or coalesce((r.state ->> 'is_return')::boolean, false);
+    if not exists (select 1 from jsonb_array_elements(r.state -> 'moves') m where m ->> 'state' <> 'cancelled' and erp.num(m -> 'demand') > 0) then
+      perform erp.picking_cancel(r.id);
+    end if;
+  end loop;
+end $$;
+
 -- What a confirmed purchase pays decides the cost when the goods arrive, so an open receipt follows a price change.
 create or replace function erp.stock_order_price(ev erp.events) returns void
 language plpgsql as $$
@@ -1267,6 +1293,8 @@ begin
       for r in select * from erp.stock_origin_pickings(ev.stream_id) loop
         if r.state ->> 'state' not in ('done', 'cancelled') then perform erp.picking_cancel(r.id); end if;
       end loop;
+    when ev.event_type = 'SalesOrderDelivered' and coalesce((ev.data ->> 'manual')::boolean, false) then
+      perform erp.stock_order_hand_delivered(ev);
     else null;
   end case;
 end $$;
@@ -1746,6 +1774,10 @@ begin
   end if;
   if erp.num(p_next -> 'multiple', 1) < 0 then perform erp.fail('ERP_INVALID', '배수는 0 이상이어야 합니다'); end if;
   if not erp.stock_physical((p_next ->> 'location_id')::uuid) then perform erp.fail('ERP_INVALID', '재주문 규칙은 사내 위치에 둡니다'); end if;
+  -- Goods nobody counts have no level to fall below.
+  if not coalesce((erp.variant((p_next ->> 'variant_id')::uuid) ->> 'is_storable')::boolean, erp.variant((p_next ->> 'variant_id')::uuid) ->> 'type' = 'goods') then
+    perform erp.fail('ERP_INVALID', '재고를 추적하지 않는 제품에는 재주문 규칙을 둘 수 없습니다');
+  end if;
   perform pg_advisory_xact_lock(hashtextextended('reorder_rule:' || (p_next ->> 'variant_id') || ':' || (p_next ->> 'location_id'), 0));
   select id into hit from erp.records where type = 'reorder_rule' and not deleted and id <> p_id
      and state @> jsonb_build_object('variant_id', p_next ->> 'variant_id', 'location_id', p_next ->> 'location_id') limit 1;
@@ -1920,6 +1952,7 @@ create or replace view public.erp_stock_scrapped with (security_invoker = on) as
 create or replace function public.erp_stock_overview() returns jsonb
 language plpgsql security definer set search_path = erp, pg_temp as $$
 begin
+  perform erp.require_module('inventory');
   if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '구성원만 볼 수 있습니다'); end if;
   return (select coalesce(jsonb_agg(x order by x.warehouse_id, x.picking_type), '[]'::jsonb) from (
     select state ->> 'warehouse_id' as warehouse_id, state ->> 'picking_type' as picking_type,
@@ -1931,11 +1964,64 @@ begin
       from erp.records where type = 'picking' and not deleted group by 1, 2) x);
 end $$;
 
+-- The move history by any grouping, filtered by kind and period. Done moves only: the ledger holds nothing else.
+create or replace function public.erp_stock_move_report(p_filters jsonb default '{}'::jsonb, p_group_by text[] default array['picking_type']) returns jsonb
+language plpgsql stable security definer set search_path = erp, extensions, pg_temp as $$
+declare
+  f jsonb := coalesce(p_filters, '{}'::jsonb);
+  allowed jsonb := '{"picking_type": "m.picking_type", "product_id": "m.product_id::text", "variant_id": "m.variant_id::text", "location_from": "m.location_from::text", "location_to": "m.location_to::text",
+                     "document_id": "m.document_id::text", "is_return": "m.is_return::text", "category_id": "p.state ->> ''category_id''",
+                     "day": "to_char(m.date at time zone coalesce(erp.setting(''timezone''), ''Asia/Seoul''), ''YYYY-MM-DD'')", "month": "to_char(m.date at time zone coalesce(erp.setting(''timezone''), ''Asia/Seoul''), ''YYYY-MM'')"}';
+  g text;
+  exprs text[] := '{}';
+  rows_ jsonb;
+begin
+  perform erp.require_module('inventory');
+  if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '구성원만 볼 수 있습니다'); end if;
+  foreach g in array coalesce(p_group_by, '{}') loop
+    if not allowed ? g then perform erp.fail('ERP_INVALID', format('이 항목으로는 묶을 수 없습니다: %s', g)); end if;
+    exprs := exprs || format('%s as %I', allowed ->> g, g);
+  end loop;
+  execute format($q$
+    select coalesce(jsonb_agg(to_jsonb(x)), '[]'::jsonb) from (
+      select %1$s count(*) as moves, coalesce(sum(m.qty), 0) as qty, coalesce(sum(m.qty * coalesce(m.unit_cost, 0)), 0) as value
+        from public.erp_stock_moves m left join erp.records p on p.id = m.product_id
+       where ($1 ->> 'from' is null or m.date >= ($1 ->> 'from')::date)
+         and ($1 ->> 'to' is null or m.date < ($1 ->> 'to')::date + 1)
+         and ($1 ->> 'picking_type' is null or m.picking_type = $1 ->> 'picking_type')
+         and ($1 ->> 'product_id' is null or m.product_id = ($1 ->> 'product_id')::uuid)
+         and ($1 ->> 'is_return' is null or m.is_return = ($1 ->> 'is_return')::boolean)
+       %2$s) x
+  $q$,
+    case when cardinality(exprs) > 0 then array_to_string(exprs, ', ') || ',' else '' end,
+    case when cardinality(exprs) > 0 then 'group by ' || (select string_agg(format('%I', x), ', ') from unnest(p_group_by) x) else '' end)
+  into rows_ using f;
+  return jsonb_build_object('filters', f, 'group_by', to_jsonb(p_group_by), 'rows', rows_);
+end $$;
+
+-- What an order line can count on: what is there, what is free, what else is promised, and when more arrives.
+create or replace function public.erp_stock_availability(p_variant_ids uuid[], p_warehouse_id uuid default null) returns jsonb
+language plpgsql stable security definer set search_path = erp, extensions, pg_temp as $$
+begin
+  perform erp.require_module('inventory');
+  if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '구성원만 볼 수 있습니다'); end if;
+  return (select coalesce(jsonb_agg(jsonb_build_object('variant_id', v.id, 'on_hand', coalesce(s.on_hand, 0), 'reserved', coalesce(s.reserved, 0), 'available', coalesce(s.available, 0),
+             'incoming', coalesce(s.incoming, 0), 'outgoing', coalesce(s.outgoing, 0), 'forecast', coalesce(s.forecast, 0),
+             'next_incoming_date', (select min(o.scheduled_date) from erp.stock_open_moves o where o.variant_id = v.id and o.to_stock),
+             'short', coalesce(s.available, 0) <= 0, 'no_future_supply', coalesce(s.available, 0) <= 0 and coalesce(s.incoming, 0) = 0) order by v.id), '[]'::jsonb)
+    from unnest(p_variant_ids) v(id)
+    left join lateral (select sum(x.on_hand) as on_hand, sum(x.reserved) as reserved, sum(x.available) as available, sum(x.incoming) as incoming, sum(x.outgoing) as outgoing, sum(x.forecast) as forecast
+                         from public.erp_stock x
+                         join erp.records l on l.id = x.location_id and l.state ->> 'usage' = 'internal'
+                        where x.variant_id = v.id and (p_warehouse_id is null or x.warehouse_id = p_warehouse_id)) s on true);
+end $$;
+
 -- One product over time: what is there, what is promised by which document, and where the balance turns negative.
 create or replace function public.erp_stock_forecast(p_variant_id uuid, p_warehouse_id uuid default null) returns jsonb
 language plpgsql security definer set search_path = erp, pg_temp as $$
 declare tree uuid[]; on_hand numeric; rows_ jsonb; bal numeric; d jsonb; out_ jsonb := '[]'::jsonb; q numeric;
 begin
+  perform erp.require_module('inventory');
   if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '구성원만 볼 수 있습니다'); end if;
   if p_warehouse_id is not null then tree := erp.stock_tree(erp.stock_warehouse_location(p_warehouse_id)); end if;
   select coalesce(sum(qty), 0) into on_hand from erp.quants z where z.variant_id = p_variant_id and (tree is null or z.location_id = any (tree));
@@ -1957,6 +2043,7 @@ create or replace function public.erp_replenish_list() returns jsonb
 language plpgsql security definer set search_path = erp, pg_temp as $$
 declare r record; out_ jsonb := '[]'::jsonb; n jsonb;
 begin
+  perform erp.require_module('inventory');
   if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '구성원만 볼 수 있습니다'); end if;
   for r in select id, state from erp.records where type = 'reorder_rule' and not deleted and active
               and (state ->> 'snoozed_until' is null or (state ->> 'snoozed_until')::date < erp.today())
@@ -1973,6 +2060,7 @@ create or replace function public.erp_stock_check_all(p_ids uuid[] default null)
 language plpgsql security definer set search_path = erp, extensions, pg_temp as $$
 declare r record; n int := 0; was jsonb; a jsonb;
 begin
+  perform erp.require_module('inventory');
   if not erp.has_role(array['inventory']) then perform erp.fail('ERP_FORBIDDEN', '재고 담당자만 실행할 수 있습니다'); end if;
   perform set_config('erp.correlation_id', gen_random_uuid()::text, true);
   perform set_config('erp.depth', '0', true);
@@ -1993,6 +2081,7 @@ create or replace function public.erp_stock_adjust_many(p_ids uuid[], p_command 
 language plpgsql security definer set search_path = erp, extensions, pg_temp as $$
 declare r record; n int := 0;
 begin
+  perform erp.require_module('inventory');
   if not erp.has_role(array['inventory']) then perform erp.fail('ERP_FORBIDDEN', '재고 담당자만 실행할 수 있습니다'); end if;
   if p_command not in ('apply', 'match', 'zero') then perform erp.fail('ERP_COMMAND', format('재고 조정: 일괄로 할 수 없는 명령입니다 (%s)', p_command)); end if;
   perform set_config('erp.correlation_id', gen_random_uuid()::text, true);
@@ -2240,7 +2329,7 @@ select erp.module_put('{
   "options": [{"name": "import_since", "label": "이 날짜 이후 미납품 주문을 출고 대기로 가져오기", "type": "date"}],
   "subscribes": [
     {"name": "inventory.sales", "handler": "erp.stock_on_order", "since_option": "import_since",
-     "events": ["SalesOrderConfirmed", "SalesOrderLineAdded", "SalesOrderLineQtyChanged", "SalesOrderCancelled"]},
+     "events": ["SalesOrderConfirmed", "SalesOrderLineAdded", "SalesOrderLineQtyChanged", "SalesOrderCancelled", "SalesOrderDelivered"]},
     {"name": "inventory.purchase", "handler": "erp.stock_on_purchase",
      "events": ["PurchaseOrderConfirmed", "PurchaseOrderLineAdded", "PurchaseOrderLineQtyChanged", "PurchaseOrderLinePriceChanged", "PurchaseOrderCancelled", "PurchaseDraftQtyChanged"]}
   ],

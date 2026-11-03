@@ -1,4 +1,4 @@
-# 청구 (`sql/60_invoicing.sql`)
+# 청구 (`sql/60_invoicing.sql`, `sql/62_bank.sql`)
 
 모듈 `invoicing`, 정렬 40. 청구서·공급사 청구서·대변 메모·입금·미수금을 다룬다. **전표를 만들지 않는다.** 사실을 이벤트로 남기면 끝이고, 분개는 회계 모듈이 그 이벤트를 받아 만든다. 판매·구매·재고·회계가 모두 꺼져 있어도 동작한다.
 
@@ -21,8 +21,56 @@
 | `reverse{mode, reason, date}` | `reverse` 는 대변 메모 초안. `reverse_and_create` 는 맞물린 것을 떼고 전액 대변 메모를 게시한 뒤 같은 내용의 새 초안을 만든다. 게시 문서만 |
 | `debit_note{reason, date, copy_lines}` | 같은 거래처에 청구서 초안. 주문과의 연결은 끊는다 |
 | `apply_credit{credit_move_id, amount}`, `remove_credit{credit_move_id}` | 대변 메모를 다른 청구서에 맞추거나 푼다 |
+| `change_number{number}` | 번호가 붙었다가 초안으로 돌아온 문서의 번호를 바꾼다. 그 묶음의 마지막 문서만 된다. 번호에서 연·월을 찾아 분개장의 형식으로 삼고, 뒤 문서가 그 형식을 잇는다. 변경은 분개장에 `JournalNumberFormatChanged` 로 남는다 |
+| `fill_from_order{from_sales_order 또는 from_purchase_order}` | 손으로 시작한 초안에 주문의 남은 줄을 채운다. 거래처가 같아야 한다 |
 
 `date`(회계일)는 비우면 청구일을 따른다. 초안으로 돌아갈 때 청구일과 같았다면 다시 비워서 청구일을 고치면 함께 움직인다.
+
+결제 조건이 없는 문서의 기일은 청구일이다. 관찰된 동작은 만든 날인데, 그러면 소급 청구서의 미수금 연령이 틀어지고 미래 청구서의 기일이 청구일보다 앞선다. 그래서 따르지 않는다(`docs/plan.md` 결정 12).
+
+## 분개장
+
+유형 `journal`: `name, code(unique), journal_type(sale/purchase/bank/cash/credit/general), currency, account_id, loss_account_id, profit_account_id, allowed_account_ids, payment_reference_model(invoice/partner), bank_account_number, bank_id, number_formats`. 새 회사에는 `INV`, `BILL`, `MISC`, `BNK1`(보통예금), `CSH1`(현금)이 있다.
+
+- 은행·현금·신용카드 분개장은 코드(`BNK2`, `CSH2`, `CCD1`)와 전용 계정을 비워 두면 만들어 주고, 수기 수금·지급 수단을 둘 만든다. 회계가 꺼져 있어도 계정은 만든다. 장부를 나중에 켜도 그 자리에 가야 한다.
+- 고객 문서는 판매, 공급사 문서는 구매 분개장에만 들어간다. 안 고르면 `INV`, `BILL` 이다. 번호 앞머리는 코드이고 대변 메모는 앞에 `R` 을 붙인다(`EXP/2026/00001`, `REXP/2026/00001`).
+- `allowed_account_ids` 가 있으면 그 분개장의 수동 전표는 게시할 때, 은행 거래 분개는 처리할 때 다른 계정을 거부한다.
+- `payment_reference_model` 은 비어 있으면 아무것도 쓰지 않는다. `invoice` 는 번호, `partner` 는 거래처 참조 번호를 게시할 때 채운다.
+
+유형 `payment_method`: `name, journal_id, direction(inbound/outbound), code(manual/check/file), requires_trusted_bank`. `file` 은 기본으로 신뢰한 계좌에만 보낸다. 지급을 게시할 때 그런 수단이면 수취 계좌가 있어야 하고(`ERP_REQUIRED`) 신뢰 표시가 있어야 한다(`ERP_UNTRUSTED_BANK`). 수기 수단은 막지 않는다. 보내는 것이 없다.
+
+입금의 `journal`(bank/cash)은 예전 그대로 받는다. `journal_id` 나 `payment_method_id` 를 주면 그쪽을 따르고, 아무것도 안 주면 거래처의 선호 수단을 쓴다. 분개는 `PaymentPosted` 의 `journal_account_id` 로 간다.
+
+## 은행 거래와 대사
+
+입금 분개는 지금처럼 게시할 때 예금으로 간다. 미결 계정을 끼우지 않는다. 기존 전표 계약과 나중에 켠 회계의 동일성을 건드리지 않는 가장 작은 설계이고, 대신 맞춰 보는 것은 원장 밖에서 한다. `bank_line` 은 은행이 말한 사실이고 그 자체로는 아무것도 분개하지 않는다.
+
+| 명령 | 뜻 |
+|---|---|
+| `bank_line.create` | `journal_id, date, amount, statement_id, payment_ref, partner_id, partner_name, account_number, transaction_type, import_id`. 들어온 돈이 양수. `import_id` 는 분개장 안에서 한 번뿐이다. 0원 거래는 곧바로 `matched` |
+| `match{payment_ids}`, `unmatch{payment_id}` | 게시된 입금을 맞춘다. 분개장과 부호가 같고 남은 금액 안이어야 한다. 입금 하나는 거래 하나에만. 맞춘 입금은 취소할 수 없고(`ERP_MATCHED`) `is_matched`, `bank_line_id` 가 붙는다 |
+| `pay{move_ids}` | 입금이 없는 문서에 은행 날짜로 입금을 만들어 바로 맞춘다. 한 거래처의 문서만 |
+| `book{account_id, name, amount}`, `unbook` | 문서 없는 돈(수수료, 이자). `BankLineBooked` 를 내고 회계가 분개한다. 회계가 꺼져 있어도 나중에 켜면 같은 전표가 된다 |
+| `bank_statement.create{journal_id, name, date, balance_start, balance_end_real, attachment_url, line_ids}`, `assign{line_ids}` | 거래를 묶는다. 잔액이 안 맞아도 저장한다 |
+
+문서의 `payment_state` 는 대사와 무관하다. 대사가 끝나도 `paid` 그대로이고 입금의 `is_matched` 만 바뀐다(관찰과 같다).
+
+조회는 모두 `accounting` 역할이다.
+
+| 함수 | 결과 |
+|---|---|
+| `erp_bank_statements(journal_id)` | `[{id, name, date, balance_start, balance_end, balance_end_real, lines, first_date, last_date, is_complete, is_valid, problems[]}]`. `balance_start` 를 안 넣으면 앞 명세서의 종료 잔액 |
+| `erp_bank_lines(journal_id, from, to, only_open, limit, offset)` | 거래별 `running_balance` 포함 |
+| `erp_bank_reconciliation(journal_id, at)` | `statement_total, book_total, difference, unmatched_lines[], unmatched_lines_total, unmatched_payments[], unmatched_payments_total` |
+| `erp_bank_match_candidates(line_id)` | `payments[{id, number, date, amount, exact}], documents[{id, number, residual, exact, named}], accounts[]`. `accounts` 는 `reconcile` 이 켜진 계정만 |
+| `erp_bank_auto_match(journal_id)` | 금액이 같은 입금이 하나뿐일 때만 맞춘다. `{matched}` |
+
+파일은 화면이 열로 풀어 `erp_import('bank_line', rows, mode)` 로 보낸다(같은 `import_id` 는 건너뛴다). CAMT·OFX·QIF 해석은 SQL 에 없다.
+
+## 세금 신고
+
+- `erp_tax_report(from, to)`: 회계일 기준 게시 문서로 낸다. 회계가 꺼져 있어도 답한다. `rows[{tax_id, name, scope, amount_type, rate, base, tax, base_refund, tax_refund, discount_tax}], grids[{grid, base, tax}], totals{output_tax, input_tax, payable}`. 대변 메모는 빼고, 입금할 때 세금까지 줄인 조기 할인은 입금일 기간에서 뺀다. 장부의 부가세 계정 움직임과 같다(시험한다).
+- `erp_tax_periods(year)`: 회사 설정 `tax_periodicity`, `tax_due_day`, `tax_reminder_days`, `lock_date_tax` 로 `periods[{from, to, due, remind_on, state(open/to_file/due_soon/overdue/closed)}]` 를 낸다. 신고를 마치면 세금 잠금일을 넣는다.
 
 ## 주문에서 만들기
 
@@ -46,7 +94,7 @@
 
 - 게시하면 원 문서의 남은 금액까지 자동으로 맞물린다. 전액이면 원 문서 `reversed`, 대변 메모 `paid`. 입금이 먼저 있었으면 원 문서는 `paid`, 대변 메모에 남은 금액은 `partial`. 완납 문서에는 맞물리지 않고 환불 지급 대상으로 남는다.
 - `reset_to_draft` 를 하면 맞물림이 풀린다. 대변 메모를 다시 게시하면 다시 맞물리지만 원 청구서를 다시 게시해도 저절로 맞물리지 않는다.
-- `reverse` 의 `date` 가 미래면 `auto_post=at_date` 가 붙는다. 그 전까지 `post` 는 `ERP_AUTO_POST` 로 거부되고, 그날 `erp.inv_auto_post_due()` 가 게시한다. pg_cron 이 있으면 매시간 돌고, 없으면 앱이 `erp_invoice_auto_post()` 를 부른다. 미래 날짜를 직접 넣은 일반 문서는 그대로 게시된다.
+- `reverse` 의 `date` 가 미래면 `auto_post=at_date` 가 붙는다. 그 전까지 `post` 는 `ERP_AUTO_POST` 로 거부되고, 그날 `erp.inv_auto_post_due()` 가 게시한다. pg_cron 이 있으면 매시간 돌고, 없어도 앱이 명령 뒤에 부르는 `erp_bus_tick` 이 한 시간에 한 번 돌린다(`erp.periodic_register`). `erp_invoice_auto_post()` 로 바로 돌릴 수도 있다. 미래 날짜를 직접 넣은 일반 문서는 그대로 게시된다.
 
 ## `payment`
 
@@ -70,6 +118,7 @@
 - 금액을 안 주면 다음 할부 금액이다. 여러 문서면 남은 금액 전부다. `erp_preview('payment', {from_moves, date})` 가 제안 금액을 돌려준다.
 - 탈락: `writeoff_amount` 는 문서를 끝내는 데 쓰인 만큼만 넣을 수 있다.
 - 조기 할인: 할부 한 줄이고 입금 전이고 결제일이 `discount_date` 안이면 제안 금액이 `discount_amount` 이고, 그 금액을 내면 차액이 `writeoff_amount`, `early_discount: true` 가 된다. `included` 면 `writeoff_taxes` 에 세금 몫을 싣는다. 기한이 지난 뒤 할인액만 내면 부분 입금이다.
+- `discount_mode: mixed`(항상)는 할인 여부와 무관하게 할인 후 금액에 세금을 매긴다. 줄의 공급가는 그대로이고 세액만 낮아진다. 100, 21%, 2% 면 합계 120.58, 기한 안에 내면 118.58 이고 세금 계정은 다시 움직이지 않는다. 그 조건으로 만든 판매 주문의 세액도 같다. 구매 주문의 세액은 줄지 않는다(관찰과 같다).
 
 ## 이벤트
 
@@ -94,7 +143,7 @@
 
 - `erp_aged(kind, at)`: `receivable`, `payable`. 거래처별 `not_due, d1_30, d31_60, d61_90, over_90, total`. 남은 금액을 오래된 할부부터 채워 할부별 만기로 나눈다. 대변 메모는 빼고 미배분 입금은 입금일 기준으로 뺀다. `at` 을 주면 그날 끝의 원장 상태로 계산한다. 합쳐진 연락처는 대상 거래처로 묶는다. `receivable` 은 `accounting`·`sales`, `payable` 은 `accounting`·`purchase` 가 읽는다.
 - `erp_invoice_targets(kind, limit)`: `sales`, `purchase`. 원장의 주문 확정 이벤트로 주문을 찾고 `erp.peek` 로 읽어 청구할 것이 남은 주문을 돌려준다.
-- `erp_outstanding(partner_id, side)`, `erp_invoice_number_gaps()`(취소된 번호와 빠진 번호).
+- `erp_outstanding(partner_id, side)`, `erp_invoice_number_gaps()`(취소된 번호와 빠진 번호). 청구 모듈이 꺼져 있으면 `erp_aged` 와 함께 `ERP_MODULE_OFF` 다.
 - `erp_auto_reconcile(mode, partner_id)`: `same_amount` 는 금액이 같은 입금·대변 메모와 문서를 짝짓고, `all` 은 거래처의 크레딧을 오래된 문서부터 모두 쓴다.
 - `erp_preview('account_move', ...)`: 저장 없이 줄과 합계를 계산한다.
 
@@ -102,4 +151,8 @@
 
 `test/invoicing.test.mjs`. 판매·구매는 시험 안에서 만든 레코드와 이벤트로 흉내 낸다.
 
-외화는 환산하지 않는다. `currency` 는 표시용이고 금액은 회사 통화로 본다.
+외화는 환산하지 않는다. 회사 통화와 다른 `currency` 는 가격표·주문·구매·청구서·입금·분개장에서 `ERP_CURRENCY` 로 거부한다.
+
+## 기간 잠금
+
+회사 설정의 잠금일(`docs/modules/accounting.md`)을 따른다. 고객 문서는 판매 잠금일, 공급사 문서는 구매 잠금일, 세금이 있는 문서는 세금 잠금일도 함께 본다. 입금은 전체 잠금일만 본다. 대사와 맞물림은 금액을 움직이지 않으므로 막지 않는다.
