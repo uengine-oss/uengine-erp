@@ -221,6 +221,53 @@ language sql as $$
   insert into erp.hooks(kind, stream_type, fn) values (p_kind, p_stream_type, p_fn) on conflict do nothing
 $$;
 
+-- Derived totals (stock, general ledger) register here. An event changes them only through data.effects:
+-- {"<kind>": [{dimension: "...", measure: 1.5}, ...]}. Text values are dimensions, numbers are measures.
+-- Stating the change in the event is what makes time travel, rollback and rebuild generic.
+create table if not exists erp.effect_kinds (
+  kind text primary key,
+  apply_fn text not null,
+  reset_fn text
+);
+alter table erp.effect_kinds enable row level security;
+
+create table if not exists erp.derived_resets (reset_fn text primary key);
+alter table erp.derived_resets enable row level security;
+
+create or replace function erp.register_effect(p_kind text, p_apply_fn text, p_reset_fn text default null) returns void
+language sql as $$
+  insert into erp.effect_kinds(kind, apply_fn, reset_fn) values (p_kind, p_apply_fn, p_reset_fn)
+  on conflict (kind) do update set apply_fn = excluded.apply_fn, reset_fn = excluded.reset_fn
+$$;
+
+create or replace function erp.apply_effects(ev erp.events) returns void
+language plpgsql as $$
+declare k text; arr jsonb; row_ jsonb; fn text;
+begin
+  if not ev.data ? 'effects' then return; end if;
+  for k, arr in select * from jsonb_each(ev.data -> 'effects') loop
+    select apply_fn into fn from erp.effect_kinds where kind = k;
+    if fn is null then perform erp.fail('ERP_EFFECT', format('등록되지 않은 효과입니다: %s', k)); end if;
+    for row_ in select * from jsonb_array_elements(arr) loop
+      execute format('select %s($1, $2)', fn) using ev, row_;
+    end loop;
+  end loop;
+end $$;
+
+create or replace function erp.write_record(ev erp.events, after_state jsonb) returns void
+language sql as $$
+  insert into erp.records(id, type, version, name, status, active, deleted, state, created_at, updated_at, created_by, updated_by)
+  values (ev.stream_id, ev.stream_type, ev.version,
+          coalesce(after_state ->> 'number', after_state ->> 'name'),
+          after_state ->> 'state',
+          coalesce((after_state ->> 'active')::boolean, true),
+          coalesce((after_state ->> 'deleted')::boolean, false),
+          after_state, ev.occurred_at, ev.occurred_at, ev.actor_id, ev.actor_id)
+  on conflict (id) do update set
+    version = excluded.version, name = excluded.name, status = excluded.status, active = excluded.active,
+    deleted = excluded.deleted, state = excluded.state, updated_at = excluded.updated_at, updated_by = excluded.updated_by
+$$;
+
 create or replace function erp.emit(p_type text, p_id uuid, p_event text, p_data jsonb default '{}'::jsonb)
 returns jsonb language plpgsql as $$
 declare
@@ -253,20 +300,15 @@ begin
 
   after_state := erp.apply(before_state, ev.data);
 
-  insert into erp.records(id, type, version, name, status, active, deleted, state, created_at, updated_at, created_by, updated_by)
-  values (p_id, p_type, ev.version,
-          coalesce(after_state ->> 'number', after_state ->> 'name'),
-          after_state ->> 'state',
-          coalesce((after_state ->> 'active')::boolean, true),
-          coalesce((after_state ->> 'deleted')::boolean, false),
-          after_state, ts, ts, actor, actor)
-  on conflict (id) do update set
-    version = excluded.version, name = excluded.name, status = excluded.status, active = excluded.active,
-    deleted = excluded.deleted, state = excluded.state, updated_at = excluded.updated_at, updated_by = excluded.updated_by;
+  perform erp.write_record(ev, after_state);
 
   for h in select fn from erp.hooks where kind = 'project' and stream_type in (p_type, '*') loop
     execute format('select %s($1, $2, $3)', h.fn) using ev, before_state, after_state;
   end loop;
+  perform erp.apply_effects(ev);
+
+  -- A rollback restores other streams explicitly, so its own events must not trigger new work.
+  if current_setting('erp.no_react', true) = 'on' then return after_state; end if;
 
   prev_causation := current_setting('erp.causation_seq', true);
   perform set_config('erp.causation_seq', ev.seq::text, true);
@@ -563,6 +605,9 @@ declare
   r erp.records;
 begin
   if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '이 회사의 구성원이 아닙니다'); end if;
+  if exists (select 1 from erp.meta where key = 'maintenance') then
+    perform erp.fail('ERP_MAINTENANCE', '데이터를 다시 만드는 중입니다. 잠시 뒤 다시 시도하세요');
+  end if;
   roles_ := erp.command_roles(p_type, p_command);
   if not erp.has_role(roles_) then
     perform erp.fail('ERP_FORBIDDEN', format('권한이 없습니다 (필요: %s)', array_to_string(roles_, ', ')));
@@ -853,7 +898,7 @@ language sql stable security definer set search_path = erp, pg_temp as $$
 $$;
 
 select erp.catalog_put('{
-  "type": "company", "module": "settings", "sort": 900, "label": "회사", "label_en": "Company", "singleton": true,
+  "type": "company", "module": "settings", "sort": 900, "label": "회사", "label_en": "Company", "singleton": true, "revertible": false,
   "fields": [
     {"name": "name", "label": "회사명", "type": "text", "required": true, "list": true},
     {"name": "registration_no", "label": "사업자등록번호", "type": "text"},
@@ -871,7 +916,7 @@ select erp.catalog_put('{
 }'::jsonb);
 
 select erp.catalog_put('{
-  "type": "member", "module": "settings", "sort": 910, "label": "구성원", "label_en": "Member",
+  "type": "member", "module": "settings", "sort": 910, "label": "구성원", "label_en": "Member", "revertible": false,
   "fields": [
     {"name": "name", "label": "이름", "type": "text", "required": true, "list": true, "search": true},
     {"name": "email", "label": "이메일", "type": "text", "required": true, "list": true, "search": true},
