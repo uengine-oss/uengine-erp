@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+.env.*
+.DS_Store
+supabase/.temp/
+supabase/.branches/
+web/src/generated/
+test-results/
+playwright-report/
+*.log
+dist-sql/

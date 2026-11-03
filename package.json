@@ -1,0 +1,16 @@
+{
+  "name": "uengine-erp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Event-sourced open-source ERP that runs on GitHub Pages and your own free Supabase project",
+  "license": "MIT",
+  "scripts": {
+    "build:sql": "node scripts/build-sql.mjs",
+    "test": "node scripts/build-sql.mjs && node --test --test-concurrency=4 test/*.test.mjs",
+    "db:install": "node scripts/build-sql.mjs && node scripts/install-local.mjs"
+  },
+  "devDependencies": {
+    "pg": "^8.13.1"
+  }
+}
