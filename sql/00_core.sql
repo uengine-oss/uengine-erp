@@ -445,9 +445,10 @@ language sql stable security definer set search_path = erp, pg_temp as $$
   select exists (select 1 from erp.members where user_id = erp.current_actor() and active)
 $$;
 
+-- The role 'member' means anyone in the company: filing your own expense asks for no title, so the handler decides whose it is.
 create or replace function erp.has_role(p_roles text[]) returns boolean
 language sql stable security definer set search_path = erp, pg_temp as $$
-  select coalesce((select roles && (p_roles || array['admin']) from erp.members where user_id = erp.current_actor() and active), false)
+  select coalesce((select roles && (p_roles || array['admin']) or 'member' = any (p_roles) from erp.members where user_id = erp.current_actor() and active), false)
 $$;
 
 -- Types with read_roles in their catalog entry are visible only to those roles (and admin).

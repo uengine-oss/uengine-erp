@@ -1,13 +1,14 @@
 // Turns the made-up company into commands, day by day, with modules turned on as the growth scenario says.
+import { expenseSteps } from './backoffice.ts'
 import { peopleSteps } from './people.ts'
 import { PRODUCTS, REGIONS, dayOf, hex, isoOf, rng, runWorld, uuid } from './world.ts'
 
-export interface DemoStep { kind: 'cmd' | 'validate' | 'settle'; at: string; as?: string; type?: string; id?: string; command?: string; payload?: unknown; origin?: string }
-/** `hr` is optional: without it the story has no people module and is step for step what it was before there was one. */
-export interface DemoStages { inventory: string; purchase: string; invoicing: string; accounting: string; hr?: string; end: string }
-export const DEFAULT_STAGES: DemoStages = { inventory: '2025-01-01', purchase: '2025-07-01', invoicing: '2026-01-01', accounting: '2026-07-01', hr: '2026-08-01', end: '2026-11-01' }
+export interface DemoStep { kind: 'cmd' | 'validate' | 'settle'; at: string; as?: string; type?: string; id?: string; command?: string; payload?: unknown; origin?: string; reason?: string }
+/** `hr` and what follows it are optional: without them the story has no such module and is step for step what it was before there was one. `expense` needs `hr`. */
+export interface DemoStages { inventory: string; purchase: string; invoicing: string; accounting: string; hr?: string; expense?: string; end: string }
+export const DEFAULT_STAGES: DemoStages = { inventory: '2025-01-01', purchase: '2025-07-01', invoicing: '2026-01-01', accounting: '2026-07-01', hr: '2026-08-01', expense: '2026-08-03', end: '2026-11-01' }
 export const STARTED_AT = '2023-10-31T09:00:00+09:00'
-type Stage = Exclude<keyof DemoStages, 'hr'>
+type Stage = Exclude<keyof DemoStages, 'hr' | 'expense'>
 
 const PEOPLE = [
   { name: '박영업', role: 'sales', from: 0 },
@@ -31,6 +32,7 @@ export function* generate(seed = 1, stages: DemoStages = DEFAULT_STAGES, start =
   const on = (name: Stage, d: number) => d >= dayIn(name)
   // Worked out apart from everything below, with its own random stream.
   const staff = stages.hr ? peopleSteps(seed, dayOf(stages.hr), end) : new Map<number, DemoStep[]>()
+  const office = stages.hr && stages.expense ? expenseSteps(seed, dayOf(stages.expense), end) : new Map<number, DemoStep[]>()
 
   const pid = (p: number) => uuid(`product:${PRODUCTS[p].id}`)
   const wh = (g: number) => uuid(`warehouse:${g}`)
@@ -127,6 +129,7 @@ export function* generate(seed = 1, stages: DemoStages = DEFAULT_STAGES, start =
       for (let m = since; m < d; m++) if (isoOf(m + 1).endsWith('-01')) steps.push(opex(t, m))
     }
     steps.push(...(staff.get(d) ?? []))
+    steps.push(...(office.get(d) ?? []))
     if (d > dayIn('accounting') && isoOf(d + 1).endsWith('-01')) steps.push(opex(stamp(d, '18'), d))
     if (d === changeDay) for (const c of changers) steps.push(cmd(stamp(d, '08'), 'partner', customer(c), 'update', { payment_term_id: termOf(15) }))
 

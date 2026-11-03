@@ -152,6 +152,27 @@ function sortKeys(v) {
   return v
 }
 
+// A demo batch is one transaction, so the app sends it again after the known debugger glitch. That glitch sticks to a
+// connection, so each try gets a new one, as requests do from PostgREST's pool.
+export async function applyDemoBatch(k, batch) {
+  const { host, port, user, password, database } = k.db.client
+  for (let attempt = 0; ; attempt++) {
+    const client = new pg.Client({ host, port, user, password, database })
+    await client.connect()
+    try {
+      await client.query('begin')
+      await client.query('set local role authenticated')
+      await client.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: k.adminId, role: 'authenticated' })])
+      const r = (await client.query('select public.erp_demo_apply($1) r', [JSON.stringify(batch)])).rows[0].r
+      await client.query('commit')
+      return r
+    } catch (e) {
+      await client.query('rollback').catch(() => {})
+      if (!/pldbgapi2/.test(e.message) || attempt >= 5) throw e
+    } finally { await client.end() }
+  }
+}
+
 export async function rejects(promise, code) {
   try { await promise } catch (e) {
     if (!String(e.message).includes(code)) throw new Error(`expected ${code}, got: ${e.message}`)

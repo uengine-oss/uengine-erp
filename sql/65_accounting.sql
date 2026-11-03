@@ -13,7 +13,8 @@ select erp.module_put('{
   "not_rebuilt": "청구 모듈이 없던 기간에는 매출 전표를 만들 수 없습니다. 재고 전표만 과거로 올라가 손익이 어긋나지 않도록, 청구를 시작한 날을 고르고 그 전은 기초 잔액 전표로 넣으세요.",
   "subscribes": [{"name": "accounting.books", "handler": "erp.books_on_event", "replay": true, "since_option": "books_since",
     "events": ["InvoicePosted", "InvoiceResetToDraft", "InvoiceCancelled", "PaymentPosted", "PaymentCancelled",
-               "PickingValidated", "StockAdjusted", "StockScrapped", "BankLineBooked", "BankLineUnbooked"]}],
+               "PickingValidated", "StockAdjusted", "StockScrapped", "BankLineBooked", "BankLineUnbooked",
+               "ExpenseApproved", "ExpensePaid", "ExpenseCancelled"]}],
   "publishes": [{"event": "JournalEntryPosted", "fields": ["number", "date", "origin_type", "origin_id", "lines"]}]
 }'::jsonb);
 
@@ -477,6 +478,26 @@ begin
     erp.books_row(d ->> 'account_id', d ->> 'partner_id', d ->> 'name', -amount_)));
 end $$;
 
+-- Approval owes the person the money, payment settles it. Everything comes from the event, so turning this on late books the same.
+create or replace function erp.books_on_expense(ev erp.events) returns void
+language plpgsql as $$
+declare
+  d jsonb := ev.data;
+  amount_ numeric := erp.num(d -> 'amount');
+  label_ text := concat_ws(': ', d ->> 'employee_name', d ->> 'title');
+  owed text := erp.seed_id('미지급금')::text;
+begin
+  if ev.event_type = 'ExpenseApproved' then
+    perform erp.books_entry(ev, erp.seed_id('gl:' || ev.seq), erp.books_date(d ->> 'accounting_date', ev), d ->> 'number', null, jsonb_build_array(
+      erp.books_row(coalesce(d ->> 'account_id', erp.seed_id('잡비')::text), null, label_, amount_),
+      erp.books_row(owed, null, label_, -amount_)));
+  else
+    perform erp.books_entry(ev, erp.seed_id('gl:' || ev.seq), erp.books_date(d ->> 'paid_on', ev), d ->> 'number', null, jsonb_build_array(
+      erp.books_row(owed, null, label_, amount_),
+      erp.books_row(erp.seed_id(case when d ->> 'paid_from' = 'cash' then '현금' else '보통예금' end)::text, null, label_, -amount_)));
+  end if;
+end $$;
+
 create or replace function erp.books_on_event(ev erp.events) returns void
 language plpgsql as $$
 begin
@@ -485,7 +506,8 @@ begin
     when ev.event_type = 'BankLineBooked' then perform erp.books_on_bank_line(ev);
     when ev.event_type = 'BankLineUnbooked' then perform erp.books_withdraw(ev);
     when ev.event_type = 'PaymentPosted' then perform erp.books_on_payment(ev);
-    when ev.event_type in ('InvoiceResetToDraft', 'InvoiceCancelled', 'PaymentCancelled') then perform erp.books_withdraw(ev);
+    when ev.event_type in ('InvoiceResetToDraft', 'InvoiceCancelled', 'PaymentCancelled', 'ExpenseCancelled') then perform erp.books_withdraw(ev);
+    when ev.event_type in ('ExpenseApproved', 'ExpensePaid') then perform erp.books_on_expense(ev);
     when ev.event_type = 'PickingValidated' then perform erp.books_on_picking(ev);
     when ev.event_type in ('StockAdjusted', 'StockScrapped') then perform erp.books_on_stock_change(ev);
     else null;
@@ -795,16 +817,21 @@ end $$;
 ------------------------------------------------------------------------------------------------
 -- Master data seeds set account fields that belong to this module, and they run while every module is still
 -- off, which validation refuses. The module counts as on for that one step of company setup.
--- Goods received but not yet billed. Another account may already hold the usual code on an upgraded company.
+-- Goods received but not yet billed, and what claims book to. Another account may already hold the usual code on an upgraded company.
 create or replace function erp.books_seed_accounts() returns void
 language plpgsql as $$
 declare
-  code_ text := '147';
+  r record;
+  code_ text;
 begin
-  if not exists (select 1 from erp.records where id = erp.seed_id('미착품')) then
-    if exists (select 1 from erp.records r where r.type = 'account' and not r.deleted and r.state ->> 'code' = code_) then code_ := '1470'; end if;
-    perform erp.seed_put('account', '미착품', jsonb_build_object('code', code_, 'name', '미착품', 'account_type', 'asset_current'));
-  end if;
+  for r in select * from (values ('미착품', '147', 'asset_current'), ('미지급금', '253', 'liability_current'), ('복리후생비', '811', 'expense'), ('여비교통비', '812', 'expense'),
+      ('기업업무추진비', '813', 'expense'), ('통신비', '814', 'expense'), ('소모품비', '830', 'expense'), ('잡비', '848', 'expense')) t(name, code, kind) loop
+    if not exists (select 1 from erp.records where id = erp.seed_id(r.name)) then
+      code_ := r.code;
+      if exists (select 1 from erp.records a where a.type = 'account' and not a.deleted and a.state ->> 'code' = code_) then code_ := code_ || '0'; end if;
+      perform erp.seed_put('account', r.name, jsonb_build_object('code', code_, 'name', r.name, 'account_type', r.kind));
+    end if;
+  end loop;
 end $$;
 
 insert into erp.default_seeds(fn, sort) values ('erp.books_seed_accounts', 16)

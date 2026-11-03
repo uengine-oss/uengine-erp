@@ -429,7 +429,9 @@ async function runCommand(command: string, label: string, def: Pick<CommandDef, 
   }
 }
 
-const transitions = computed(() => (doc.value && !isNew.value && !timeTraveling.value ? visibleTransitions(doc.value, status.value) : []))
+const transitions = computed(() => (doc.value && !isNew.value && !timeTraveling.value
+  ? visibleTransitions(doc.value, status.value).filter((t) => screen.value?.commands?.[t.command]?.showIf?.(record.value) ?? true)
+  : []))
 const extraCommands = computed(() => (doc.value && !isNew.value && !timeTraveling.value ? visibleExtraCommands(doc.value) : []))
 const isActive = computed(() => record.value?.state?.active !== false)
 

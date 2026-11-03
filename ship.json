@@ -10,7 +10,8 @@
    "test/isolation.test.mjs",
    "test/models.test.mjs",
    "test/demo.test.mjs",
-   "test/hr.test.mjs"
+   "test/hr.test.mjs",
+   "test/expense.test.mjs"
   ],
   "e2e": [
    "test/api.e2e.mjs"
@@ -78,6 +79,10 @@
   {
    "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
    "id": "erp-hr"
+  },
+  {
+   "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
+   "id": "erp-expense"
   }
  ],
  "videos": [

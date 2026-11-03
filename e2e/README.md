@@ -330,6 +330,25 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | REST 와 MCP 는 카탈로그에서 저절로 나온다 | `hr.test.mjs` 3<br>`api.e2e.mjs` 1 | SQL, HTTP | ✅ |
 | 가상 회사에 직원이 더해져도 다른 수치는 그대로다 | `hr.test.mjs` 3 | SQL | ✅ |
 
+### 14. 경비 (spec `erp-expense`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 경비는 꺼진 채 시작하고 인사가 있어야 켠다 | `expense.test.mjs` 1<br>`expense.spec.mjs` 1<br>`isolation.test.mjs` 5 | SQL, 브라우저 | ✅ |
+| 신청은 본인이나 담당자가 하고 승인은 상사나 관리자가 한다 | `expense.test.mjs` 3<br>`expense.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 금액과 날짜의 경계가 지켜진다 | `expense.test.mjs` 4 | SQL | ✅ |
+| 신청에는 영수증이나 없는 사유가 있어야 한다 | `expense.test.mjs` 4<br>`expense.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 영수증은 관계된 사람만 열고 지우는 데 규칙이 있다 | `expense.test.mjs` 2<br>`expense.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 같은 날 같은 금액은 승인자에게 보인다 | `expense.test.mjs` 1 | SQL | ✅ |
+| 이벤트는 구독자에게 필요한 사실을 싣는다 | `expense.test.mjs` 1 | SQL | ✅ |
+| 회계가 켜져 있으면 전표가 생기고 나중에 켜도 같다 | `expense.test.mjs` 4<br>`expense.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 잠긴 기간은 승인, 지급, 취소를 막는다 | `expense.test.mjs` 1 | SQL | ✅ |
+| 지급한 경비는 되돌리지 않고 보상한다 | `expense.test.mjs` 4 | SQL | ✅ |
+| MCP 는 구성원의 권한만큼만 한다 | `expense.test.mjs` 1 | SQL | ✅ |
+| 부서별 경비 추이는 세 상태로 보이고 원장만 읽는다 | `expense.test.mjs` 1<br>`expense.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 경비 유형은 회계 담당자가 다룬다 | `expense.test.mjs` 1 | SQL | ✅ |
+| 가상 회사에 경비가 더해져도 판매와 재고 수치는 그대로다 | `expense.test.mjs` 2 | SQL | ✅ |
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |

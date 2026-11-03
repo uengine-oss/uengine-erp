@@ -6,6 +6,7 @@
 import type { Component } from 'vue'
 import type { AskOptions } from './lib/ui'
 import { cancelOrders, checkPickings, exportMoves, payMoves } from './lib/bulk'
+import { isAdmin, session } from './lib/session'
 import type { CatalogDoc, ErpRecord, Field, State } from './lib/types'
 
 type Loader = () => Promise<{ default: Component }>
@@ -17,6 +18,8 @@ export interface CommandRetry extends Partial<AskOptions> {
 }
 
 export interface CommandUi {
+  /** Shown only then. The database decides regardless: this just does not offer a button that would be refused. */
+  showIf?: (record: ErpRecord | null) => boolean
   /** Parameters people do not fill in: the screen supplies them, or only a refusal makes them matter. */
   hideParams?: string[]
   /** Parameters that depend on the document. */
@@ -107,6 +110,14 @@ async function lateOrders(rows: ErpRecord[]): Promise<Record<string, { label: st
 const BACKORDER_FIELD: Field = {
   name: 'backorder', label: '남은 수량', type: 'enum', required: true, default: 'true',
   options: [{ value: 'true', label: '새 전표로 남겨 두기' }, { value: 'false', label: '버리기' }],
+}
+
+// Whoever was asked to approve. Someone with a manager never sees it on their own claim, even an admin.
+const mayApproveExpense = (r: ErpRecord | null) => {
+  const me = session.me?.user_id
+  if (!r || !me) return false
+  if (r.state.approver_user_id) return me === r.state.approver_user_id || (isAdmin() && me !== r.state.employee_user_id)
+  return isAdmin()
 }
 
 export const NAV: NavModule[] = [
@@ -269,6 +280,20 @@ export const NAV: NavModule[] = [
       { type: 'employee', readonlyIn: ['left'], formPanel: loader('EmployeePrivatePanel'), advanced: ['department_since'] },
       { type: 'department' },
       { label: '인원 현황', route: '/hr/headcount', needs: 'employee' },
+    ],
+  },
+  {
+    key: 'expense', label: '경비', icon: 'expense',
+    screens: [
+      {
+        type: 'expense', formPanel: loader('ExpenseReceiptPanel'), readonlyIn: ['submitted', 'approved', 'paid', 'cancelled'],
+        hideFields: ['employee_name', 'department_name', 'possible_duplicates', 'receipt_count'],
+        advanced: ['note'],
+        views: { date: 'date', amount: 'amount', groups: ['department_name', 'employee_name'] },
+        commands: { approve: { showIf: mayApproveExpense }, refuse: { showIf: mayApproveExpense } },
+      },
+      { type: 'expense_category' },
+      { label: '부서별 추이', route: '/expense/trend', needs: 'expense' },
     ],
   },
   {

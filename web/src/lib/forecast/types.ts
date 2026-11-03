@@ -3,7 +3,7 @@
 export type ModelId =
   | 'stat_sales' | 'quote_conversion' | 'demand_sales' | 'demand_true' | 'stockout_risk'
   | 'whatif_policy' | 'whatif_realloc' | 'whatif_drop' | 'lead_time' | 'whatif_lead'
-  | 'reorder_plan' | 'cash_in' | 'whatif_terms' | 'pnl_outlook' | 'stat_headcount'
+  | 'reorder_plan' | 'cash_in' | 'whatif_terms' | 'pnl_outlook' | 'stat_headcount' | 'stat_expense'
 export type ModelKind = 'stat' | 'forecast' | 'whatif'
 export type ModelState = 'locked' | 'insufficient' | 'ready'
 

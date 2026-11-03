@@ -55,7 +55,7 @@ begin
     case s ->> 'kind'
       when 'cmd' then
         perform set_config('erp.event_actor', coalesce(who::text, ''), true);
-        perform public.erp_command(s ->> 'type', nullif(s ->> 'id', '')::uuid, s ->> 'command', erp.demo_resolve(coalesce(s -> 'payload', '{}'::jsonb)), null, null, 'demo');
+        perform public.erp_command(s ->> 'type', nullif(s ->> 'id', '')::uuid, s ->> 'command', erp.demo_resolve(coalesce(s -> 'payload', '{}'::jsonb)), null, s ->> 'reason', 'demo');
       when 'validate' then
         perform set_config('erp.event_actor', coalesce(who::text, ''), true);
         select id into pick from erp.records where type = 'picking' and not deleted and state ->> 'origin_id' = s ->> 'origin'

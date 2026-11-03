@@ -569,6 +569,33 @@ begin
       from m where m.first_ <= today);
 end $$;
 
+-- Approved claims by the month the money was spent and the department the person was in when it was approved. Every approval
+-- states both, so nothing here reads the module's records and a claim cancelled or undone since simply is not among them.
+create or replace function public.erp_expense_trend(p_from date, p_to date, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  asof timestamptz := coalesce(p_as_of, now());
+  undone uuid[] := public.erp_undone(asof);
+begin
+  if p_from is null or p_to is null or p_from > p_to then raise exception 'ERP_INVALID: 기간이 올바르지 않습니다'; end if;
+  return (
+    with ok as (
+      select distinct on (e.stream_id) e.data, (e.data ->> 'date')::date as day
+        from public.erp_events e
+       where e.event_type = 'ExpenseApproved' and e.occurred_at <= asof and not e.correlation_id = any (undone)
+         and not exists (select 1 from public.erp_events c where c.stream_id = e.stream_id and c.event_type = 'ExpenseCancelled' and c.occurred_at <= asof and not c.correlation_id = any (undone))
+       order by e.stream_id, e.seq desc
+    ), rows_ as (
+      select to_char(day, 'YYYY-MM') as period, data ->> 'department_id' as department_id, coalesce(data ->> 'department_name', '(부서 없음)') as department_name,
+             sum((data ->> 'amount')::numeric) as amount, count(*) as claims
+        from ok where day between p_from and p_to group by 1, 2, 3
+    )
+    select jsonb_build_object('from', p_from, 'to', p_to,
+      'rows', coalesce(jsonb_agg(jsonb_build_object('period', period, 'department_id', department_id, 'department_name', department_name, 'amount', amount, 'claims', claims) order by period, department_name), '[]'::jsonb),
+      'total', coalesce(sum(amount), 0), 'claims', coalesce(sum(claims), 0))
+      from rows_);
+end $$;
+
 -- Every model and its state. Thresholds come from experiments/whatif/results-thresholds.json and match web/src/lib/forecast/thresholds.ts.
 -- Modules on and off, and what counts as evidence, are all read from the ledger, using its indexes.
 create or replace function public.erp_models(p_as_of timestamptz default null) returns jsonb
@@ -578,7 +605,7 @@ declare
   asof timestamptz := coalesce(p_as_of, now());
   today date := ((asof at time zone tz) + interval '1 second')::date;
   spans jsonb := public.erp_module_spans(asof);
-  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계","hr":"인사"}';
+  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계","hr":"인사","expense":"경비"}';
   readable text[] := erp.readable_types();
   m record;
   missing text[];
@@ -597,6 +624,7 @@ declare
   term_changes int;
   gl_months int; gl_first date;
   first_hire date; people_months int := 0;
+  expense_months int := 0; expense_first date;
   span jsonb;
   a date; b date;
 begin
@@ -641,6 +669,9 @@ begin
     people_months := extract(year from age(today, first_hire))::int * 12 + extract(month from age(today, first_hire))::int;
   end if;
 
+  select count(distinct date_trunc('month', (e.data ->> 'date')::date)), min((e.data ->> 'date')::date) into expense_months, expense_first
+    from public.erp_events e where e.event_type = 'ExpenseApproved' and e.occurred_at <= asof;
+
   -- The drop what-if asks for stockouts. Counted only when stock history exists, because this one walks every stock change.
   stock_out_cases := 0;
   if stock_days > 0 then
@@ -663,7 +694,8 @@ begin
       ('cash_in', 'forecast', '입금 예측', array['invoicing'], true, array['account_move']),
       ('whatif_terms', 'whatif', '결제 조건 변경', array['invoicing'], true, array['account_move']),
       ('pnl_outlook', 'forecast', '손익 전망', array['sales', 'accounting'], false, array['sales_order', 'journal_entry']),
-      ('stat_headcount', 'stat', '인원 추이·입퇴사', array['hr'], false, array['employee'])
+      ('stat_headcount', 'stat', '인원 추이·입퇴사', array['hr'], false, array['employee']),
+      ('stat_expense', 'stat', '부서별 경비 추이', array['expense'], false, array['expense'])
     ) as t(id, kind, label, modules, needs_current, types)
   loop
     missing := '{}'; stale := '{}';
@@ -697,6 +729,7 @@ begin
         extra := jsonb_build_object('term_changes', term_changes, 'term_changes_need', 3);
       when 'pnl_outlook' then have := gl_months; need := 3; unit_ := '개월'; since_ := gl_first; msg := '전표';
       when 'stat_headcount' then have := people_months; need := 3; unit_ := '개월'; since_ := first_hire; msg := '인사 이력';
+      when 'stat_expense' then have := expense_months; need := 3; unit_ := '개월'; since_ := expense_first; msg := '승인 경비';
     end case;
 
     ok := have >= need;

@@ -56,6 +56,8 @@ const EXACT: Record<string, string> = {
   ScrapCreated: '폐기 작성', ScrapUpdated: '폐기 변경', ScrapDeleted: '폐기 삭제', ApiKeyCreated: '연동 키 만듦', ApiKeyRevoked: '연동 키 폐기', LotCreated: '로트 생성', PartnerUpdated: '연락처 변경',
   PaymentPosted: '결제 게시', PaymentCancelled: '결제 취소', PaymentAllocated: '결제 배분',
   EmployeeHired: '입사', EmployeeChanged: '직원 정보 변경', EmployeeLeft: '퇴사', EmployeePrivateChanged: '개인정보 변경', EmployeePrivateErased: '개인정보 지움',
+  ExpenseCreated: '경비 작성', ExpenseChanged: '경비 변경', ExpenseDeleted: '경비 삭제', ExpenseReceiptAttached: '영수증 첨부', ExpenseReceiptRemoved: '영수증 지움',
+  ExpenseSubmitted: '경비 신청', ExpenseApproved: '경비 승인', ExpenseRefused: '경비 반려', ExpensePaid: '경비 지급', ExpenseCancelled: '경비 취소',
   DepartmentCreated: '부서 생성', DepartmentChanged: '부서 변경', DepartmentArchived: '부서 보관', DepartmentUnarchived: '부서 보관 해제', DepartmentDeleted: '부서 삭제',
 }
 

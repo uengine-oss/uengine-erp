@@ -67,6 +67,7 @@ export const router = createRouter({
         { path: 'accounting/groups', name: 'account-groups', component: () => import('./screens/accounting/GroupsView.vue'), meta: { title: '계정 그룹 잔액' } },
         { path: 'accounting/opening', name: 'opening', component: () => import('./screens/accounting/OpeningView.vue'), meta: { title: '기초 잔액 입력' } },
         { path: 'hr/headcount', name: 'hr-headcount', component: () => import('./screens/hr/HeadcountView.vue'), meta: { title: '인원 현황' } },
+        { path: 'expense/trend', name: 'expense-trend', component: () => import('./screens/expense/TrendView.vue'), meta: { title: '부서별 경비 추이' } },
         { path: 'master/variants', name: 'variants', component: () => import('./screens/master/VariantsView.vue'), meta: { title: '전체 변형' } },
         { path: 'master/duplicates', name: 'duplicates', component: () => import('./screens/master/DuplicatesView.vue'), meta: { title: '중복 연락처' } },
         { path: 'print/:type/:id', name: 'print', component: () => import('./screens/print/PrintView.vue'), props: true, meta: { title: '출력' } },

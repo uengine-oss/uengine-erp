@@ -43,7 +43,7 @@ const GROUPS = [
 const grouped = computed(() => GROUPS.map((g) => ({ ...g, rows: models.value.filter((m) => m.kind === g.kind) })))
 const counts = computed(() => ['ready', 'insufficient', 'locked'].map((s) => ({ state: s, n: models.value.filter((m) => m.state === s).length })))
 
-const routeOf = (m: ModelRow) => (m.id === 'stat_sales' ? { name: 'stats' } : m.id === 'quote_conversion' ? { name: 'quotes' } : m.id === 'stat_headcount' ? { name: 'hr-headcount' } : { name: 'model', params: { id: m.id } })
+const routeOf = (m: ModelRow) => (m.id === 'stat_sales' ? { name: 'stats' } : m.id === 'quote_conversion' ? { name: 'quotes' } : m.id === 'stat_headcount' ? { name: 'hr-headcount' } : m.id === 'stat_expense' ? { name: 'expense-trend' } : { name: 'model', params: { id: m.id } })
 const percent = (m: ModelRow) => (m.evidence.need > 0 ? Math.min(100, Math.round((m.evidence.have / m.evidence.need) * 100)) : 0)
 </script>
 

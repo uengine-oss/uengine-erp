@@ -12,7 +12,7 @@ import SplitLayout from '../components/SplitLayout.vue'
 
 const route = useRoute()
 const router = useRouter()
-const NAMES: Record<string, string> = { inventory: '재고', purchase: '구매', invoicing: '청구', accounting: '회계', sales: '판매', hr: '인사' }
+const NAMES: Record<string, string> = { inventory: '재고', purchase: '구매', invoicing: '청구', accounting: '회계', sales: '판매', hr: '인사', expense: '경비', crm: 'CRM', project: '프로젝트' }
 
 const progress = ref<DemoProgress | null>(null)
 const running = ref(false)

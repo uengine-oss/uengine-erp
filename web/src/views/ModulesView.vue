@@ -48,6 +48,9 @@ function subsText(m: ModuleDoc): string {
   return subs.some((s) => s.pending) ? `${subs.length}개 · 처리 대기` : `${subs.length}개 · 정상`
 }
 
+const labelOf = (id: string) => bus.modules.find((x) => x.id === id)?.label ?? id
+const needsText = (m: ModuleDoc) => (m.requires ?? []).map(labelOf).join(', ')
+
 /** A date left empty means "do not reach back": sending it would read as a request to replay everything. */
 function filledOptions(values: State): State {
   const out: State = {}
@@ -142,6 +145,7 @@ async function afterChange() {
             <p v-if="m.description" class="dim card-text">{{ m.description }}</p>
             <dl class="kv small card-facts">
               <template v-if="m.enabled_at"><dt>{{ m.enabled ? '켠 날짜' : '처음 켠 날짜' }}</dt><dd data-testid="module-enabled-at">{{ fmtDay(m.enabled_at) }}</dd></template>
+              <template v-if="m.requires?.length"><dt>먼저 켤 모듈</dt><dd data-testid="module-requires">{{ needsText(m) }}</dd></template>
               <dt>구독</dt><dd data-testid="module-subs">{{ subsText(m) }}</dd>
             </dl>
             <p v-if="unlockText(m)" class="card-unlock" data-testid="module-unlocks"><Icon name="analytics" :size="13" /><span>{{ unlockText(m) }}</span></p>

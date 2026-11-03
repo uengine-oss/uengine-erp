@@ -158,6 +158,8 @@ export interface ModuleDoc {
   sort?: number
   /** Asked when the module is turned on for the first time, drawn like catalog fields. */
   options?: Field[]
+  /** Modules that must be on first. Turning one off under it is refused too. */
+  requires?: string[]
   /** Said out loud before turning on: what the past cannot give back (scenario M6). */
   not_rebuilt?: string
   enabled: boolean

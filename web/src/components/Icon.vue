@@ -6,6 +6,7 @@ const PATHS: Record<string, string> = {
   home: 'M3 11l9-7 9 7M5.5 9.5V20h13V9.5M10 20v-6h4v6',
   sales: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6',
   hr: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a7 7 0 0 1 14 0v1M16 3.5a4 4 0 0 1 0 7.5M22 21v-1a7 7 0 0 0-4-6.3',
+  expense: 'M4 7h16v12H4zM4 11h16M8 3h8v4H8zM7.5 15h4',
   purchase: 'M3 4h2.5l2.2 11h10.1l2-8H6.5M9.5 20h.01M17 20h.01',
   inventory: 'M3.5 8L12 3.5 20.5 8v8L12 20.5 3.5 16zM3.5 8L12 12.5 20.5 8M12 12.5v8',
   invoicing: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9.5 8l1.2 5 1.3-3.5 1.3 3.5 1.2-5M9 10.5h6',

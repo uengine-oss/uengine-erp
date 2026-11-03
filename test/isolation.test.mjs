@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { company, rejects } from './lib/harness.mjs'
 
-const FILES = { sales: '30_sales.sql', inventory: '40_inventory.sql', purchase: '50_purchase.sql', invoicing: ['60_invoicing.sql', '62_bank.sql'], accounting: '65_accounting.sql', hr: '67_hr.sql', analytics: '70_analytics.sql' }
+const FILES = { sales: '30_sales.sql', inventory: '40_inventory.sql', purchase: '50_purchase.sql', invoicing: ['60_invoicing.sql', '62_bank.sql'], accounting: '65_accounting.sql', hr: '67_hr.sql', expense: '67d_expense.sql', analytics: '70_analytics.sql' }
 const read = (f) => { try { return fs.readFileSync(new URL(`../sql/${f}`, import.meta.url), 'utf8') } catch { return null } }
 const stripComments = (s) => s.replace(/--.*$/gm, '')
 
@@ -41,7 +41,7 @@ for (const m of mods) {
 test('analysis reads the ledger, not any module table', () => {
   const a = mods.find((m) => m.id === 'analytics')
   if (!a) return
-  for (const t of ['erp.quants', 'erp.gl_lines', 'erp.employee_private', 'public.erp_employee_private']) assert.ok(!a.src.includes(t), t)
+  for (const t of ['erp.quants', 'erp.gl_lines', 'erp.employee_private', 'public.erp_employee_private', 'erp.expense_receipts', 'public.erp_expense_receipts']) assert.ok(!a.src.includes(t), t)
 })
 
 test('nobody else reads or writes the private table, and its module neither hears nor needs anyone', () => {
@@ -173,6 +173,56 @@ for (const on of [['hr'], ['hr', 'sales'], ['hr', 'sales', 'inventory', 'purchas
       assert.equal(models.find((m) => m.id === 'stat_headcount').state, 'ready')
       assert.equal(models.find((m) => m.id === 'demand_sales').state, has('sales') ? 'insufficient' : 'locked', 'a sales model answers as it did')
       if (!has('inventory')) assert.equal(models.find((m) => m.id === 'demand_true').state, 'locked')
+    } finally { await k.close() }
+  })
+}
+
+// The back office beside everything else, in companies that have it and companies that do not.
+const OFFICE_STREAMS = ['employee', 'employee_private', 'department', 'expense', 'expense_category']
+async function workInBackOffice(k) {
+  const d = await k.admin('department', null, 'create', { name: '영업' })
+  const boss = await k.addMember('상사', ['viewer'])
+  const staff = await k.addMember('직원', ['sales'])
+  const bossE = await k.admin('employee', null, 'create', { name: '상사', hire_date: '2024-01-01', department_id: d.id, member_id: boss.record })
+  await k.admin('employee', null, 'create', { name: '직원', hire_date: '2024-02-01', department_id: d.id, manager_id: bossE.id, member_id: staff.record })
+  const paid = await staff.cmd('expense', null, 'create', { title: '택시비', amount: 10000, no_receipt_reason: '시험' })
+  await staff.cmd('expense', paid.id, 'submit', {})
+  await boss.cmd('expense', paid.id, 'approve', {})
+  await k.admin('expense', paid.id, 'pay', {})
+  await k.settle()
+  return { paid }
+}
+for (const on of [['hr', 'expense'], ['hr', 'expense', 'sales'], ['hr', 'expense', 'accounting'], ['hr', 'expense', 'invoicing', 'accounting'], ['hr', 'expense', ...ALL]]) {
+  const has = (m) => on.includes(m)
+  test(`back office [${on.join(', ')}]: its work and the rest stay out of each other's way`, async () => {
+    const k = await company({ modules: on })
+    try {
+      const start = await counts(k)
+      await workInBackOffice(k)
+      const afterOffice = await counts(k)
+      const mayWrite = new Set([...OFFICE_STREAMS, 'member', ...(has('accounting') ? ['journal_entry'] : [])])
+      for (const [type, n] of Object.entries(afterOffice)) if (!mayWrite.has(type)) assert.equal(n, start[type], `back-office work wrote on ${type}`)
+      if (has('accounting')) {
+        const tb = (await k.db.asUser(k.adminId, 'select public.erp_trial_balance() r')).rows[0].r
+        const sum = (f) => tb.rows.reduce((a, r) => a + Number(r[f] ?? 0), 0)
+        assert.ok(sum('debit') > 0); assert.equal(sum('debit'), sum('credit'))
+      } else {
+        assert.equal(afterOffice.journal_entry ?? 0, 0, 'no books, no entries')
+      }
+      const partner = (await k.admin('partner', null, 'create', { name: '거래처' })).id
+      const p = await k.admin('product', null, 'create', { name: '제품', list_price: 1000, standard_price: 600 })
+      if (has('sales')) {
+        const o = await k.admin('sales_order', null, 'create', { partner_id: partner, lines: [{ variant_id: p.state.variants[0].id, qty: 3 }] })
+        await k.admin('sales_order', o.id, 'confirm', {})
+      }
+      await k.settle()
+      const end = await counts(k)
+      for (const type of OFFICE_STREAMS) assert.equal(end[type], afterOffice[type], `business work wrote on ${type}`)
+      assert.equal((await k.settle()).failing, 0)
+      assert.deepEqual(await k.verifyProjection(), [])
+      const models = (await k.db.asUser(k.adminId, 'select public.erp_models() r')).rows[0].r
+      assert.equal(models.find((m) => m.id === 'stat_expense').state, 'insufficient')
+      assert.equal(models.find((m) => m.id === 'demand_sales').state, has('sales') ? 'insufficient' : 'locked')
     } finally { await k.close() }
   })
 }

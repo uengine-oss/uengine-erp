@@ -104,6 +104,20 @@
 
 연락처, 생년월일, 계좌 같은 개인정보는 어떤 이벤트에도 없다. 원장은 지울 수 없기 때문이다. 필요한 모듈은 패턴을 따른다(`docs/modules/hr.md`). **이름과 입퇴사일은 원장에 남고 지워지지 않는다.**
 
+## 경비가 내는 것
+
+공통 사실: `number, employee_id, employee_name, department_id, department_name, category_id, category_name, account_id, date, title, amount`. 경비 ID 는 `ev.stream_id` 다. `date` 는 지출일이고 `account_id` 는 없을 수 있다. 부서는 그 일이 있을 때의 부서다.
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `ExpenseSubmitted` | 공통 사실 + `approver_id, approver_name, approver_user_id, receipt_count, no_receipt_reason, possible_duplicates` |
+| `ExpenseApproved` | 공통 사실 + `accounting_date, self_approved, approved_by_name, receipt_count` |
+| `ExpenseRefused` | 공통 사실. 사유는 이벤트의 `reason` 이다 |
+| `ExpensePaid` | 공통 사실 + `paid_on, paid_from(bank, cash), accounting_date` |
+| `ExpenseCancelled` | 공통 사실 + `was(취소 전 상태), accounting_date, paid_on`. 사유는 이벤트의 `reason` 이다 |
+| `ExpenseReceiptAttached` | `number, receipt_id, sha256, mime, size`. **파일 이름과 위치는 없다** |
+| `ExpenseReceiptRemoved` | `number, receipt_id` |
+
 ## 기초데이터가 내는 것
 
 | 이벤트 | `data` 의 사실 |
@@ -127,5 +141,7 @@
 | 구매 | `InvoiceDrafted`, `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled` | 청구 상태, `qty_billed` |
 | 회계 | `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled`, `PaymentPosted`, `PaymentCancelled`, `BankLineBooked`, `BankLineUnbooked` | 분개(처음부터 다시 읽는다) |
 | 회계 | `PickingValidated`, `StockAdjusted`, `StockScrapped` | 재고 평가 분개(처음부터 다시 읽는다) |
+| 회계 | `ExpenseApproved`, `ExpensePaid`, `ExpenseCancelled` | 경비 분개(처음부터 다시 읽는다) |
 | 인사 | 없음 | 아무 이벤트도 듣지 않는다 |
+| 경비 | 없음 | 아무 이벤트도 듣지 않는다. 직원은 명령을 처리하는 동안 `erp.peek` 로 읽는다 |
 | 분석 | 원장 전체 | 구독하지 않고 직접 읽는다 |

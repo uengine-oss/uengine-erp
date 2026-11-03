@@ -79,7 +79,15 @@ language sql stable as $$
    where r.id = p_id and r.type = p_type and not r.deleted and erp.module_on(c.module)
 $$;
 
--- {id, label, label_en, description, sort, default_on, options:[{name,label,type}],
+-- The same exception by a public field rather than an id: "the employee this account belongs to".
+create or replace function erp.peek_by(p_type text, p_match jsonb) returns jsonb
+language sql stable as $$
+  select r.state || jsonb_build_object('id', r.id) from erp.records r join erp.catalog c on c.type = r.type
+   where r.type = p_type and not r.deleted and r.state @> p_match and erp.module_on(c.module)
+   order by r.created_at desc, r.id limit 1
+$$;
+
+-- {id, label, label_en, description, sort, default_on, requires:[module ids], options:[{name,label,type}],
 --  subscribes:[{name, handler, events:[..], replay, since_option}], publishes:[{event, fields:[..]}]}
 create or replace function erp.module_put(p_doc jsonb) returns void
 language plpgsql as $$
@@ -138,6 +146,7 @@ declare
   opts jsonb;
   h record;
   first_time boolean;
+  blocking text;
 begin
   select * into m from erp.modules where id = mid for update;
   if not found then perform erp.fail('ERP_NOT_FOUND', format('알 수 없는 모듈입니다: %s', mid)); end if;
@@ -147,6 +156,13 @@ begin
   case p_command
     when 'enable' then
       if m.enabled then return stream; end if;
+      -- A module that says it cannot work without another is refused here, so it never has to ask whether that one is on.
+      select string_agg(coalesce(x.doc ->> 'label', r.id), ', ') into blocking
+        from jsonb_array_elements_text(coalesce(m.doc -> 'requires', '[]'::jsonb)) r(id) left join erp.modules x on x.id = r.id
+       where not coalesce(x.enabled, false);
+      if blocking is not null then
+        perform erp.fail('ERP_MODULE_OFF', format('%s 모듈을 켜려면 %s 모듈을 먼저 켜세요', m.doc ->> 'label', blocking));
+      end if;
       first_time := m.enabled_at is null;
       -- An empty ledger has no horizon; selecting into the record still gives it fields, all null.
       select * into h from erp.bus_horizon();
@@ -166,6 +182,10 @@ begin
         'enabled_at', erp.now(), 'options', opts)));
     when 'disable' then
       if not m.enabled then return stream; end if;
+      select string_agg(x.doc ->> 'label', ', ' order by x.id) into blocking from erp.modules x where x.enabled and (x.doc -> 'requires') ? mid;
+      if blocking is not null then
+        perform erp.fail('ERP_IN_USE', format('%s 모듈이 이 모듈을 씁니다. 먼저 끄세요', blocking));
+      end if;
       perform erp.emit('module', stream, 'ModuleDisabled', jsonb_build_object('set', jsonb_build_object('state', 'off', 'disabled_at', erp.now())));
     else
       perform erp.fail('ERP_COMMAND', format('모듈: 지원하지 않는 명령입니다 (%s)', p_command));
