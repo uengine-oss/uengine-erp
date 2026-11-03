@@ -343,7 +343,8 @@ begin
 end $$;
 
 -- Fills what a screen may leave out from the product, then computes amounts.
-create or replace function erp.inv_compute_line(p_move_type text, p_fiscal uuid, p_raw jsonb, p_row jsonb, p_is_new boolean) returns jsonb
+drop function if exists erp.inv_compute_line(text, uuid, jsonb, jsonb, boolean);
+create or replace function erp.inv_compute_line(p_move_type text, p_fiscal uuid, p_raw jsonb, p_row jsonb, p_is_new boolean, p_seen jsonb default null) returns jsonb
 language plpgsql as $$
 declare
   r jsonb := p_row;
@@ -351,6 +352,7 @@ declare
   vid uuid := nullif(r ->> 'variant_id', '')::uuid;
   v jsonb;
   map_fiscal boolean := false;
+  stale_taxes boolean := false;
 begin
   if not erp.inv_is_product_line(r) then
     return r || '{"qty": 0, "price_unit": 0, "discount": 0, "subtotal": 0, "tax_amount": 0, "total": 0, "tax_ids": [], "taxes": []}'::jsonb;
@@ -361,6 +363,13 @@ begin
   if vid is not null then
     v := erp.variant(vid);
     r := r || jsonb_build_object('variant_id', vid, 'product_id', v -> 'product_id');
+    -- What the last product brought with it goes when the product does. What differs from that, someone typed.
+    if p_seen is not null and p_seen ->> 'variant_id' is distinct from vid::text then
+      if r -> 'price_unit' is not distinct from p_seen -> 'price_unit' then r := r - 'price_unit'; end if;
+      if r ->> 'name' is not distinct from p_seen ->> 'name' then r := r - 'name'; end if;
+      if r ->> 'uom_id' is not distinct from p_seen ->> 'uom_id' then r := r - 'uom_id'; end if;
+      stale_taxes := coalesce(r -> 'tax_ids', '[]'::jsonb) = coalesce(nullif(p_seen -> 'tax_ids', 'null'::jsonb), '[]'::jsonb);
+    end if;
     if r ->> 'name' is null then
       r := r || jsonb_build_object('name', coalesce(v ->> case when side = 'out' then 'description_sale' else 'description_purchase' end, v ->> 'name', v ->> 'product_name'));
     end if;
@@ -370,7 +379,7 @@ begin
         erp.num(v -> case when side = 'out' then 'list_price' else 'standard_price' end)
         * erp.uom_factor((r ->> 'uom_id')::uuid, (v ->> 'uom_id')::uuid));
     end if;
-    if p_is_new and not coalesce(p_raw, '{}'::jsonb) ? 'tax_ids' then
+    if stale_taxes or (p_is_new and not coalesce(p_raw, '{}'::jsonb) ? 'tax_ids') then
       r := r || jsonb_build_object('tax_ids', coalesce(nullif(v -> case when side = 'out' then 'sale_tax_ids' else 'purchase_tax_ids' end, 'null'::jsonb), '[]'::jsonb));
       map_fiscal := true;
     end if;
@@ -393,13 +402,15 @@ language sql stable as $$
 $$;
 
 -- Computes a whole collection. An untouched row keeps its stored amounts, which may hold a settled rounding.
-create or replace function erp.inv_lines(p_move_type text, p_fiscal uuid, p_raw jsonb, p_old jsonb default '[]'::jsonb) returns jsonb
+drop function if exists erp.inv_lines(text, uuid, jsonb, jsonb);
+create or replace function erp.inv_lines(p_move_type text, p_fiscal uuid, p_raw jsonb, p_old jsonb default '[]'::jsonb, p_dry boolean default false) returns jsonb
 language plpgsql as $$
 declare
   cleaned jsonb := erp.clean_rows(erp.inv_lines_field(), coalesce(p_raw, '[]'::jsonb), p_old);
   r jsonb;
   raw jsonb;
   old jsonb;
+  seen jsonb;
   i int;
   out_ jsonb := '[]'::jsonb;
 begin
@@ -407,12 +418,17 @@ begin
     r := cleaned -> i;
     raw := p_raw -> i;
     select value into old from jsonb_array_elements(coalesce(p_old, '[]'::jsonb)) where value ->> 'id' = r ->> 'id' limit 1;
+    seen := erp.line_seen(raw, old);
     if r ->> 'sequence' is null then r := r || jsonb_build_object('sequence', (i + 1) * 10); end if;
-    if old is not null and old -> 'price_unit' = r -> 'price_unit' and old -> 'qty' = r -> 'qty'
-       and old -> 'discount' = r -> 'discount' and old -> 'tax_ids' = r -> 'tax_ids' then
+    -- A form previews a row someone has only just added. Only saving one asks for what it still lacks.
+    if p_dry and r ->> 'variant_id' is null and r ->> 'product_id' is null and coalesce(r ->> 'name', '') = '' and erp.inv_is_product_line(r) then
+      out_ := out_ || r;
+    elsif old is not null and old -> 'price_unit' = r -> 'price_unit' and old -> 'qty' = r -> 'qty'
+       and old -> 'discount' = r -> 'discount' and old -> 'tax_ids' = r -> 'tax_ids'
+       and old ->> 'variant_id' is not distinct from r ->> 'variant_id' and seen ->> 'variant_id' is not distinct from r ->> 'variant_id' then
       out_ := out_ || r;
     else
-      out_ := out_ || erp.inv_compute_line(p_move_type, p_fiscal, raw, r, old is null);
+      out_ := out_ || erp.inv_compute_line(p_move_type, p_fiscal, raw, r, old is null, seen);
     end if;
   end loop;
   return out_;
@@ -1730,11 +1746,12 @@ create or replace function erp.preview_account_move(p jsonb) returns jsonb
 language plpgsql as $$
 declare
   mt text := coalesce(p ->> 'move_type', 'out_invoice');
-  lines_ jsonb := erp.inv_lines(mt, nullif(p ->> 'fiscal_position_id', '')::uuid, coalesce(p -> 'lines', '[]'::jsonb));
+  cur jsonb := case when erp.is_uuid(p ->> 'id') then coalesce(erp.state_of((p ->> 'id')::uuid), '{}'::jsonb) else '{}'::jsonb end;
+  lines_ jsonb := erp.inv_lines(mt, nullif(p ->> 'fiscal_position_id', '')::uuid, coalesce(p -> 'lines', '[]'::jsonb), coalesce(cur -> 'lines', '[]'::jsonb), true);
   pct numeric := erp.tax_epd_pct(p ->> 'payment_term_id');
 begin
   if pct <> 0 then lines_ := erp.inv_epd_lines(lines_, pct); end if;
-  return p || jsonb_build_object('lines', lines_, 'amount_residual', erp.inv_totals(lines_) -> 'amount_total') || erp.inv_totals(lines_);
+  return p || jsonb_build_object('lines', erp.lines_with_echo(lines_), 'amount_residual', erp.inv_totals(lines_) -> 'amount_total') || erp.inv_totals(lines_);
 end $$;
 
 -- The amount the payment screen suggests: the next installment for one document, the whole of what is open for several.

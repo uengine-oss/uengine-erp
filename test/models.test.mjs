@@ -692,6 +692,12 @@ describe('Models on companies whose truth is known', () => {
     assert.equal(w.state, 'ready')
     assert.ok(Math.abs(w.result.scale - 6 / w.result.from_mean) < 1e-9)
     assert.equal(w.verdict.code, 'down')
+    assert.equal(w.verdict.good, true, 'fewer days out of stock is the welcome direction')
+    // Two companies built the same way differ only in their random ids, and each run draws by index.
+    const flip = (id) => id.replace(/[0-9a-f]/g, (c) => (15 - parseInt(c, 16)).toString(16))
+    const others = JSON.parse(JSON.stringify(panel.data).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, flip))
+    const again = whatIfLead(buildPanel(others), { to_days: 6, days: H, runs: 100 })
+    assert.deepEqual(again.result.delta, w.result.delta)
     const t = truthOf(world, obs, CUT, H, { leadScale: w.result.scale })
     assert.ok(t.dOut < 0)
     assert.ok(Math.abs(w.result.delta.stockout_days.p50 - t.dOut) / Math.abs(t.dOut) < 0.4, `${w.result.delta.stockout_days.p50} vs ${t.dOut}`)

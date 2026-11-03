@@ -56,7 +56,8 @@ function prepare(rows: InvoiceRow[], last: number): Inv[] {
     })
   }
   // Row order must not change a simulation.
-  return out.sort((a, b) => a.date - b.date || a.partner.localeCompare(b.partner) || a.amount - b.amount)
+  // Partner ids last: they differ between two companies built the same way, and partners are drawn in this order.
+  return out.sort((a, b) => a.date - b.date || a.amount - b.amount || a.term - b.term || a.partner.localeCompare(b.partner))
 }
 
 const shrink = (sum: number, n: number, prior: number, weight: number): number => (sum + weight * prior) / (n + weight)

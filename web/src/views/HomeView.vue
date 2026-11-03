@@ -4,14 +4,15 @@ import { db } from '../lib/conn'
 import { messageOf, rpc, toApiError } from '../lib/api'
 import { onDataChanged } from '../lib/commands'
 import { timeView } from '../lib/mode'
-import { catalogOf, session } from '../lib/session'
-import { eventLabel, sourceColor, sourceLabel } from '../lib/eventText'
+import { session } from '../lib/session'
+import { eventLabel, sourceColor, sourceLabel, typeLabel } from '../lib/eventText'
 import { fmtBytes, fmtDateTime } from '../lib/format'
-import { ensureNames, forgetName, refLabel } from '../lib/refs'
+import { ensureStreamNames, forgetName, streamLabel } from '../lib/refs'
 import { onLedgerEvent } from '../lib/realtime'
 import type { ErpEvent, Usage } from '../lib/types'
 import { resolveNav } from '../nav'
 import EmptyState from '../components/EmptyState.vue'
+import HomeAlerts from '../components/HomeAlerts.vue'
 import Icon from '../components/Icon.vue'
 
 const events = ref<ErpEvent[]>([])
@@ -26,7 +27,7 @@ async function load() {
     const { data, error: err, status } = await q.order('seq', { ascending: false }).limit(12)
     if (err) throw toApiError(err, status)
     const list = (data ?? []) as ErpEvent[]
-    await ensureNames(list.map((e) => e.stream_id))
+    await ensureStreamNames(list)
     events.value = list
     usage.value = await rpc<Usage>('erp_usage')
     error.value = ''
@@ -48,8 +49,7 @@ onLedgerEvent((ev) => {
 })
 onBeforeUnmount(() => clearTimeout(timer))
 
-const typeLabel = (t: string) => catalogOf(t)?.label ?? t
-const streamName = (e: ErpEvent) => (e.stream_type === 'company' ? typeLabel('company') : refLabel(e.stream_id))
+const streamName = (e: ErpEvent) => (e.stream_type === 'company' ? typeLabel('company') : streamLabel(e.stream_id))
 const percent = computed(() => (usage.value ? (usage.value.db_bytes / usage.value.limit_bytes) * 100 : 0))
 const shortcuts = computed(() => resolveNav(session.catalog).filter((m) => m.screens.length && m.key !== 'settings'))
 const openingHint = computed(() => shortcuts.value.length === 0)
@@ -84,6 +84,7 @@ const openingHint = computed(() => shortcuts.value.length === 0)
         </section>
 
         <div class="home-side">
+          <HomeAlerts />
           <section class="home-panel">
             <div class="home-panel-head"><h2>사용량</h2><router-link class="small" to="/settings/usage">자세히</router-link></div>
             <div v-if="usage" class="home-usage" data-testid="home-usage">
@@ -91,7 +92,7 @@ const openingHint = computed(() => shortcuts.value.length === 0)
                 <span>데이터베이스</span>
                 <span class="num">{{ fmtBytes(usage.db_bytes) }} / {{ fmtBytes(usage.limit_bytes) }}</span>
               </div>
-              <div class="meter" :class="{ warn: percent >= 80, bad: percent >= 95 }" role="progressbar" :aria-valuenow="Math.round(percent)" aria-valuemin="0" aria-valuemax="100"><i :style="{ width: `${Math.min(100, percent)}%` }"></i></div>
+              <div class="meter" :class="{ warn: usage.level === 'near', bad: usage.level === 'full' }" role="progressbar" :aria-valuenow="Math.round(percent)" aria-valuemin="0" aria-valuemax="100"><i :style="{ width: `${Math.min(100, percent)}%` }"></i></div>
               <dl class="kv small" style="margin: 8px 0 0">
                 <dt>이벤트</dt><dd class="num">{{ usage.events.toLocaleString('ko-KR') }}건</dd>
                 <dt>문서</dt><dd class="num">{{ usage.records.toLocaleString('ko-KR') }}건</dd>

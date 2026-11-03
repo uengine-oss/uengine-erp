@@ -56,7 +56,7 @@ function onKey(e: KeyboardEvent) {
       <form class="stack" style="gap: 0; min-height: 0" @submit.prevent="close(true)">
         <div class="dlg-head"><h2 id="dlg-title">{{ dialog.title }}</h2></div>
         <div class="dlg-body">
-          <p v-if="dialog.message">{{ dialog.message }}</p>
+          <p v-if="dialog.message" style="white-space: pre-line">{{ dialog.message }}</p>
           <p v-if="dialog.error" class="err-text" role="alert" style="margin-top: 6px">{{ dialog.error }}</p>
           <div v-for="f in dialog.fields ?? []" :key="f.name" class="field-stack">
             <label :for="`dlg-${f.name}`">{{ f.label }}<span v-if="f.required" class="req">*</span></label>

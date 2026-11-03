@@ -244,6 +244,8 @@ test('단종·납기·결제 조건도 같은 틀로 답하고, 납기와 대체
   await expect(page.getByTestId('whatif-result')).toBeVisible({ timeout: 40_000 })
   await expect(page.getByTestId('lead-means')).toContainText('→')
   await expect(measure(page, 'stockout_days')).toBeVisible()
+  const moved = await page.getByTestId('whatif-result').getAttribute('data-verdict')
+  if (moved !== 'indistinguishable') await expect(page.getByTestId('verdict'), '품절일은 줄어드는 쪽이 좋은 결과다').toHaveClass(moved === 'down' ? /verdict-good/ : /verdict-bad/)
   await shot(page, '177-whatif-lead')
 
   await openModel(page, 'whatif_terms')

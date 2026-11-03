@@ -173,7 +173,7 @@ watch(result, async (r) => {
           <Icon name="info" />
           <div><strong>효과를 구분할 수 없습니다</strong><p>80% 구간이 0을 포함합니다. 입금이 늘거나 준다고 말할 수 없습니다.</p></div>
         </div>
-        <div v-else-if="result?.verdict" class="verdict" :class="result.verdict.code === 'up' ? 'verdict-up' : 'verdict-down'" role="status" data-testid="verdict"><Icon :name="result.verdict.code === 'up' ? 'arrow-up' : 'arrow-down'" /><div><strong>{{ result.verdict.text }}</strong></div></div>
+        <div v-else-if="result?.verdict" class="verdict" :class="result.verdict.good ? 'verdict-good' : 'verdict-bad'" role="status" data-testid="verdict"><Icon :name="result.verdict.code === 'up' ? 'arrow-up' : 'arrow-down'" /><div><strong>{{ result.verdict.text }}</strong></div></div>
         <div class="tbl-wrap">
           <table class="tbl" data-testid="terms-table">
             <thead><tr><th>앞으로 {{ days }}일 입금</th><th class="num">P10</th><th class="num">P50</th><th class="num">P90</th><th style="min-width: 110px">80% 구간</th></tr></thead>
@@ -218,8 +218,8 @@ watch(result, async (r) => {
 .verdict p { margin-top: 2px; color: var(--text-2); }
 .verdict svg { margin-top: 3px; }
 .verdict-none { border-color: var(--line-strong); background: var(--ink-100); }
-.verdict-up { border-color: var(--green-line); background: var(--green-bg); color: var(--green-fg); }
-.verdict-down { border-color: var(--red-line); background: var(--red-bg); color: var(--red-fg); }
+.verdict-good { border-color: var(--green-line); background: var(--green-bg); color: var(--green-fg); }
+.verdict-bad { border-color: var(--red-line); background: var(--red-bg); color: var(--red-fg); }
 .tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
 .tbl-wrap .tbl th { position: static; }
 .strong { font-weight: 650; }

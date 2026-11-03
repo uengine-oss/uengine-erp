@@ -20,8 +20,11 @@ export interface Evidence {
 }
 
 export interface Verdict {
+  /** Which way the number moved. */
   code: 'up' | 'down' | 'indistinguishable'
   text: string
+  /** Whether that is welcome: fewer days out of stock is a good thing going down. Unknown when no effect can be told. */
+  good?: boolean
 }
 
 export interface ModelResult<R> {

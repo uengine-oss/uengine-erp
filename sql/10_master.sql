@@ -153,6 +153,24 @@ begin
   return out_;
 end $$;
 
+-- A form previews a row, keeps the answer and sends it back with the next edit, so a value the server filled in looks just
+-- like one a person typed. Each previewed row therefore carries the preview's own reading of itself: whatever still matches
+-- it was not typed. A row without one is judged against what is stored; a new row without one means what it says.
+create or replace function erp.line_echo(p_row jsonb) returns jsonb
+language sql immutable as $$
+  select jsonb_build_object('variant_id', p_row -> 'variant_id', 'qty', p_row -> 'qty', 'uom_id', p_row -> 'uom_id', 'price_unit', p_row -> 'price_unit',
+    'discount', p_row -> 'discount', 'tax_ids', p_row -> 'tax_ids', 'name', p_row -> 'name', 'date_planned', p_row -> 'date_planned', 'price_manual', p_row -> 'price_manual')
+$$;
+
+create or replace function erp.line_seen(p_raw jsonb, p_old jsonb) returns jsonb
+language sql immutable as $$ select coalesce(nullif(p_raw -> 'preview_echo', 'null'::jsonb), p_old) $$;
+
+create or replace function erp.lines_with_echo(p_rows jsonb) returns jsonb
+language sql immutable as $$
+  select coalesce(jsonb_agg(case when x ->> 'display_type' is null and x ->> 'variant_id' is not null or x ? 'price_unit' then x || jsonb_build_object('preview_echo', erp.line_echo(x)) else x end order by o), '[]'::jsonb)
+    from jsonb_array_elements(coalesce(p_rows, '[]'::jsonb)) with ordinality t(x, o)
+$$;
+
 create or replace function erp.clean_payload(p_type text, p_payload jsonb, p_current jsonb default '{}'::jsonb) returns jsonb
 language plpgsql as $$
 declare

@@ -31,7 +31,10 @@ export interface Panel {
 
 const REGION_NONE = ''
 
-export function buildPanel(data: LedgerData): Panel {
+const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
+
+export function buildPanel(raw: LedgerData): Panel {
+  let data = raw
   const asOf = toDay(data.asOf)
   const parse = new Map<string, number>()
   const dayOf = (iso: string): number => {
@@ -39,7 +42,8 @@ export function buildPanel(data: LedgerData): Panel {
     if (d === undefined) { d = toDay(iso); parse.set(iso, d) }
     return d
   }
-  // Everything is indexed in sorted order, so the same ledger gives the same answer however its rows arrived.
+  // Everything is indexed in the sorted order of what the rows say, so the same ledger gives the same answer however its
+  // rows arrived. Not by id: two companies built the same way get different random ids, and every run draws per index.
   const services = new Set<string>()
   const catalog = new Map<string, VariantInfo>()
   for (const x of data.variants) {
@@ -63,9 +67,20 @@ export function buildPanel(data: LedgerData): Panel {
     if (s[2]) wIds.add(s[2])
   }
   if (!rIds.size) rIds.add(REGION_NONE)
-  const V: VariantInfo[] = [...vIds].sort().map((id) => catalog.get(id) ?? { id, product_id: null, name: id, category_id: null, type: null, list_price: null, standard_price: null, active: true })
-  const R = [...rIds].sort(), W = [...wIds].sort()
+  const V: VariantInfo[] = [...vIds].map((id) => catalog.get(id) ?? { id, product_id: null, name: id, category_id: null, type: null, list_price: null, standard_price: null, active: true })
+    .sort((a, b) => cmp(a.name ?? '', b.name ?? '') || cmp(a.id, b.id))
+  const wName = new Map((data.warehouses ?? []).map((w) => [w.id, w.name]))
+  const R = [...rIds].sort(), W = [...wIds].sort((a, b) => cmp(wName.get(a) ?? '', wName.get(b) ?? '') || cmp(a, b))
   const vIndex = new Map(V.map((x, i) => [x.id, i])), rIndex = new Map(R.map((x, i) => [x, i])), wIndex = new Map(W.map((x, i) => [x, i]))
+  // Rows whose order reaches a model are put in that same order, with what they say about themselves as the tie-break.
+  const place = (v: string | null | undefined, w: string | null | undefined): string => `${String(vIndex.get(v ?? '') ?? 9e5).padStart(6, '0')}|${String(wIndex.get(w ?? '') ?? 9e5).padStart(6, '0')}`
+  const sorted = <T>(rows: T[] | undefined, key: (x: T) => string): T[] => [...(rows ?? [])].sort((a, b) => cmp(key(a), key(b)))
+  data = {
+    ...data,
+    purchases: sorted(data.purchases, (l) => `${l.ordered_on}|${place(l.variant_id, l.warehouse_id)}|${l.qty}|${l.received}|${l.first_received_on}|${l.planned_on}`),
+    receipts: sorted(data.receipts, (r) => `${r[0]}|${place(r[1], r[2])}|${r[3]}`),
+    rules: sorted(data.rules, (r) => `${place(r.variant_id, r.warehouse_id)}|${r.min_qty}|${r.max_qty}`),
+  }
   const vOf = (id: string): number => vIndex.get(id)!
   const rOf = (id: string | null): number => rIndex.get(id ?? REGION_NONE)!
   const wOf = (id: string): number => wIndex.get(id)!

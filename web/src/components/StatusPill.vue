@@ -6,7 +6,10 @@ import { stateOf } from '../lib/fields'
 const props = defineProps<{ doc: CatalogDoc; value: string | null | undefined }>()
 const def = computed(() => stateOf(props.doc, props.value))
 const COLORS = new Set(['gray', 'blue', 'green', 'amber', 'red', 'violet'])
-const color = computed(() => (def.value?.color && COLORS.has(def.value.color) ? def.value.color : 'gray'))
+const color = computed(() => {
+  const c = def.value?.color === 'orange' ? 'amber' : def.value?.color
+  return c && COLORS.has(c) ? c : 'gray'
+})
 </script>
 
 <template>

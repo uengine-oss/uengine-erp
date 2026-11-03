@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Recording a payment against an invoice, and the way back to the order behind it.
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { messageOf, rpc } from '../../lib/api'
 import { sendCommand } from '../../lib/commands'
 import { fmtDay } from '../../lib/format'
@@ -10,6 +11,7 @@ import type { ErpRecord, Field, State } from '../../lib/types'
 import { ask, toast } from '../../lib/ui'
 
 const props = defineProps<{ record: ErpRecord | null }>()
+const router = useRouter()
 
 const origin = computed(() => {
   const s = props.record?.state
@@ -30,6 +32,30 @@ const FIELDS: Field[] = [
   { name: 'journal', label: '입금 수단', type: 'enum', required: true, default: 'bank', options: [{ value: 'bank', label: '은행' }, { value: 'cash', label: '현금' }] },
   { name: 'memo', label: '메모', type: 'text' },
 ]
+
+const canCopy = computed(() => hasRole(['accounting']) && !writeBlock.value && props.record?.status === 'draft')
+
+// Starts over from an earlier document of the same kind: its partner, terms and lines come along.
+async function copyFromPast() {
+  let values: State = {}
+  let error = ''
+  for (;;) {
+    const answer = await ask({
+      title: '지난 문서에서 새 초안', message: '고른 문서의 거래처·조건·줄로 새 초안을 만듭니다. 이 초안은 그대로 남습니다.', error, values, confirmLabel: '만들기',
+      fields: [{ name: 'from_move', label: '지난 문서', type: 'ref', ref: 'account_move', required: true }],
+    })
+    if (!answer) return
+    values = answer.values
+    try {
+      const res = await sendCommand({ type: 'account_move', command: 'create', payload: { from_move: values.from_move } })
+      toast('새 초안을 만들었습니다.')
+      await router.push({ name: 'record', params: { type: 'account_move', id: res.id } })
+      return
+    } catch (e) {
+      error = messageOf(e)
+    }
+  }
+}
 
 async function pay() {
   if (!props.record) return
@@ -61,5 +87,7 @@ async function pay() {
   <span class="row-wrap" data-testid="doc-extras">
     <router-link v-if="origin" class="btn btn-sm btn-ghost" :to="{ name: 'record', params: { type: origin.type, id: origin.id } }" data-testid="invoice-origin">{{ origin.name }}</router-link>
     <button v-if="canPay" type="button" class="btn" data-testid="invoice-pay" @click="pay">{{ label }}</button>
+    <button v-if="canCopy" type="button" class="btn" data-testid="invoice-copy" @click="copyFromPast">지난 문서에서</button>
+    <router-link v-if="record" class="btn" :to="{ name: 'print', params: { type: 'account_move', id: record.id } }" data-testid="doc-print">출력</router-link>
   </span>
 </template>

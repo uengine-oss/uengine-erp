@@ -1,4 +1,20 @@
 // Korean labels for ledger events, from the contract in docs/domain.md. Display only.
+import { catalogOf } from './session'
+
+// The ledger keeps what modules wrote while they were on, and a module that is off takes its types out of the catalog.
+const TYPE_LABELS: Record<string, string> = {
+  company: '회사', member: '구성원', module: '모듈', api_key: '연동 키', lock_exception: '잠금 예외',
+  partner: '연락처', product: '제품', attribute: '제품 속성', product_category: '제품 분류', uom: '단위', tag: '태그', tax: '세금', fiscal_position: '세금 조정', payment_term: '결제 조건',
+  pricelist: '가격표', bank: '은행', partner_bank: '거래처 은행 계좌', saved_search: '저장한 검색', account: '계정과목', account_group: '계정 그룹', journal_entry: '전표',
+  warehouse: '창고', location: '위치', operation_type: '작업 유형', picking: '입출고 전표', stock_adjustment: '재고 조정', scrap: '폐기', lot: '로트·일련번호', reorder_rule: '재주문 규칙',
+  stock_replenishment: '보충 요청', stock_rfq_watch: '구매 초안 수량', sales_order: '견적·주문', quote_template: '견적 양식', purchase_order: '구매 주문',
+  account_move: '청구서', payment: '입금·지급', journal: '분개장', payment_method: '결제 수단', bank_statement: '은행 명세서', bank_line: '은행 거래',
+}
+
+/** A type's name for people, also when its module is off. A type nobody here has heard of is still a document. */
+export function typeLabel(type: string): string {
+  return catalogOf(type)?.label ?? TYPE_LABELS[type] ?? '문서'
+}
 const EXACT: Record<string, string> = {
   CompanyCreated: '회사 생성', CompanyUpdated: '회사 정보 변경',
   MemberAdded: '구성원 추가', MemberChanged: '구성원 변경', MemberDeactivated: '구성원 비활성화', MemberActivated: '구성원 활성화',

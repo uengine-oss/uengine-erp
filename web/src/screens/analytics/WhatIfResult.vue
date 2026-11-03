@@ -52,7 +52,7 @@ async function showPnl() {
       <Icon name="info" />
       <div><strong>효과를 구분할 수 없습니다</strong><p>80% 구간이 0을 포함합니다. 아래 숫자로 이득이나 손해를 말할 수 없습니다.</p></div>
     </div>
-    <div v-else-if="verdict" class="verdict" :class="verdict.code === 'up' ? 'verdict-up' : 'verdict-down'" role="status" data-testid="verdict">
+    <div v-else-if="verdict" class="verdict" :class="verdict.good ? 'verdict-good' : 'verdict-bad'" role="status" data-testid="verdict">
       <Icon :name="verdict.code === 'up' ? 'arrow-up' : 'arrow-down'" />
       <div><strong>{{ verdict.text }}</strong></div>
     </div>
@@ -106,8 +106,8 @@ async function showPnl() {
 .verdict p { margin-top: 2px; color: var(--text-2); }
 .verdict svg { margin-top: 3px; }
 .verdict-none { border-color: var(--line-strong); background: var(--ink-100); }
-.verdict-up { border-color: var(--green-line); background: var(--green-bg); color: var(--green-fg); }
-.verdict-down { border-color: var(--red-line); background: var(--red-bg); color: var(--red-fg); }
+.verdict-good { border-color: var(--green-line); background: var(--green-bg); color: var(--green-fg); }
+.verdict-bad { border-color: var(--red-line); background: var(--red-bg); color: var(--red-fg); }
 .tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
 .tbl-wrap .tbl th { position: static; }
 .strong { font-weight: 650; }

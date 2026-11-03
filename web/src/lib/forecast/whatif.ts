@@ -278,7 +278,7 @@ export function whatIfLead(p: Panel, input: { to_days?: number; scale?: number; 
   const res = comparePaired(ctx0, { leadScale: scaleBy }, input.runs ?? 300, input.seed ?? 99)
   const warnings = [...ctx0.warnings]
   replayWarnings(p, warnings)
-  return done('whatif_lead', 'whatif', input, { base: res.base, scenario: res.scenario, delta: res.delta, base_reliable: true, from_mean: mean, to_mean: mean * scale, scale }, ev, warnings, verdictOf(res.delta.stockout_days, '품절일', '품절일 변화'))
+  return done('whatif_lead', 'whatif', input, { base: res.base, scenario: res.scenario, delta: res.delta, base_reliable: true, from_mean: mean, to_mean: mean * scale, scale }, ev, warnings, verdictOf(res.delta.stockout_days, '품절일', '품절일 변화', true))
 }
 
 export interface ReorderRow {

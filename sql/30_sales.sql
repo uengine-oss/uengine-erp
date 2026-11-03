@@ -141,6 +141,9 @@ declare
   r jsonb := p_new;
   o jsonb := p_old;
   is_new boolean := p_old is null;
+  -- What this row last looked like to the server, saved or only previewed. Comparing with it tells typing from echo.
+  seen jsonb := erp.line_seen(p_raw, p_old);
+  fresh boolean := seen is null;
   fp uuid := (p_h ->> 'fiscal_position_id')::uuid;
   pl uuid := (p_h ->> 'pricelist_id')::uuid;
   vid uuid := (r ->> 'variant_id')::uuid;
@@ -155,9 +158,11 @@ declare
   price numeric;
   disc numeric;
   taxes jsonb;
-  manual boolean := coalesce((r ->> 'price_manual')::boolean, false);
+  manual boolean := coalesce((seen ->> 'price_manual')::boolean, (r ->> 'price_manual')::boolean, false);
   product_changed boolean;
+  product_stored boolean;
   uom_changed boolean;
+  uom_stored boolean;
   qty_changed boolean;
   user_price boolean;
   user_disc boolean;
@@ -206,8 +211,9 @@ begin
 
   v := erp.variant(vid);
   pid := (v ->> 'product_id')::uuid;
-  product_changed := is_new or (o ->> 'variant_id')::uuid is distinct from vid;
-  uom := case when p_raw ->> 'uom_id' is not null then (p_raw ->> 'uom_id')::uuid
+  product_changed := fresh or (seen ->> 'variant_id')::uuid is distinct from vid;
+  product_stored := is_new or (o ->> 'variant_id')::uuid is distinct from vid;
+  uom := case when p_raw ->> 'uom_id' is not null and (fresh or seen ->> 'uom_id' is distinct from p_raw ->> 'uom_id') then (p_raw ->> 'uom_id')::uuid
               when product_changed then (v ->> 'uom_id')::uuid
               else (r ->> 'uom_id')::uuid end;
   -- A quotation may hold a unit of another category until someone confirms it. On a confirmed order the line
@@ -215,10 +221,11 @@ begin
   same_unit := coalesce(p_h ->> 'state', 'draft') not in ('draft', 'sent') or erp.uom_same_category(uom, (v ->> 'uom_id')::uuid);
   factor := case when same_unit then erp.uom_factor(uom, (v ->> 'uom_id')::uuid) else 1 end;
   qty := erp.uom_line_qty(erp.num(r -> 'qty', 1), uom);
-  uom_changed := not is_new and (o ->> 'uom_id')::uuid is distinct from uom;
-  qty_changed := not is_new and erp.num(o -> 'qty') <> qty;
-  user_price := p_raw ? 'price_unit' and jsonb_typeof(p_raw -> 'price_unit') <> 'null' and (is_new or o -> 'price_unit' is distinct from r -> 'price_unit');
-  user_disc := p_raw ? 'discount' and jsonb_typeof(p_raw -> 'discount') <> 'null' and (is_new or o -> 'discount' is distinct from r -> 'discount');
+  uom_changed := not fresh and (seen ->> 'uom_id')::uuid is distinct from uom;
+  uom_stored := not is_new and (o ->> 'uom_id')::uuid is distinct from uom;
+  qty_changed := not fresh and erp.num(seen -> 'qty') <> qty;
+  user_price := p_raw ? 'price_unit' and jsonb_typeof(p_raw -> 'price_unit') <> 'null' and (fresh or erp.num(seen -> 'price_unit') is distinct from erp.num(p_raw -> 'price_unit'));
+  user_disc := p_raw ? 'discount' and jsonb_typeof(p_raw -> 'discount') <> 'null' and (fresh or erp.num(seen -> 'discount') is distinct from erp.num(p_raw -> 'discount'));
 
   nv := erp.sales_no_variant(v, r -> 'value_ids');
   if ci is not null then
@@ -238,7 +245,7 @@ begin
   elsif product_changed or uom_changed then
     manual := false;
   elsif qty_changed then
-    if manual or erp.num(o -> 'qty_invoiced') > 0 then price := erp.num(o -> 'price_unit'); end if;
+    if manual or erp.num(o -> 'qty_invoiced') > 0 then price := erp.num(seen -> 'price_unit'); end if;
   else
     price := erp.num(r -> 'price_unit');
   end if;
@@ -250,23 +257,24 @@ begin
     manual := false;
   end if;
 
-  taxes := case when p_raw ? 'tax_ids' and (is_new or o -> 'tax_ids' is distinct from r -> 'tax_ids') then coalesce(r -> 'tax_ids', '[]'::jsonb)
+  taxes := case when p_raw ? 'tax_ids' and (fresh or seen -> 'tax_ids' is distinct from r -> 'tax_ids') then coalesce(r -> 'tax_ids', '[]'::jsonb)
                 when product_changed then erp.tax_map(taxes, fp)
                 else coalesce(r -> 'tax_ids', '[]'::jsonb) end;
   tc := erp.tax_compute(price, qty, disc, taxes, null);
-  cost := case when product_changed or uom_changed then erp.num(v -> 'standard_price') * factor else erp.num(r -> 'cost') end;
+  -- Cost and lead time are the server's own and never come from a form, so they follow what is stored, not what was previewed.
+  cost := case when product_stored or uom_stored then erp.num(v -> 'standard_price') * factor else erp.num(r -> 'cost') end;
   if v ->> 'type' = 'combo' then cost := 0; end if;
 
   return r || jsonb_build_object(
     'product_id', pid, 'variant_id', vid, 'qty', qty, 'uom_id', uom, 'price_unit', price, 'discount', disc, 'tax_ids', taxes,
-    'name', case when p_raw ? 'name' and coalesce(r ->> 'name', '') <> '' and (is_new or r ->> 'name' is distinct from o ->> 'name') then r ->> 'name'
+    'name', case when p_raw ? 'name' and coalesce(r ->> 'name', '') <> '' and (fresh or r ->> 'name' is distinct from seen ->> 'name') then r ->> 'name'
                  when product_changed then (v ->> 'name') || coalesce(E'\n' || nullif(v ->> 'description_sale', ''), '') || (nv ->> 'words')
                  else r ->> 'name' end,
     'subtotal', tc -> 'subtotal', 'tax_amount', tc -> 'tax', 'total', tc -> 'total', 'cost', cost,
     'margin', erp.money(erp.num(tc -> 'subtotal') - cost * qty),
     'margin_percent', case when erp.num(tc -> 'subtotal') = 0 then 0
                            else round((erp.num(tc -> 'subtotal') - cost * qty) / erp.num(tc -> 'subtotal'), 6) end,
-    'lead_days', case when product_changed then erp.num(v -> 'customer_lead_days') else erp.num(r -> 'lead_days') end,
+    'lead_days', case when product_stored then erp.num(v -> 'customer_lead_days') else erp.num(r -> 'lead_days') end,
     'weight', qty * erp.num(v -> 'weight') * factor,
     'product_type', v ->> 'type', 'invoice_policy', coalesce(v ->> 'invoice_policy', 'order'),
     'price_manual', manual, 'is_downpayment', false);
@@ -370,13 +378,28 @@ declare
   rule jsonb;
   out_ jsonb := '[]'::jsonb;
   raw jsonb;
+  seen jsonb;
+  moved boolean;
 begin
   for r, raw in select a.v, b.v from jsonb_array_elements(erp.clean_rows(fdef, coalesce(p_rows, '[]'::jsonb), p_old)) with ordinality a(v, n)
                   join jsonb_array_elements(coalesce(p_rows, '[]'::jsonb)) with ordinality b(v, n) on a.n = b.n order by a.n loop
-    if r ->> 'variant_id' is null and r ->> 'product_id' is null then perform erp.fail('ERP_REQUIRED', '선택 제품에는 제품이 필요합니다'); end if;
+    if r ->> 'variant_id' is null and r ->> 'product_id' is null then
+      -- A form previews a row still being filled in; only saving one asks for a product.
+      if p_dry then out_ := out_ || r; continue; end if;
+      perform erp.fail('ERP_REQUIRED', '선택 제품에는 제품이 필요합니다');
+    end if;
     vid := coalesce((r ->> 'variant_id')::uuid, erp.sales_pick_variant((r ->> 'product_id')::uuid, r -> 'value_ids', p_dry));
     if vid is null then perform erp.fail('ERP_REQUIRED', '선택 제품에는 제품이 필요합니다'); end if;
     v := erp.variant(vid);
+    seen := erp.line_seen(raw, (select x from jsonb_array_elements(coalesce(p_old, '[]'::jsonb)) x where x ->> 'id' = r ->> 'id' limit 1));
+    moved := seen is not null and seen ->> 'variant_id' is distinct from vid::text;
+    -- What the last product brought with it goes when the product does. What differs from that, someone typed.
+    if moved then
+      if r -> 'price_unit' is not distinct from seen -> 'price_unit' then r := r - 'price_unit'; raw := raw - 'price_unit'; end if;
+      if r -> 'discount' is not distinct from seen -> 'discount' then r := r - 'discount'; raw := raw - 'discount'; end if;
+      if r ->> 'name' is not distinct from seen ->> 'name' then r := r - 'name'; end if;
+      if r ->> 'uom_id' is not distinct from seen ->> 'uom_id' then r := r - 'uom_id'; end if;
+    end if;
     r := r || jsonb_build_object('product_id', v -> 'product_id', 'variant_id', vid,
       'uom_id', case when r ->> 'uom_id' is null then v -> 'uom_id' else r -> 'uom_id' end);
     rule := erp.price_for((p_h ->> 'pricelist_id')::uuid, vid, erp.num(r -> 'qty', 1), erp.sales_order_day(p_h), (r ->> 'uom_id')::uuid);
@@ -1182,10 +1205,10 @@ begin
    where l ->> 'product_id' is not null
      and not exists (select 1 from jsonb_array_elements(fin -> 'lines') x where x ->> 'product_id' = o)
      and not exists (select 1 from jsonb_array_elements(coalesce(h -> 'optional_lines', '[]'::jsonb)) x where x ->> 'product_id' = o);
-  return h || (fin -> 'set') || jsonb_build_object('lines', fin -> 'lines', 'is_expired', erp.sales_is_expired(h), 'suggested_options', suggested,
+  return h || (fin -> 'set') || jsonb_build_object('lines', erp.lines_with_echo(fin -> 'lines'), 'is_expired', erp.sales_is_expired(h), 'suggested_options', suggested,
     'warnings', case when (h ->> 'commitment_date')::timestamptz < (fin -> 'set' ->> 'expected_date')::timestamptz
                      then jsonb_build_array(format('납품 희망일이 예상 납품일 %s 보다 빠릅니다', to_char((fin -> 'set' ->> 'expected_date')::timestamptz, 'YYYY-MM-DD'))) else '[]'::jsonb end,
-    'optional_lines', case when p ? 'optional_lines' then erp.sales_options(h, p -> 'optional_lines', cur -> 'optional_lines', true) else coalesce(cur -> 'optional_lines', '[]'::jsonb) end);
+    'optional_lines', erp.lines_with_echo(case when p ? 'optional_lines' then erp.sales_options(h, p -> 'optional_lines', cur -> 'optional_lines', true) else coalesce(cur -> 'optional_lines', '[]'::jsonb) end));
 end $$;
 
 ------------------------------------------------------------------------------------------------

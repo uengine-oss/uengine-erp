@@ -1,16 +1,27 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { messageOf } from '../lib/api'
+import { sendCommand } from '../lib/commands'
 import { db } from '../lib/conn'
 import { catalogOf } from '../lib/session'
 import { ensureNames, refLabel, refNames } from '../lib/refs'
 import { searchFilter, variantFilter } from '../lib/query'
-import { displayValue, listFields } from '../lib/fields'
+import { canCommand, displayValue, listFields } from '../lib/fields'
+import { toast } from '../lib/ui'
+import type { CommandResult } from '../lib/types'
 import Icon from './Icon.vue'
 
 const props = defineProps<{ modelValue: string | null | undefined; refType: string; disabled?: boolean; id?: string; invalid?: boolean; placeholder?: string; exclude?: string[]; ariaLabel?: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string | null]; picked: [] }>()
 
 interface Item { id: string; name: string; detail: string }
+
+// Types whose records a name alone can make, from the place they are being picked. A variant comes with its product.
+const MAKES: Record<string, { type: string; pick?: (r: CommandResult) => string }> = {
+  tag: { type: 'tag' },
+  product: { type: 'product' },
+  variant: { type: 'product', pick: (r) => r.state.variants?.[0]?.id ?? r.id },
+}
 
 const input = ref<HTMLInputElement | null>(null)
 const text = ref('')
@@ -29,6 +40,30 @@ let seq = 0
 const doc = computed(() => catalogOf(props.refType))
 const selectedName = computed(() => (props.modelValue ? refLabel(props.modelValue) : ''))
 const shown = computed(() => (focused.value ? text.value : selectedName.value))
+const making = ref(false)
+const canMake = computed(() => {
+  const made = MAKES[props.refType]
+  const typed = text.value.trim()
+  if (!made || !typed || loading.value || pending.value) return false
+  const doc = catalogOf(made.type)
+  return !!doc && canCommand(doc, 'create') && !items.value.some((it) => it.name === typed)
+})
+
+async function make() {
+  const made = MAKES[props.refType]
+  const name = text.value.trim()
+  if (!made || !name || making.value) return
+  making.value = true
+  try {
+    const res = await sendCommand({ type: made.type, command: 'create', payload: { name } })
+    choose({ id: made.pick ? made.pick(res) : res.id, name, detail: '' })
+    toast(`"${name}" 을(를) 새로 만들었습니다.`)
+  } catch (e) {
+    toast(messageOf(e), 'error')
+  } finally {
+    making.value = false
+  }
+}
 
 watch(() => props.modelValue, (v) => { if (v && !refNames.has(v)) void ensureNames([v]) }, { immediate: true })
 
@@ -150,7 +185,10 @@ function onKey(e: KeyboardEvent) {
     if (!open.value) return
     e.preventDefault()
     e.stopPropagation()
-    void settle().then((it) => { if (it) choose(it) })
+    void settle().then((it) => {
+      if (it) choose(it)
+      else if (canMake.value) void make()
+    })
   } else if (e.key === 'Tab') {
     // Tab accepts the highlighted match, the same as Enter, so entry flows from field to field.
     if (open.value && text.value.trim() && text.value !== selectedName.value) {
@@ -203,6 +241,7 @@ onBeforeUnmount(() => {
           <span class="ellipsis">{{ it.name }}</span><small v-if="it.detail">{{ it.detail }}</small>
         </div>
         <div v-if="!items.length" class="combo-empty">{{ loading ? '찾는 중…' : failed ? '목록을 불러오지 못했습니다' : '일치하는 항목이 없습니다' }}</div>
+        <div v-if="canMake" class="combo-item combo-make" role="option" aria-selected="false" data-testid="combo-make" @click="make"><span class="ellipsis">"{{ text.trim() }}" 새로 만들기</span></div>
       </div>
     </Teleport>
   </span>

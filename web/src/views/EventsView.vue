@@ -7,9 +7,9 @@ import { onDataChanged } from '../lib/commands'
 import { timeView, writeBlock } from '../lib/mode'
 import { openRollback } from '../lib/rollback'
 import { catalogOf, isAdmin, session } from '../lib/session'
-import { eventLabel, sourceColor, sourceLabel, SOURCES } from '../lib/eventText'
+import { eventLabel, sourceColor, sourceLabel, SOURCES, typeLabel } from '../lib/eventText'
 import { fmtDateTime } from '../lib/format'
-import { ensureNames, forgetName, refLabel } from '../lib/refs'
+import { ensureNames, ensureStreamNames, forgetName, refLabel, streamLabel } from '../lib/refs'
 import { onLedgerEvent } from '../lib/realtime'
 import type { ErpEvent, Usage } from '../lib/types'
 import ChainTree from '../components/ChainTree.vue'
@@ -63,7 +63,7 @@ async function load() {
     if (my !== seq) return
     if (err) throw toApiError(err, status)
     const list = (data ?? []) as ErpEvent[]
-    await ensureNames(list.map((e) => e.stream_id))
+    await ensureStreamNames(list)
     if (my !== seq) return
     rows.value = list
     total.value = count ?? 0
@@ -101,8 +101,7 @@ function clearFilters() {
   void router.replace({ query: {} })
 }
 const lastPage = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
-const typeLabel = (t: string) => catalogOf(t)?.label ?? t
-const streamName = (e: ErpEvent) => (e.stream_type === 'company' ? typeLabel('company') : refLabel(e.stream_id))
+const streamName = (e: ErpEvent) => (e.stream_type === 'company' ? typeLabel('company') : streamLabel(e.stream_id))
 
 /* Detail: raw data and the causal chain */
 const selected = ref<ErpEvent | null>(null)

@@ -233,8 +233,8 @@ onBeforeUnmount(() => clearTimeout(memberTimer))
             <h2>데이터베이스</h2>
             <span data-testid="usage-text">{{ fmtBytes(usage.db_bytes) }} / {{ fmtBytes(usage.limit_bytes) }} ({{ percent.toFixed(1) }}%)</span>
           </div>
-          <div class="meter" style="height: 12px; border-radius: 6px" :class="{ warn: percent >= 80, bad: percent >= 95 }" role="progressbar" :aria-valuenow="Math.round(percent)" aria-valuemin="0" aria-valuemax="100"><i :style="{ width: `${Math.min(100, percent)}%` }"></i></div>
-          <p v-if="percent >= 80" class="err-text small" style="margin-top: 6px">한도에 가까워지고 있습니다. 넘으면 무료 플랜 프로젝트는 읽기 전용이 될 수 있으니 백업을 받고 대시보드에서 플랜을 확인하세요.</p>
+          <div class="meter" style="height: 12px; border-radius: 6px" :class="{ warn: usage.level === 'near', bad: usage.level === 'full' }" role="progressbar" :aria-valuenow="Math.round(percent)" aria-valuemin="0" aria-valuemax="100"><i :style="{ width: `${Math.min(100, percent)}%` }"></i></div>
+          <p v-if="usage.level === 'near' || usage.level === 'full'" class="err-text small" style="margin-top: 6px" data-testid="usage-warning">{{ usage.level === 'full' ? '한도가 거의 찼습니다. 곧 쓰기가 막힐 수 있으니 지금 백업을 받고 대시보드에서 플랜을 확인하세요.' : '한도에 가까워지고 있습니다. 넘으면 무료 플랜 프로젝트는 읽기 전용이 될 수 있으니 백업을 받고 대시보드에서 플랜을 확인하세요.' }}</p>
           <dl class="kv" style="margin-top: 12px">
             <dt>이벤트</dt><dd>{{ usage.events.toLocaleString('ko-KR') }}건 · {{ fmtBytes(usage.events_bytes) }}</dd>
             <dt>문서(현재 상태)</dt><dd>{{ usage.records.toLocaleString('ko-KR') }}건 · {{ fmtBytes(usage.records_bytes) }}</dd>

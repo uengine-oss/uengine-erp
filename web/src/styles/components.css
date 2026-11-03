@@ -234,3 +234,26 @@ details > summary { cursor: pointer; color: var(--text-2); }
   .toasts { left: 16px; }
   .toast { max-width: none; }
 }
+
+/* Report screens */
+.stat-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.stat { display: block; padding: 8px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); color: inherit; }
+a.stat:hover { border-color: var(--ink-400); text-decoration: none; }
+.stat-label { display: block; font-size: 12px; color: var(--text-2); }
+.stat-value { display: block; font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.stat-bad .stat-value { color: var(--red-fg); }
+.stat-warn .stat-value { color: var(--amber-fg); }
+.report-pad { padding: 12px 16px 24px; }
+.report-section + .report-section { margin-top: 16px; }
+.report-section > h2 { margin-bottom: 6px; font-size: 13px; }
+.scroll-x { overflow-x: auto; }
+.neg { color: var(--red-fg); font-weight: 600; }
+.foot td { font-weight: 650; border-top: 1px solid var(--line-strong); }
+.tbl td.wrap { white-space: normal; max-width: none; }
+.field-inline { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 12px; white-space: nowrap; }
+.field-inline .input, .field-inline .select { width: 134px; }
+.combo-make { color: var(--navy-700); font-weight: 550; border-top: 1px solid var(--line); }
+.chip-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+@media (max-width: 720px) {
+  .field-inline .input, .field-inline .select { width: 120px; }
+}

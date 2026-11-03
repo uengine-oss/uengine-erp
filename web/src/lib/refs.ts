@@ -55,6 +55,28 @@ export function refLabel(id: unknown): string {
   return refNames.has(String(id)) ? '(표시할 수 없음)' : '…'
 }
 
+/**
+ * The document an event belongs to may be gone: undone, or deleted. The ledger still says what it was called, so a line
+ * about it can still name it. Only events this person may read are asked.
+ */
+const nameIn = (data: Record<string, any> | null | undefined): string | null => data?.number ?? data?.set?.number ?? data?.name ?? data?.set?.name ?? null
+export async function ensureStreamNames(events: { stream_id: string; data?: Record<string, any> | null }[]): Promise<void> {
+  await ensureNames(events.map((e) => e.stream_id))
+  const gone = [...new Set(events.map((e) => e.stream_id))].filter((id) => refNames.has(id) && !refNames.get(id))
+  if (!gone.length) return
+  const { data } = await db().from('erp_events').select('stream_id,data').in('stream_id', gone).order('seq').limit(500)
+  for (const row of data ?? []) {
+    const name = nameIn(row.data)
+    if (name && !refNames.get(row.stream_id)) refNames.set(row.stream_id, name)
+  }
+}
+
+/** A document's name on a line of the ledger, where having no name means it no longer exists or is not for this reader. */
+export function streamLabel(id: string): string {
+  const name = refNames.get(id)
+  return name || (refNames.has(id) ? '(지금은 없는 문서)' : '…')
+}
+
 export function forgetName(id: string): void {
   if (refNames.has(id)) stale.add(id)
   refStates.delete(id)

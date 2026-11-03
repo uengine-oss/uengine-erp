@@ -67,6 +67,8 @@ language plpgsql as $$
 declare
   r jsonb := coalesce(p_row, '{}'::jsonb);
   o jsonb := p_old;
+  seen jsonb := erp.line_seen(p_row, p_old);
+  moved boolean;
   vid uuid; v jsonb; uom uuid; qty_ numeric;
   on_date date := coalesce((p_doc ->> 'date_order')::timestamptz, erp.now())::date;
   partner uuid := (p_doc ->> 'partner_id')::uuid;
@@ -79,31 +81,40 @@ begin
   end if;
   vid := erp.po_resolve_variant(r, o);
   v := erp.variant(vid);
-  same_product := o ->> 'variant_id' = vid::text;
-  uom := coalesce((r ->> 'uom_id')::uuid, case when same_product then (o ->> 'uom_id')::uuid end, (v ->> 'purchase_uom_id')::uuid, (v ->> 'uom_id')::uuid);
+  same_product := seen ->> 'variant_id' = vid::text;
+  -- What the last product brought with it goes when the product does. What differs from that, someone typed.
+  moved := seen is not null and seen ->> 'variant_id' is distinct from vid::text;
+  if moved then
+    if r -> 'discount' is not distinct from seen -> 'discount' then r := r - 'discount'; end if;
+    if r -> 'tax_ids' is not distinct from seen -> 'tax_ids' then r := r - 'tax_ids'; end if;
+    if r ->> 'name' is not distinct from seen ->> 'name' then r := r - 'name'; end if;
+    if r ->> 'uom_id' is not distinct from seen ->> 'uom_id' then r := r - 'uom_id'; end if;
+    if r ->> 'date_planned' is not distinct from seen ->> 'date_planned' then r := r - 'date_planned'; end if;
+  end if;
+  uom := coalesce((r ->> 'uom_id')::uuid, case when same_product then (seen ->> 'uom_id')::uuid end, (v ->> 'purchase_uom_id')::uuid, (v ->> 'uom_id')::uuid);
   perform erp.uom_factor(uom, (v ->> 'uom_id')::uuid);
-  qty_ := erp.uom_line_qty(coalesce(erp.num(r -> 'qty', null), erp.num(o -> 'qty', null), 1), uom);
+  qty_ := erp.uom_line_qty(coalesce(erp.num(r -> 'qty', null), erp.num(seen -> 'qty', null), 1), uom);
   if qty_ < 0 then perform erp.fail('ERP_INVALID', '수량은 0 이상이어야 합니다'); end if;
   auto := erp.purchase_price(partner, v, qty_, uom, on_date);
-  manual := (r ? 'price_unit' and erp.num(r -> 'price_unit', null) is distinct from erp.num(o -> 'price_unit', null))
-            or (same_product and coalesce((o ->> 'price_manual')::boolean, false) and not coalesce((r ->> 'reprice')::boolean, false));
-  price := case when manual then coalesce(erp.num(r -> 'price_unit', null), erp.num(o -> 'price_unit')) else erp.num(auto -> 'price_unit') end;
-  disc := coalesce(erp.num(r -> 'discount', null), case when manual or (same_product and r ? 'discount') then erp.num(o -> 'discount', null) end, erp.num(auto -> 'discount'));
+  manual := (r ? 'price_unit' and erp.num(r -> 'price_unit', null) is distinct from erp.num(seen -> 'price_unit', null))
+            or (same_product and coalesce((seen ->> 'price_manual')::boolean, false) and not coalesce((r ->> 'reprice')::boolean, false));
+  price := case when manual then coalesce(erp.num(r -> 'price_unit', null), erp.num(seen -> 'price_unit')) else erp.num(auto -> 'price_unit') end;
+  disc := coalesce(erp.num(r -> 'discount', null), case when manual or (same_product and r ? 'discount') then erp.num(seen -> 'discount', null) end, erp.num(auto -> 'discount'));
   if disc < 0 or disc > 100 then perform erp.fail('ERP_INVALID', '할인은 0 에서 100 사이여야 합니다'); end if;
   if r ? 'tax_ids' then
     taxes := r -> 'tax_ids';
   elsif same_product and not p_retax then
-    taxes := coalesce(o -> 'tax_ids', '[]'::jsonb);
+    taxes := coalesce(seen -> 'tax_ids', '[]'::jsonb);
   else
     taxes := coalesce(v -> 'purchase_tax_ids', '[]'::jsonb);
     fp := (p_doc ->> 'fiscal_position_id')::uuid;
   end if;
   tc := erp.tax_compute(price, qty_, disc, taxes, fp);
-  when_ := coalesce(r ->> 'date_planned', case when same_product then o ->> 'date_planned' end,
+  when_ := coalesce(r ->> 'date_planned', case when same_product then seen ->> 'date_planned' end,
     (coalesce((p_doc ->> 'date_order')::timestamptz, erp.now()) + (auto ->> 'delay_days')::int * interval '1 day')::text);
   return jsonb_build_object(
     'id', coalesce(r ->> 'id', o ->> 'id', gen_random_uuid()::text), 'sequence', coalesce(r -> 'sequence', o -> 'sequence'), 'display_type', null,
-    'product_id', v ->> 'product_id', 'variant_id', vid, 'name', coalesce(r ->> 'name', case when same_product then o ->> 'name' end, v ->> 'description_purchase', v ->> 'name', v ->> 'product_name'),
+    'product_id', v ->> 'product_id', 'variant_id', vid, 'name', coalesce(r ->> 'name', case when same_product then seen ->> 'name' end, v ->> 'description_purchase', v ->> 'name', v ->> 'product_name'),
     'qty', qty_, 'uom_id', uom, 'price_unit', tc -> 'price_unit', 'discount', disc, 'tax_ids', tc -> 'tax_ids', 'taxes', tc -> 'taxes',
     'subtotal', tc -> 'subtotal', 'tax_amount', tc -> 'tax', 'total', tc -> 'total',
     'date_planned', when_, 'delay_days', (auto ->> 'delay_days')::int, 'vendor_code', auto -> 'vendor_code', 'price_manual', manual,
@@ -486,14 +497,21 @@ create or replace function erp.preview_purchase_order(p jsonb) returns jsonb
 language plpgsql as $$
 declare
   doc jsonb := coalesce(p, '{}'::jsonb) || jsonb_build_object('state', 'draft');
+  cur jsonb := case when erp.is_uuid(p ->> 'id') then coalesce(erp.state_of((p ->> 'id')::uuid), '{}'::jsonb) else '{}'::jsonb end;
   rows_ jsonb := '[]'::jsonb;
-  r jsonb; fin jsonb;
+  r jsonb; o jsonb; fin jsonb;
 begin
   for r in select value from jsonb_array_elements(coalesce(p -> 'lines', '[]'::jsonb)) loop
-    rows_ := rows_ || erp.po_line(r, null, doc, true);
+    -- A row someone has only just added: nothing to work out until it names a product. Only saving one asks for it.
+    if r ->> 'display_type' is null and r ->> 'variant_id' is null and r ->> 'product_id' is null then
+      rows_ := rows_ || (r || jsonb_build_object('subtotal', 0, 'tax_amount', 0, 'total', 0));
+      continue;
+    end if;
+    select value into o from jsonb_array_elements(coalesce(cur -> 'lines', '[]'::jsonb)) where value ->> 'id' = r ->> 'id' limit 1;
+    rows_ := rows_ || erp.po_line(r, o, doc, o is null);
   end loop;
   fin := erp.po_finish(doc, rows_);
-  return p || (fin -> 'set') || jsonb_build_object('lines', fin -> 'lines');
+  return p || (fin -> 'set') || jsonb_build_object('lines', erp.lines_with_echo(fin -> 'lines'));
 end $$;
 
 ------------------------------------------------------------------------------------------------

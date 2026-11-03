@@ -9,10 +9,11 @@ import { timeView } from '../../lib/mode'
 import { onLedgerEvent } from '../../lib/realtime'
 import { ensureNames, refLabel } from '../../lib/refs'
 import { catalogOf, hasRole } from '../../lib/session'
+import { canAdjustStock as canEdit, editOnHand } from '../../lib/stockActions'
 import EmptyState from '../../components/EmptyState.vue'
 import Icon from '../../components/Icon.vue'
 
-interface Row { variant_id: string; location_id: string | null; warehouse_id: string | null; lot_id: string | null; on_hand: number; reserved: number; available: number; incoming: number; outgoing: number; forecast: number; unit_cost: number; value: number }
+interface Row { variant_id: string; product_id: string | null; category_id: string | null; location_id: string | null; warehouse_id: string | null; lot_id: string | null; on_hand: number; reserved: number; available: number; incoming: number; outgoing: number; forecast: number; unit_cost: number; value: number }
 interface PastRow { variant_id: string; warehouse_id: string | null; qty: number }
 
 const rows = ref<Row[]>([])
@@ -21,6 +22,7 @@ const loading = ref(true)
 const error = ref('')
 const search = ref('')
 const warehouse = ref('')
+const category = ref('')
 let seq = 0
 
 async function load() {
@@ -38,7 +40,7 @@ async function load() {
       const { data, error: err } = await db().from('erp_stock').select('*').limit(2000)
       if (err) throw err
       const list = (data ?? []) as Row[]
-      await ensureNames(list.flatMap((r) => [r.variant_id, r.location_id, r.warehouse_id, r.lot_id]))
+      await ensureNames(list.flatMap((r) => [r.variant_id, r.location_id, r.warehouse_id, r.lot_id, r.category_id]))
       if (my === seq) { rows.value = list; past.value = [] }
     }
   } catch (e) {
@@ -53,11 +55,13 @@ let timer: ReturnType<typeof setTimeout> | undefined
 onLedgerEvent((ev) => { if (['picking', 'stock_adjustment', 'scrap'].includes(ev.stream_type)) { clearTimeout(timer); timer = setTimeout(load, 500) } })
 
 const warehouses = computed(() => [...new Set([...rows.value, ...past.value].map((r) => r.warehouse_id).filter((x): x is string => !!x))])
+const categories = computed(() => [...new Set(rows.value.map((r) => r.category_id).filter((x): x is string => !!x))])
 const text = computed(() => search.value.trim().toLowerCase())
-const hit = (r: { variant_id: string; warehouse_id: string | null }) => (!warehouse.value || r.warehouse_id === warehouse.value) && (!text.value || refLabel(r.variant_id).toLowerCase().includes(text.value))
+const hit = (r: { variant_id: string; warehouse_id: string | null; category_id?: string | null }) => (!warehouse.value || r.warehouse_id === warehouse.value) && (!category.value || r.category_id === category.value) && (!text.value || refLabel(r.variant_id).toLowerCase().includes(text.value))
 const shown = computed(() => rows.value.filter(hit).sort((a, b) => refLabel(a.variant_id).localeCompare(refLabel(b.variant_id), 'ko')))
 const shownPast = computed(() => past.value.filter(hit).sort((a, b) => refLabel(a.variant_id).localeCompare(refLabel(b.variant_id), 'ko')))
 const totalValue = computed(() => shown.value.reduce((a, r) => a + Number(r.value ?? 0), 0))
+async function editRow(r: Row) { if (await editOnHand({ variantId: r.variant_id, locationId: r.location_id, lotId: r.lot_id, current: r.on_hand })) await load() }
 const canAdjust = computed(() => !!catalogOf('stock_adjustment') && hasRole(catalogOf('stock_adjustment')?.write_roles) && !timeView.at)
 </script>
 
@@ -71,13 +75,14 @@ const canAdjust = computed(() => !!catalogOf('stock_adjustment') && hasRole(cata
     <div class="toolbar">
       <label class="search"><Icon name="search" :size="13" /><span class="sr-only">제품 검색</span><input v-model="search" class="input" type="search" placeholder="제품 검색" data-testid="stock-search" /></label>
       <select v-model="warehouse" class="select" style="width: 160px" aria-label="창고" data-testid="stock-warehouse"><option value="">모든 창고</option><option v-for="w in warehouses" :key="w" :value="w">{{ refLabel(w) }}</option></select>
+      <select v-if="!timeView.at" v-model="category" class="select" style="width: 160px" aria-label="제품 분류" data-testid="stock-category"><option value="">모든 분류</option><option v-for="c in categories" :key="c" :value="c">{{ refLabel(c) }}</option></select>
     </div>
     <div v-if="error" class="banner banner-error banner-flush" role="alert" data-testid="stock-error"><Icon name="alert" /><span class="grow">{{ error }}</span><button type="button" class="btn btn-sm" @click="load">다시 시도</button></div>
     <div class="page-body" style="background: var(--surface)">
       <p v-if="timeView.at" class="small dim note" data-testid="stock-past-note">{{ timeView.date }} 까지의 입출고를 더한 수량입니다. 그때의 예약과 금액은 이 화면에 없습니다.</p>
       <table v-if="timeView.at ? shownPast.length : shown.length" class="tbl" data-testid="stock-table">
         <thead v-if="timeView.at"><tr><th>제품</th><th>창고</th><th class="num">수량</th></tr></thead>
-        <thead v-else><tr><th>제품</th><th>위치</th><th>로트</th><th class="num">재고</th><th class="num">예약</th><th class="num">가용</th><th class="num">입고 예정</th><th class="num">출고 예정</th><th class="num">예측</th><th class="num">단가</th><th class="num">금액</th><th v-if="canAdjust"></th></tr></thead>
+        <thead v-else><tr><th>제품</th><th>위치</th><th>로트</th><th class="num">재고</th><th class="num">예약</th><th class="num">가용</th><th class="num">입고 예정</th><th class="num">출고 예정</th><th class="num">예측</th><th class="num">단가</th><th class="num">금액</th><th>바로 가기</th><th v-if="canAdjust"></th></tr></thead>
         <tbody v-if="timeView.at">
           <tr v-for="r in shownPast" :key="`${r.variant_id}|${r.warehouse_id}`" data-testid="stock-row"><td>{{ refLabel(r.variant_id) }}</td><td>{{ r.warehouse_id ? refLabel(r.warehouse_id) : '-' }}</td><td class="num">{{ fmtNumber(r.qty) }}</td></tr>
         </tbody>
@@ -85,7 +90,13 @@ const canAdjust = computed(() => !!catalogOf('stock_adjustment') && hasRole(cata
           <tr v-for="r in shown" :key="`${r.variant_id}|${r.location_id}|${r.lot_id}`" data-testid="stock-row" :data-variant="r.variant_id">
             <td>{{ refLabel(r.variant_id) }}</td><td>{{ r.location_id ? refLabel(r.location_id) : '-' }}</td><td>{{ r.lot_id ? refLabel(r.lot_id) : '' }}</td>
             <td class="num" :class="{ neg: r.on_hand < 0 }" data-testid="stock-on-hand">{{ fmtNumber(r.on_hand) }}</td><td class="num">{{ fmtNumber(r.reserved) }}</td><td class="num">{{ fmtNumber(r.available) }}</td><td class="num">{{ fmtNumber(r.incoming) }}</td><td class="num">{{ fmtNumber(r.outgoing) }}</td><td class="num" :class="{ neg: r.forecast < 0 }">{{ fmtNumber(r.forecast) }}</td><td class="num">{{ fmtMoney(r.unit_cost) }}</td><td class="num">{{ fmtMoney(r.value) }}</td>
-            <td v-if="canAdjust" class="num"><router-link class="btn btn-sm" :to="{ name: 'new', params: { type: 'stock_adjustment' }, query: { variant_id: r.variant_id, location_id: r.location_id } }" data-testid="stock-adjust">조정</router-link></td>
+            <td class="links">
+              <router-link :to="{ name: 'stock-moves', query: { variant: r.variant_id } }" data-testid="stock-link-moves">이력</router-link>
+              <router-link :to="{ name: 'stock-forecast', params: { variant: r.variant_id } }" data-testid="stock-link-forecast">예측</router-link>
+              <router-link v-if="catalogOf('reorder_rule')" :to="{ name: 'list', params: { type: 'reorder_rule' }, query: { 'eq.variant_id': r.variant_id } }" data-testid="stock-link-rules">재주문</router-link>
+              <router-link v-if="r.location_id" :to="{ name: 'record', params: { type: 'location', id: r.location_id } }" data-testid="stock-link-location">위치</router-link>
+            </td>
+            <td v-if="canAdjust" class="num"><button v-if="canEdit()" type="button" class="btn btn-sm" data-testid="stock-edit" @click="editRow(r)">수량 수정</button> <router-link class="btn btn-sm" :to="{ name: 'new', params: { type: 'stock_adjustment' }, query: { variant_id: r.variant_id, location_id: r.location_id } }" data-testid="stock-adjust">조정</router-link></td>
           </tr>
         </tbody>
       </table>
@@ -98,5 +109,5 @@ const canAdjust = computed(() => !!catalogOf('stock_adjustment') && hasRole(cata
 
 <style scoped>
 .note { padding: 6px 16px; border-bottom: 1px solid var(--line); }
-.neg { color: var(--red-fg); font-weight: 600; }
+.links a { margin-right: 6px; }
 </style>

@@ -178,3 +178,8 @@ export function inviteLink(c: Conn): string {
   const base = `${location.origin}${location.pathname}`
   return `${base}#/connect?u=${encodeURIComponent(c.url)}&k=${encodeURIComponent(c.key)}`
 }
+
+/** What a customer opens. They have no account and no connection saved, so the link carries the public address and key. */
+export function portalLink(c: Conn, token: string): string {
+  return `${location.origin}${location.pathname}#/portal/${encodeURIComponent(token)}?u=${encodeURIComponent(c.url)}&k=${encodeURIComponent(c.key)}`
+}

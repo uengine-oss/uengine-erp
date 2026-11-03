@@ -129,6 +129,8 @@ export interface CommandResult {
 export interface Usage {
   db_bytes: number
   limit_bytes: number
+  /** The database's own reading of how full it is. */
+  level?: 'ok' | 'near' | 'full'
   events: number
   records: number
   events_bytes: number

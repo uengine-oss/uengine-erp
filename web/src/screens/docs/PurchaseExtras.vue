@@ -13,6 +13,10 @@ const router = useRouter()
 
 const canBill = computed(() => !!catalogOf('account_move') && hasRole(['accounting']) && !writeBlock.value && props.record?.status === 'purchase')
 
+// A receipt slip comes from the order through events; the order keeps what it heard about each one.
+const receipts = computed<{ id: string; number: string }[]>(() => (catalogOf('picking') ? Object.entries(props.record?.state.pickings ?? {}).map(([id, p]) => ({ id, number: (p as { number?: string }).number ?? '입고 전표' })) : []))
+const canShop = computed(() => hasRole(['purchase']) && !writeBlock.value && ['draft', 'sent'].includes(String(props.record?.status)))
+
 async function bill() {
   if (!props.record) return
   try {
@@ -26,5 +30,10 @@ async function bill() {
 </script>
 
 <template>
-  <button v-if="canBill" type="button" class="btn" data-testid="po-make-bill" @click="bill">공급사 청구서 만들기</button>
+  <span class="row-wrap" data-testid="doc-extras">
+    <router-link v-for="p in receipts" :key="p.id" class="btn btn-sm btn-ghost" :to="{ name: 'record', params: { type: 'picking', id: p.id } }" data-testid="po-receipt">{{ p.number }}</router-link>
+    <button v-if="canBill" type="button" class="btn" data-testid="po-make-bill" @click="bill">공급사 청구서 만들기</button>
+    <router-link v-if="canShop && record?.state.partner_id" class="btn" :to="{ name: 'purchase-catalog', query: { order: record.id } }" data-testid="po-catalog">카탈로그</router-link>
+    <router-link v-if="record" class="btn" :to="{ name: 'print', params: { type: 'purchase_order', id: record.id } }" data-testid="doc-print">출력</router-link>
+  </span>
 </template>

@@ -23,6 +23,7 @@ import FieldValue from '../components/FieldValue.vue'
 import HistoryPanel from '../components/HistoryPanel.vue'
 import Icon from '../components/Icon.vue'
 import LinesEditor from '../components/LinesEditor.vue'
+import ReferencesPanel from '../components/ReferencesPanel.vue'
 import StatePipeline from '../components/StatePipeline.vue'
 import StatusPill from '../components/StatusPill.vue'
 
@@ -42,6 +43,11 @@ const notFound = ref(false)
 const busy = ref(false)
 
 const formError = ref('')
+// The refusal came from a closed period, so the way out is the lock screen.
+const lockedNote = ref(false)
+// What the preview says beyond the document's own fields: doubts about the dates, products worth offering.
+const previewWarnings = ref<string[]>([])
+const suggested = ref<{ product_id: string; name: string }[]>([])
 const conflict = ref(false)
 const remoteNotice = ref('')
 const remoteStale = ref(false)
@@ -82,6 +88,7 @@ const isAdvanced = (f: Field) => !!screen.value?.advanced?.includes(f.name) && !
 const mainFields = computed(() => gridFields.value.filter((f) => !isAdvanced(f)))
 const advancedFields = computed(() => gridFields.value.filter(isAdvanced))
 const extra = computed(() => (screen.value?.formExtra ? defineAsyncComponent(screen.value.formExtra) : null))
+const panel = computed(() => (screen.value?.formPanel ? defineAsyncComponent(screen.value.formPanel) : null))
 
 const canEdit = computed(() => {
   if (!doc.value) return false
@@ -151,6 +158,9 @@ async function loadRecord() {
   if (!doc.value) { loading.value = false; return }
   const my = ++loadSeq
   formError.value = ''
+  lockedNote.value = false
+  previewWarnings.value = []
+  suggested.value = []
   conflict.value = false
   remoteNotice.value = ''
   remoteStale.value = false
@@ -192,7 +202,10 @@ async function loadRecord() {
     }
     adoptRecord(data as ErpRecord)
     if (timeView.at) await applyCompanyTime()
-    else void loadStream()
+    else {
+      void loadStream()
+      if (screen.value?.previewOnLoad?.includes(record.value?.status ?? '') && !readOnly.value) void runPreview()
+    }
   } catch (e) {
     if (my !== loadSeq) return
     if ((e as ApiError).code === 'INVALID') notFound.value = true
@@ -244,12 +257,15 @@ function mergeLines(current: State[], incoming: unknown): State[] {
 function applyPreview(result: unknown) {
   if (!result || typeof result !== 'object') return
   const incoming = result as State
+  previewWarnings.value = Array.isArray(incoming.warnings) ? incoming.warnings : []
+  suggested.value = Array.isArray(incoming.suggested_options) ? incoming.suggested_options : []
   const next: State = { ...draft.value }
   for (const f of doc.value?.fields ?? []) {
     if (!(f.name in incoming) || f.type === 'password') continue
     next[f.name] = f.type === 'lines' ? mergeLines(next[f.name] ?? [], incoming[f.name]) : incoming[f.name]
   }
-  if (!deepEqual(next, draft.value)) draft.value = next
+  // Compared as written, not with deepEqual: a row whose figures stand still can still have a newer preview_echo.
+  if (JSON.stringify(next) !== JSON.stringify(draft.value)) draft.value = next
   lastPreviewJson = JSON.stringify(draft.value)
   void resolveNames(draft.value)
 }
@@ -287,8 +303,14 @@ function handleCommandError(e: unknown) {
     return
   }
   formError.value = messageOf(e)
+  lockedNote.value = err.code === 'ERP_LOCKED' && /잠금일/.test(err.message)
   const hit = doc.value?.fields.find((f) => err.message?.startsWith(`${f.label} 항목`))
   invalidField.value = hit?.name ?? ''
+}
+
+function addSuggested(s: { product_id: string; name: string }) {
+  draft.value.optional_lines = [...(draft.value.optional_lines ?? []), { id: newId(), product_id: s.product_id, qty: 1 }]
+  suggested.value = suggested.value.filter((x) => x.product_id !== s.product_id)
 }
 
 function adoptResult(res: CommandResult) {
@@ -305,6 +327,7 @@ function adoptResult(res: CommandResult) {
 async function save(): Promise<boolean> {
   if (!doc.value || busy.value) return false
   formError.value = ''
+  lockedNote.value = false
   invalidField.value = ''
   clearTimeout(previewTimer)
   previewSeq++
@@ -378,6 +401,7 @@ async function runCommand(command: string, label: string, def: Pick<CommandDef, 
   if (dirty.value && !(await save())) return
   busy.value = true
   formError.value = ''
+  lockedNote.value = false
   try {
     for (;;) {
       try {
@@ -691,7 +715,11 @@ const isCompanyForm = computed(() => props.id === COMPANY_ID)
       <button v-if="remoteStale" type="button" class="btn btn-sm" @click="refreshFromServer"><Icon name="refresh" :size="12" />새로 고침</button>
       <button v-else type="button" class="btn btn-sm btn-ghost" aria-label="닫기" @click="remoteNotice = ''"><Icon name="x" :size="12" /></button>
     </div>
-    <div v-if="formError" class="banner banner-error banner-flush no-print" role="alert" data-testid="form-error"><Icon name="alert" /><span class="grow">{{ formError }}</span></div>
+    <div v-if="formError" class="banner banner-error banner-flush no-print" role="alert" data-testid="form-error">
+      <Icon name="alert" /><span class="grow">{{ formError }}</span>
+      <router-link v-if="lockedNote && isAdmin()" class="btn btn-sm" to="/settings/locks" data-testid="locked-link"><Icon name="lock" :size="12" />마감 잠금 보기</router-link>
+    </div>
+    <div v-if="previewWarnings.length && !timeTraveling" class="banner banner-warn banner-flush no-print" role="status" data-testid="preview-warnings"><Icon name="alert" /><span class="grow">{{ previewWarnings.join(' ') }}</span></div>
     <div v-if="previewError && !formError && !timeTraveling" class="banner banner-warn banner-flush no-print" data-testid="preview-error"><Icon name="info" /><span class="grow">자동 계산을 하지 못했습니다: {{ previewError }}</span></div>
 
     <div class="form-layout">
@@ -734,6 +762,13 @@ const isCompanyForm = computed(() => props.id === COMPANY_ID)
               <dd :class="{ grand: i === totalFields.length - 1 }" :data-field="f.name"><FieldValue :field="f" :value="view[f.name]" /></dd>
             </template>
           </dl>
+
+          <div v-if="suggested.length && !readOnly" class="suggested no-print" data-testid="suggested-options">
+            <span class="dim small">함께 제안할 만한 제품</span>
+            <button v-for="s in suggested" :key="s.product_id" type="button" class="btn btn-sm" data-testid="suggested-add" @click="addSuggested(s)"><Icon name="plus" :size="11" />{{ s.name }}</button>
+          </div>
+          <component :is="panel" v-if="panel && !loading" :record="asOf ? null : record" :draft="view" :doc="doc" :readonly="readOnly" />
+          <ReferencesPanel v-if="record && !isNew && !asOf" :id="record.id" />
         </form>
       </div>
       <HistoryPanel v-if="!isNew && showHistory" :doc="doc" :events="events" :version="asOf?.version ?? null" :loading="eventsLoading" :error="eventsError" :can-rollback="canRollback"
@@ -760,6 +795,7 @@ const isCompanyForm = computed(() => props.id === COMPANY_ID)
 .totals dt { color: var(--text-2); text-align: right; }
 .totals dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 .totals .grand { padding-top: 4px; border-top: 1px solid var(--line-strong); font-size: 14px; font-weight: 650; color: var(--text); }
+.suggested { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
 .print-head { padding-bottom: 10px; font-weight: 650; }
 @media (max-width: 720px) {
   .form-title-row { flex-wrap: wrap; padding-bottom: 4px; }

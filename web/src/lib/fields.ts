@@ -123,11 +123,14 @@ export function newId(): string {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
 }
 
-/** jsonb reorders object keys, so comparisons must not depend on key order. */
+/**
+ * jsonb reorders object keys, so comparisons must not depend on key order. A row's preview_echo is the server's note
+ * to itself about the last preview: it goes back with the row, and no one has changed anything by receiving one.
+ */
 function canonical(v: unknown): unknown {
   if (Array.isArray(v)) return v.map(canonical)
   if (v && typeof v === 'object') {
-    return Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, x]) => [k, canonical(x)]))
+    return Object.fromEntries(Object.entries(v).filter(([k]) => k !== 'preview_echo').sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, x]) => [k, canonical(x)]))
   }
   return v ?? null
 }

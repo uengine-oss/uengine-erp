@@ -68,6 +68,36 @@ function add(displayType: 'section' | 'note' | null = null) {
   focusCell(row.id)
 }
 
+/* Moving rows. The array's order is what the server stores, so only the order changes here. */
+const canMove = computed(() => canAddRemove.value && allowSections.value)
+const dragging = ref<string | null>(null)
+const dropOn = ref<string | null>(null)
+function move(id: string, to: number) {
+  const list = [...rows.value]
+  const from = list.findIndex((r) => r.id === id)
+  if (from < 0 || to < 0 || to >= list.length || from === to) return
+  const [row] = list.splice(from, 1)
+  list.splice(to, 0, row)
+  emitRows(list)
+}
+function onDragStart(e: DragEvent, id: string) {
+  dragging.value = id
+  e.dataTransfer?.setData('text/plain', id)
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+}
+function onDrop(id: string) {
+  if (dragging.value) move(dragging.value, rows.value.findIndex((r) => r.id === id))
+  dragging.value = null
+  dropOn.value = null
+}
+function onHandleKey(e: KeyboardEvent, row: State) {
+  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+  e.preventDefault()
+  e.stopPropagation()
+  move(row.id, rows.value.indexOf(row) + (e.key === 'ArrowUp' ? -1 : 1))
+  void nextTick(() => table.value?.querySelector<HTMLElement>(`[data-row="${row.id}"] .line-handle`)?.focus())
+}
+
 function isBlank(row: State): boolean {
   return editable.value.every((c) => row[c.name] === undefined || row[c.name] === null || row[c.name] === '' || row[c.name] === false)
 }
@@ -101,13 +131,16 @@ function onCellKey(e: KeyboardEvent, row: State, col: Field) {
       <table class="tbl lines-tbl">
         <thead>
           <tr>
+            <th v-if="canMove" class="no-print" style="width: 24px" aria-label="줄 옮기기"></th>
             <th v-for="c in columns" :key="c.name" :class="{ num: isNumeric(c) }">{{ c.label }}<span v-if="c.required && !readonly" class="req">*</span></th>
             <th v-if="canAddRemove" class="no-print" style="width: 30px" aria-label="줄 삭제"></th>
           </tr>
         </thead>
         <tbody>
           <template v-for="row in rows" :key="row.id">
-            <tr v-if="row.display_type" :data-row="row.id" class="line-special" :class="`line-${row.display_type}`">
+            <tr v-if="row.display_type" :data-row="row.id" class="line-special" :class="[`line-${row.display_type}`, { 'line-drop': dropOn === row.id }]"
+                @dragover.prevent="dropOn = row.id" @dragleave="dropOn = null" @drop.prevent="onDrop(row.id)">
+              <td v-if="canMove" class="no-print line-move"><button type="button" class="line-handle" draggable="true" aria-label="줄 옮기기, 위아래 화살표" data-testid="line-handle" @dragstart="onDragStart($event, row.id)" @dragend="dragging = null" @keydown="onHandleKey($event, row)"><Icon name="more" :size="12" /></button></td>
               <td :colspan="columns.length" :class="{ 'is-static': readonly }">
                 <span v-if="readonly">{{ row[textColumn?.name ?? 'name'] }}</span>
                 <input v-else class="input" autocomplete="off" :value="row[textColumn?.name ?? 'name'] ?? ''"
@@ -118,7 +151,9 @@ function onCellKey(e: KeyboardEvent, row: State, col: Field) {
                 <button type="button" class="btn btn-ghost btn-sm btn-icon" tabindex="-1" aria-label="줄 삭제" @click="remove(row.id)"><Icon name="x" :size="12" /></button>
               </td>
             </tr>
-            <tr v-else :data-row="row.id">
+            <tr v-else :data-row="row.id" :class="{ 'line-portal': row.from_portal, 'line-drop': dropOn === row.id }"
+                @dragover.prevent="dropOn = row.id" @dragleave="dropOn = null" @drop.prevent="onDrop(row.id)">
+              <td v-if="canMove" class="no-print line-move"><button type="button" class="line-handle" draggable="true" aria-label="줄 옮기기, 위아래 화살표" data-testid="line-handle" @dragstart="onDragStart($event, row.id)" @dragend="dragging = null" @keydown="onHandleKey($event, row)"><Icon name="more" :size="12" /></button></td>
               <td v-for="c in columns" :key="c.name" :data-col="c.name" :class="[{ num: isNumeric(c), 'is-static': readonly || isDerived(c) }, `col-${c.type}`]" @keydown="onCellKey($event, row, c)">
                 <FieldValue v-if="readonly || isDerived(c)" :field="columnFor(row, c)" :value="row[c.name]" />
                 <span v-else-if="c.options_from && !columnFor(row, c).options?.length" class="muted small">{{ row[c.options_from.field] ? '고를 값 없음' : '앞 칸을 먼저 고르세요' }}</span>
@@ -130,7 +165,7 @@ function onCellKey(e: KeyboardEvent, row: State, col: Field) {
             </tr>
           </template>
           <tr v-if="!rows.length">
-            <td :colspan="columns.length + (canAddRemove ? 1 : 0)" class="muted lines-empty">{{ canAddRemove ? '아직 줄이 없습니다. 아래에서 줄을 추가하세요.' : fixedRows && !readonly ? '저장하면 자동으로 만들어집니다.' : '줄이 없습니다.' }}</td>
+            <td :colspan="columns.length + (canAddRemove ? 1 : 0) + (canMove ? 1 : 0)" class="muted lines-empty">{{ canAddRemove ? '아직 줄이 없습니다. 아래에서 줄을 추가하세요.' : fixedRows && !readonly ? '저장하면 자동으로 만들어집니다.' : '줄이 없습니다.' }}</td>
           </tr>
         </tbody>
       </table>
@@ -170,4 +205,9 @@ function onCellKey(e: KeyboardEvent, row: State, col: Field) {
 .line-section td.is-static { font-weight: 650; }
 .line-note .input, .line-note span { font-style: italic; color: var(--text-2); }
 .lines-actions { padding-top: 6px; }
+.line-move { padding: 0 !important; text-align: center; }
+.line-handle { width: 20px; height: 22px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: var(--radius-sm); background: none; color: var(--ink-400); cursor: grab; }
+.line-handle:hover { color: var(--text); background: var(--ink-100); }
+.line-drop td { box-shadow: inset 0 2px 0 var(--navy-600); }
+.line-portal td { background: var(--green-bg); }
 </style>

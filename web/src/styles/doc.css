@@ -1,0 +1,27 @@
+/* A printed document. Also goes into the page each exported file carries, so nothing here may depend on the app's theme. */
+.doc { color: #141c2b; background: #fff; font: 12.5px/1.45 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; }
+.doc h1 { margin: 0; font-size: 20px; font-weight: 700; }
+.doc-head { display: flex; justify-content: space-between; gap: 16px; padding-bottom: 10px; border-bottom: 2px solid #18263f; }
+.doc-logo { display: block; max-height: 48px; max-width: 170px; margin-bottom: 4px; }
+.doc-company { text-align: right; font-size: 11.5px; }
+.doc-number { font-size: 13px; font-weight: 600; margin-top: 2px; }
+.doc-parties { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px 18px; margin: 12px 0; }
+.doc-party strong { display: block; font-size: 11px; color: #46566f; font-weight: 600; }
+.doc-party span { display: block; white-space: pre-line; }
+.doc-meta { display: flex; flex-wrap: wrap; gap: 4px 22px; margin-bottom: 10px; }
+.doc-meta div strong { display: block; font-size: 11px; color: #46566f; font-weight: 600; }
+.doc table { width: 100%; border-collapse: collapse; }
+.doc th { padding: 4px 6px; border-bottom: 1px solid #18263f; font-size: 11px; font-weight: 600; text-align: left; white-space: nowrap; }
+.doc td { padding: 4px 6px; border-bottom: 1px solid #d6dbe3; vertical-align: top; white-space: pre-line; }
+.doc .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.doc-section td { font-weight: 650; background: #f5f6f8; }
+.doc-note td { font-style: italic; color: #46566f; }
+.doc .doc-totals { width: 270px; margin: 10px 0 0 auto; }
+.doc-totals td { border: 0; padding: 2px 6px; }
+.doc-totals .grand td { border-top: 1px solid #18263f; font-size: 14px; font-weight: 700; }
+.doc-block { margin-top: 14px; break-inside: avoid; }
+.doc-block h2 { margin: 0 0 4px; font-size: 12px; font-weight: 650; }
+.doc-text { white-space: pre-line; }
+.doc-signs { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 36px; break-inside: avoid; }
+.doc-signs div { padding-top: 26px; border-bottom: 1px solid #18263f; font-size: 11px; color: #46566f; }
+.doc-sign-img { display: block; max-height: 70px; max-width: 240px; }
