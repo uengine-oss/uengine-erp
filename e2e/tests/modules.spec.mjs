@@ -4,7 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test, expect, shot, connectAndLogin, expectDark, expectFitsWidth, failRpc, fieldInput, login, restoreRpc } from '../lib/fixtures.mjs'
 import { ADMIN, command, freshCompany, inviteHash, rest, sql, tokenFor, waitFor } from '../lib/stack.mjs'
-import { breakStock, count, deliver, enableModule, fixStock, installTestModules, newOrder, pickingsFor, STALL_ERROR, waitForPicking } from '../lib/test-modules.mjs'
+import { breakStock, count, deliver, enableModule, fixStock, installTestModules, newOrder, removeRealModules, pickingsFor, STALL_ERROR, waitForPicking } from '../lib/test-modules.mjs'
 
 test.describe.configure({ mode: 'serial' })
 
@@ -27,6 +27,7 @@ test.beforeAll(async () => {
 })
 
 test('모듈이 하나도 없으면 빈 상태로 안내한다', async ({ page }) => {
+  await removeRealModules()
   await connectAndLogin(page)
   await openModules(page)
   await expect(page.getByTestId('empty-state')).toContainText('설치된 모듈이 없습니다')
@@ -49,7 +50,7 @@ test('S1. 판매만 켜져 있으면 메뉴에 판매만 있고, 재고 명령�
   for (const id of ['inventory', 'purchase', 'invoicing', 'accounting']) await expect(card(page, id).getByTestId('module-state')).toHaveText('꺼짐')
   await expect(card(page, 'inventory').getByTestId('module-subs')).toHaveText('1개 · 꺼짐')
   await expect(card(page, 'purchase').getByTestId('module-subs')).toHaveText('없음')
-  await expect(page.getByTestId('module-unlocks'), 'erp_models 가 없어도 카드는 그려진다').toHaveCount(0)
+  await expect(card(page, 'inventory').getByTestId('module-unlocks')).toContainText('품절 보정 수요 예측')
   await shot(page, '72-modules-s1')
 
   await expect(page.locator('[data-module="sales"]')).toBeVisible()
@@ -61,18 +62,12 @@ test('S1. 판매만 켜져 있으면 메뉴에 판매만 있고, 재고 명령�
 })
 
 test('켜면 열리는 예측과 what-if 는 erp_models 에서 읽고, 다른 모듈이 더 필요한 것은 말하지 않는다', async ({ page }) => {
-  await sql(`create or replace function public.erp_models() returns jsonb language sql stable as $f$ select '[
-    {"id":"stat_sales","label":"지역·제품·시즌 통계","modules":["sales"]},
-    {"id":"demand_true","label":"품절 보정 수요 예측","modules":["sales","inventory"]},
-    {"id":"whatif_policy","label":"발주 what-if","modules":["sales","inventory"]},
-    {"id":"reorder_plan","label":"발주 필요 예측","modules":["sales","inventory","purchase"]}]'::jsonb $f$;
-    grant execute on function public.erp_models() to authenticated;
-    notify pgrst, 'reload schema'`)
-  await waitFor(async () => (await rest('erp_models', {}, token)).status === 200, 'erp_models')
   await connectAndLogin(page)
   await openModules(page)
-  await expect(card(page, 'inventory').getByTestId('module-unlocks')).toHaveText('품절 보정 수요 예측, 발주 what-if가 열립니다')
-  await expect(card(page, 'sales').getByTestId('module-unlocks')).toHaveText('이 모듈로 쓰는 예측·what-if: 지역·제품·시즌 통계')
+  await expect(card(page, 'inventory').getByTestId('module-unlocks')).toContainText('품절 보정 수요 예측')
+  await expect(card(page, 'inventory').getByTestId('module-unlocks')).toContainText('열립니다')
+  await expect(card(page, 'sales').getByTestId('module-unlocks')).toContainText('이 모듈로 쓰는 예측·what-if')
+  await expect(card(page, 'sales').getByTestId('module-unlocks')).toContainText('통계')
   await expect(card(page, 'purchase').getByTestId('module-unlocks')).toHaveCount(0)
   await shot(page, '73-modules-unlocks')
 })
@@ -88,7 +83,7 @@ test('S2. 재고를 켠다: 옵션은 메타데이터로 그려지고, 메뉴가
   await card(page, 'inventory').getByTestId('module-enable').click()
   const dialog = page.getByRole('dialog')
   await expect(dialog).toContainText('재고 모듈 켜기')
-  await expect(dialog).toContainText('품절 보정 수요 예측, 발주 what-if가 열립니다')
+  await expect(dialog).toContainText('품절 보정 수요 예측')
   await expect(dialog).toContainText('켜기 전의 재고 수량과 품절 여부는 다시 만들 수 없습니다')
   await expect(dialog.getByLabel('이 날짜 이후의 미납품 주문을 출고 대기로 가져오기')).toBeVisible()
   await shot(page, '74-module-enable-options')

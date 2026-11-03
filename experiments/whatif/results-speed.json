@@ -1,0 +1,91 @@
+{
+ "events": 241416,
+ "size": "261 MB",
+ "sql": {
+  "erp_models": {
+   "calls": 2,
+   "worstMs": 389.70529199999874,
+   "totalMs": 722.9710009999981,
+   "bytes": 6660
+  },
+  "erp_analytics_context": {
+   "calls": 1,
+   "worstMs": 4.830708000001323,
+   "totalMs": 4.830708000001323,
+   "bytes": 2185
+  },
+  "erp_sales_daily": {
+   "calls": 11,
+   "worstMs": 68.04829099999915,
+   "totalMs": 659.1158729999879,
+   "bytes": 8853237
+  },
+  "erp_stock_daily": {
+   "calls": 11,
+   "worstMs": 34.02908399999433,
+   "totalMs": 197.591456999995,
+   "bytes": 4488615
+  },
+  "erp_receipts_daily": {
+   "calls": 11,
+   "worstMs": 3.9869999999937136,
+   "totalMs": 34.36099999998987,
+   "bytes": 232449
+  },
+  "erp_lead_times": {
+   "calls": 11,
+   "worstMs": 27.299999999995634,
+   "totalMs": 149.25412599999254,
+   "bytes": 435766
+  },
+  "erp_payment_delays": {
+   "calls": 11,
+   "worstMs": 473.3948750000054,
+   "totalMs": 791.5743750000183,
+   "bytes": 1119921
+  },
+  "erp_reorder_rules": {
+   "calls": 1,
+   "worstMs": 3.7715830000015558,
+   "totalMs": 3.7715830000015558,
+   "bytes": 2
+  },
+  "erp_journal_monthly": {
+   "calls": 1,
+   "worstMs": 1645.2171670000025,
+   "totalMs": 1645.2171670000025,
+   "bytes": 4682
+  },
+  "erp_stockout_days": {
+   "calls": 1,
+   "worstMs": 179.61362499999814,
+   "totalMs": 179.61362499999814,
+   "bytes": 143241
+  },
+  "erp_flow_stats": {
+   "calls": 1,
+   "worstMs": 521.9043329999986,
+   "totalMs": 521.9043329999986,
+   "bytes": 31156
+  },
+  "erp_quote_conversion": {
+   "calls": 1,
+   "worstMs": 3.729709000006551,
+   "totalMs": 3.729709000006551,
+   "bytes": 92
+  }
+ },
+ "browser": {
+  "buildPanel": 28,
+  "demand_true (first fit + 300 runs)": 1036,
+  "whatif_policy (300 runs)": 855,
+  "whatif_drop (300 runs)": 636,
+  "cash_in (300 runs)": 898
+ },
+ "panel": {
+  "variants": 36,
+  "regions": 3,
+  "warehouses": 3,
+  "days": 943
+ }
+}

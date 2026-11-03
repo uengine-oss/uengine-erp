@@ -137,7 +137,16 @@ $f$;
 `
 
 /** Registers the modules, all off. The browser's catalog loads at login, so run this before signing in. */
+// The small test modules reuse the real ids so the menu groups apply, so the real ones have to go first.
+export async function removeRealModules() {
+  const ids = `('sales', 'inventory', 'purchase', 'invoicing', 'accounting')`
+  await sql(`delete from erp.subscriptions where module in ${ids}`)
+  await sql(`delete from erp.modules where id in ${ids}`)
+  await sql(`delete from erp.catalog where module in ${ids} and type not in ('warehouse', 'location', 'account')`)
+}
+
 export async function installTestModules() {
+  await removeRealModules()
   for (const doc of DOCS) await sql('select erp.catalog_put($1::jsonb)', [JSON.stringify(doc)])
   await sql(FUNCTIONS)
   for (const m of MODULES) await sql('select erp.module_put($1::jsonb)', [JSON.stringify(m)])
@@ -170,6 +179,7 @@ export async function newOrder(token, name, { confirm = false } = {}) {
   return made.id
 }
 
+// Cron runs every 5 seconds and a subscriber that just failed waits 10 more before its next try.
 export async function waitForPicking(orderId, n = 1) {
-  await waitFor(async () => (await pickingsFor(orderId)) === n, `주문 ${orderId} 의 출고 전표 ${n}건`)
+  await waitFor(async () => (await pickingsFor(orderId)) === n, `주문 ${orderId} 의 출고 전표 ${n}건`, 120)
 }

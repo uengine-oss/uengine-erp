@@ -55,7 +55,7 @@ test('a new company starts with usable master data', async () => {
   assert.equal((await state(await seed('영세율 매입'))).scope, 'purchase')
   assert.equal((await state(await seed('부가세 10% 매출'))).account_id, await seed('부가세예수금'))
   for (const t of ['즉시', '15일', '30일', '30%선금+잔금 60일']) assert.equal((await c.rec(await seed(t))).type, 'payment_term', t)
-  assert.deepEqual((await state(await seed('30%선금+잔금 60일'))).lines.map((l) => [l.value, l.amount, l.days]), [['percent', 30, 0], ['balance', 0, 60]])
+  assert.deepEqual((await state(await seed('30%선금+잔금 60일'))).lines.map((l) => [l.value, l.amount, l.days]), [['percent', 30, 0], ['percent', 70, 60]])
   for (const t of ['재고', '공급사', '고객', '재고조정', '폐기']) assert.equal((await c.rec(await seed(t))).type, 'location', t)
   assert.equal((await state(await seed('폐기'))).scrap, true)
   assert.equal((await state(await seed('고객'))).usage, 'customer')
@@ -95,29 +95,30 @@ test('running the install script again changes no data', async () => {
 
 test('fields and nested columns outside the catalog are not stored', async () => {
   const r = await c.admin('payment_term', null, 'create', {
-    name: uniq('조건'), secret: 'x', active: false, lines: [{ value: 'balance', days: 3, hacker: true }],
+    name: uniq('조건'), secret: 'x', active: false, lines: [{ value: 'percent', amount: 100, days: 3, hacker: true }],
   })
   assert.equal(r.state.secret, undefined)
   assert.equal(r.state.active, true)
   assert.equal(r.state.lines[0].hacker, undefined)
-  assert.deepEqual(Object.keys(r.state.lines[0]).sort(), ['amount', 'days', 'id', 'value'])
+  assert.deepEqual(Object.keys(r.state.lines[0]).sort(), ['amount', 'days', 'days_next_month', 'delay_type', 'id', 'value'])
   const p = await product({ internal: 1, vendors: [{ partner_id: (await c.admin('partner', null, 'create', { name: uniq('공급') })).id, price: 5, x: 1 }] })
   assert.equal(p.state.internal, undefined)
   assert.equal(p.state.vendors[0].x, undefined)
 })
 
-test('money rounds to the company currency, in fields and in nested rows', async () => {
+test('prices keep what was typed, money that is an amount rounds to the company currency', async () => {
   const v = await c.admin('partner', null, 'create', { name: uniq('공급') })
   const color = await attribute('always', ['A'])
   const p = await product({
     list_price: 1000.5, standard_price: 99.4, vendors: [{ partner_id: v.id, price: 12.5 }],
     attributes: [line(color, ['A'], { A: 10.5 })],
   })
-  assert.equal(p.state.list_price, 1001)
-  assert.equal(p.state.standard_price, 99)
-  assert.equal(p.state.vendors[0].price, 13)
-  assert.equal((await state(p.id)).attributes[0].extras[color.values.A], 11)
-  assert.equal((await state(p.id)).variants[0].price_extra, 11)
+  assert.equal(p.state.list_price, 1000.5)
+  assert.equal(p.state.standard_price, 99.4)
+  assert.equal(p.state.vendors[0].price, 12.5)
+  assert.equal((await state(p.id)).attributes[0].extras[color.values.A], 10.5)
+  assert.equal((await state(p.id)).variants[0].price_extra, 10.5)
+  assert.equal((await variant((await state(p.id)).variants[0].id)).list_price, 1011)
   const fixed = await c.admin('tax', null, 'create', { name: uniq('봉사료'), amount_type: 'fixed', amount: 99.5 })
   assert.equal(fixed.state.amount, 100)
   const pct = await c.admin('tax', null, 'create', { name: uniq('세'), amount_type: 'percent', amount: 12.5 })
@@ -198,27 +199,84 @@ test('a warehouse keeps its stock in an internal location and has a unique code'
   await rejects(c.admin('warehouse', null, 'create', { name: '창고', code: 'WH', stock_location_id: await seed('재고') }), 'ERP_DUPLICATE')
 })
 
-test('payment term lines: the balance line is last and only once, and percentages are bounded', async () => {
-  const term = (lines) => c.admin('payment_term', null, 'create', { name: uniq('조건'), lines })
-  await rejects(term([]), 'ERP_INVALID')
-  await rejects(c.admin('payment_term', null, 'create', { name: uniq('조건') }), 'ERP_INVALID')
-  await rejects(term([{ value: 'percent', amount: 50, days: 0 }]), 'ERP_INVALID')
-  await rejects(term([{ value: 'balance' }, { value: 'percent', amount: 50 }]), 'ERP_INVALID')
-  await rejects(term([{ value: 'balance' }, { value: 'balance' }]), 'ERP_INVALID')
-  await rejects(term([{ value: 'percent', amount: 60 }, { value: 'percent', amount: 50 }, { value: 'balance' }]), 'ERP_INVALID')
-  await rejects(term([{ value: 'percent', amount: 0 }, { value: 'balance' }]), 'ERP_INVALID')
-  await rejects(term([{ value: 'fixed', amount: -5 }, { value: 'balance' }]), 'ERP_INVALID')
-  await rejects(term([{ value: 'balance', days: -1 }]), 'ERP_INVALID')
+test('payment term lines: percentages add up to exactly 100, and the term may have no lines at all', async () => {
+  const term = (lines, x = {}) => c.admin('payment_term', null, 'create', { name: uniq('조건'), lines, ...x })
+  await rejects(term([{ value: 'percent', amount: 90, days: 0 }]), 'ERP_INVALID')
+  await rejects(term([{ value: 'percent', amount: 60 }, { value: 'percent', amount: 50 }]), 'ERP_INVALID')
+  await rejects(term([{ value: 'fixed', amount: 100 }]), 'ERP_INVALID')
+  await rejects(term([{ value: 'percent', amount: -10 }, { value: 'percent', amount: 110 }]), 'ERP_INVALID')
+  await rejects(term([{ value: 'fixed', amount: -5 }, { value: 'percent', amount: 100 }]), 'ERP_INVALID')
+  await rejects(term([{ value: 'balance' }]), 'ERP_INVALID')
   await rejects(term([{ value: 'installment' }]), 'ERP_INVALID')
-  const ok = await term([{ value: 'percent', amount: 100 }, { value: 'balance', days: 1 }])
+  await rejects(term([{ value: 'percent', amount: 100, delay_type: 'days_end_of_month_on_the', days_next_month: -5 }]), 'ERP_INVALID')
+  await rejects(term([{ value: 'percent', amount: 100, delay_type: 'days_end_of_month_on_the', days_next_month: 32 }]), 'ERP_INVALID')
+  await rejects(term([{ value: 'percent', amount: 100, delay_type: 'someday' }]), 'ERP_INVALID')
+  assert.equal((await term([])).state.lines.length, 0)
+  assert.equal((await c.admin('payment_term', null, 'create', { name: uniq('조건') })).state.lines.length, 0)
+  assert.equal((await term([{ value: 'percent', amount: 100, days: -5 }])).state.lines[0].days, -5)
+  const ok = await term([{ value: 'percent', amount: 100 }, { value: 'fixed', amount: 100, days: 1 }])
   assert.equal(ok.state.lines.length, 2)
   assert.ok(ok.state.lines[0].id)
+  assert.equal(ok.state.lines[0].delay_type, 'days_after')
+})
+
+test('early payment discount fits one 100% line and needs a positive rate and period', async () => {
+  const one = [{ value: 'percent', amount: 100, days: 30 }]
+  const term = (lines, x) => c.admin('payment_term', null, 'create', { name: uniq('조건'), lines, early_discount: true, ...x })
+  await rejects(term([{ value: 'percent', amount: 50 }, { value: 'percent', amount: 50, days: 30 }], { discount_percentage: 2, discount_days: 7 }), 'ERP_INVALID')
+  await rejects(term([{ value: 'fixed', amount: 100 }, { value: 'percent', amount: 100, days: 30 }], { discount_percentage: 2, discount_days: 7 }), 'ERP_INVALID')
+  await rejects(term(one, { discount_percentage: 0, discount_days: 7 }), 'ERP_INVALID')
+  await rejects(term(one, { discount_percentage: 2, discount_days: 0 }), 'ERP_INVALID')
+  await rejects(term(one, { discount_percentage: 2, discount_days: -1 }), 'ERP_INVALID')
+  const ok = await term(one, { discount_percentage: 2, discount_days: 7 })
+  assert.equal(ok.state.discount_mode, 'included')
+})
+
+test('contacts that may be the same can be listed; blank values never match', async () => {
+  const email = `${uniq('dup')}@test.co`
+  const a = await c.admin('partner', null, 'create', { name: uniq('중복'), email })
+  const b = await c.admin('partner', null, 'create', { name: uniq('중복'), email: `  ${email.toUpperCase()} ` })
+  await c.admin('partner', null, 'create', { name: uniq('단독'), email: `${uniq('solo')}@test.co` })
+  const list = async (fields) => (await c.db.asUser(c.adminId, 'select public.erp_partner_duplicates($1) r', [fields])).rows[0].r
+  const hit = (await list(['email'])).find((g) => g.partners.some((p) => p.id === a.id))
+  assert.deepEqual(hit.partners.map((p) => p.id), [a.id, b.id])
+  assert.equal((await list(['email', 'tax_id'])).length, 0, 'no contact here has a tax id')
+  await rejects(list(['note']), 'ERP_INVALID')
+  await c.admin('partner', b.id, 'merge', { into: a.id })
+  assert.equal((await list(['email'])).filter((g) => g.partners.some((p) => p.id === a.id)).length, 0, 'merged contacts are no longer candidates')
+})
+
+test('goods track stock unless switched off; services and combos never do', async () => {
+  assert.equal((await product()).state.is_storable, true)
+  assert.equal((await product({ is_storable: false })).state.is_storable, false)
+  assert.equal((await product({ type: 'service', is_storable: true })).state.is_storable, false)
+  const p = await product()
+  const s = await c.admin('product', p.id, 'update', { type: 'service' })
+  assert.equal(s.state.is_storable, false)
+})
+
+test('a combo needs at least one choice, each with its own distinct products, and no combo inside a combo', async () => {
+  const a = await product({ list_price: 1000 })
+  const b = await product({ list_price: 500 })
+  const va = (await state(a.id)).variants[0].id
+  const vb = (await state(b.id)).variants[0].id
+  const combo = (combos) => product({ type: 'combo', combos })
+  await rejects(combo([]), 'ERP_INVALID')
+  await rejects(combo([{ name: '메인', items: [] }]), 'ERP_INVALID')
+  await rejects(combo([{ name: '메인', items: [{ variant_id: va }, { variant_id: va }] }]), 'ERP_DUPLICATE')
+  await rejects(combo([{ name: '메인', items: [{ variant_id: 'nope' }] }]), 'ERP_INVALID_REF')
+  const ok = await combo([{ name: '메인', items: [{ variant_id: va }, { variant_id: vb, extra_price: 50 }] }])
+  assert.equal(ok.state.type, 'combo')
+  assert.equal(ok.state.is_storable, false)
+  assert.ok(ok.state.combos[0].items[1].id)
+  const vc = (await state(ok.id)).variants[0].id
+  await rejects(combo([{ name: '메인', items: [{ variant_id: vc }] }]), 'ERP_INVALID')
 })
 
 test('saving a whole collection records only the rows that changed', async () => {
   const t = await c.admin('payment_term', null, 'create', {
     name: uniq('조건'),
-    lines: [{ value: 'percent', amount: 10, days: 0 }, { value: 'percent', amount: 20, days: 10 }, { value: 'balance', days: 30 }],
+    lines: [{ value: 'percent', amount: 10, days: 0 }, { value: 'percent', amount: 20, days: 10 }, { value: 'percent', amount: 70, days: 30 }],
   })
   const [a, b, z] = t.state.lines
   assert.deepEqual(await eventTypes(t.id), ['PaymentTermCreated'])
@@ -226,25 +284,25 @@ test('saving a whole collection records only the rows that changed', async () =>
   await c.admin('payment_term', t.id, 'update', { lines: t.state.lines })
   assert.equal((await c.events(t.id)).length, 1, 'same rows, no event')
 
-  await c.admin('payment_term', t.id, 'update', { lines: [{ ...a, amount: 15 }, b, z] })
+  await c.admin('payment_term', t.id, 'update', { lines: [{ ...a, amount: 15 }, b, { ...z, amount: 65 }] })
   let ev = await c.events(t.id)
   assert.equal(ev.at(-1).event_type, 'PaymentTermLineChanged')
-  assert.equal(ev.at(-1).data.col.lines.set.length, 1)
+  assert.equal(ev.at(-1).data.col.lines.set.length, 2)
   assert.equal(ev.at(-1).data.before[0].amount, 10)
 
-  await c.admin('payment_term', t.id, 'update', { lines: [{ id: a.id, days: 5 }, b, z] })
+  const z2 = (await state(t.id)).lines[2]
+  await c.admin('payment_term', t.id, 'update', { lines: [{ id: a.id, days: 5 }, b, z2] })
   const merged = (await state(t.id)).lines[0]
   assert.deepEqual([merged.amount, merged.days], [15, 5], 'a partial row merges over the old one')
 
-  await c.admin('payment_term', t.id, 'update', { lines: [b, z] })
+  await c.admin('payment_term', t.id, 'update', { lines: [b, { ...z2, amount: 80 }] })
   ev = await c.events(t.id)
-  assert.equal(ev.at(-1).event_type, 'PaymentTermLineRemoved')
-  assert.deepEqual(ev.at(-1).data.col.lines.del, [a.id])
+  assert.deepEqual(ev.slice(-2).map((e) => e.event_type), ['PaymentTermLineRemoved', 'PaymentTermLineChanged'])
+  assert.deepEqual(ev.at(-2).data.col.lines.del, [a.id])
 
-  await c.admin('payment_term', t.id, 'update', { lines: [b, { value: 'percent', amount: 5, days: 20 }, z] })
-  assert.deepEqual((await eventTypes(t.id)).slice(-2), ['PaymentTermLineAdded', 'PaymentTermLineReordered'])
-  assert.deepEqual((await state(t.id)).lines.map((l) => l.value), ['percent', 'percent', 'balance'])
-  assert.equal((await state(t.id)).lines[1].amount, 5)
+  await c.admin('payment_term', t.id, 'update', { lines: [b, { value: 'percent', amount: 5, days: 20 }, { ...z2, amount: 75 }] })
+  assert.deepEqual((await eventTypes(t.id)).slice(-3), ['PaymentTermLineChanged', 'PaymentTermLineAdded', 'PaymentTermLineReordered'])
+  assert.deepEqual((await state(t.id)).lines.map((l) => l.amount), [20, 5, 75])
 
   await c.admin('payment_term', t.id, 'update', { name: '이름만', lines: (await state(t.id)).lines })
   assert.equal((await eventTypes(t.id)).at(-1), 'PaymentTermUpdated')

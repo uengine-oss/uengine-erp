@@ -1,0 +1,61 @@
+{
+ "seeds": 40,
+ "firstSeed": 1,
+ "runs": 200,
+ "cut": "2026-08-01",
+ "days": 92,
+ "seconds": 37,
+ "cash": {
+  "n": 40,
+  "truth": 1896516346,
+  "predicted": 1880234839.3313751,
+  "relError": 0.02378898823033316,
+  "absError": 47326883.68989515,
+  "coverage": 0.825,
+  "direction": 1,
+  "claimed": 1,
+  "claimedRight": 1,
+  "width": 201587124.58357882
+ },
+ "cash no history": {
+  "n": 40,
+  "truth": 1896516346,
+  "predicted": 2034630209.228558,
+  "relError": 0.07903953015012163,
+  "absError": 145082458.60466075,
+  "coverage": 1,
+  "direction": 1,
+  "claimed": 1,
+  "claimedRight": 1,
+  "width": 991071558.8889024
+ },
+ "terms": {
+  "n": 40,
+  "truth": 84459449,
+  "predicted": 89003034.06492364,
+  "relError": 0.20482838390969627,
+  "absError": 16729566.848987937,
+  "coverage": 0.725,
+  "direction": 1,
+  "claimed": 1,
+  "claimedRight": 1,
+  "width": 50524907.29511495
+ },
+ "passThrough": {
+  "estimate": 0.6821583986074846,
+  "truth": 0.7063036800503202,
+  "cases": 8,
+  "absError": 0.06540422760903597,
+  "coverage": 0.7,
+  "crossSection": 0.7431384873245338
+ },
+ "termsNoChanges": {
+  "states": [
+   "insufficient"
+  ],
+  "inside": 1,
+  "low": 0,
+  "high": 173084328.614581,
+  "truth": 101956772
+ }
+}

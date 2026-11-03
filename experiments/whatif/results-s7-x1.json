@@ -1,0 +1,332 @@
+{
+ "seeds": 60,
+ "firstSeed": 1,
+ "runs": 200,
+ "policyMult": 1,
+ "volume": 1,
+ "forecast": {
+  "summer sales": {
+   "wape": 0.32323045158844493,
+   "bias": -0.3019685252708497,
+   "coverDemand": 0.5,
+   "coverSales": 0.7777777777777778
+  },
+  "summer sales+gap": {
+   "wape": 0.09546084461400173,
+   "bias": 0.008966506455596907,
+   "coverDemand": 1,
+   "coverSales": 0.6666666666666666
+  },
+  "summer stock": {
+   "wape": 0.09486102217802399,
+   "bias": -0.0017302676905794026,
+   "coverDemand": 0.8333333333333334,
+   "coverSales": 0.5555555555555556
+  },
+  "summer full": {
+   "wape": 0.09908549193931183,
+   "bias": -0.004310766004938453,
+   "coverDemand": 0.7777777777777778,
+   "coverSales": 0.5555555555555556
+  },
+  "winter sales": {
+   "wape": 0.2492662588247203,
+   "bias": -0.20956452843895823,
+   "coverDemand": 0.5,
+   "coverSales": 0.6666666666666666
+  },
+  "winter sales+gap": {
+   "wape": 0.1258943775555577,
+   "bias": -0.01354621271242489,
+   "coverDemand": 0.9444444444444444,
+   "coverSales": 0.7222222222222222
+  },
+  "winter stock": {
+   "wape": 0.1268311606524118,
+   "bias": -0.002578092816339187,
+   "coverDemand": 0.7222222222222222,
+   "coverSales": 0.5
+  },
+  "winter full": {
+   "wape": 0.11835968568238303,
+   "bias": 0.008295103972980365,
+   "coverDemand": 0.7222222222222222,
+   "coverSales": 0.5
+  }
+ },
+ "whatif": {
+  "stock more_summer": {
+   "n": 60,
+   "truth": 389226000,
+   "predicted": 385532500,
+   "relError": 0.10486387159678992,
+   "absError": 41463000,
+   "coverage": 0.9166666666666666,
+   "direction": 1,
+   "claimed": 1,
+   "claimedRight": 1,
+   "width": 227214700,
+   "marginRelError": 0.11068567682225694,
+   "marginCoverage": 0.9333333333333333
+  },
+  "purchase more_summer": {
+   "n": 60,
+   "truth": 389226000,
+   "predicted": 387080000,
+   "relError": 0.12184929623240581,
+   "absError": 46659500,
+   "coverage": 0.85,
+   "direction": 1,
+   "claimed": 1,
+   "claimedRight": 1,
+   "width": 148079900,
+   "marginRelError": 0.11953546727457472,
+   "marginCoverage": 0.85
+  },
+  "full more_summer": {
+   "n": 60,
+   "truth": 389226000,
+   "predicted": 385254500,
+   "relError": 0.11576693908987827,
+   "absError": 45606500,
+   "coverage": 0.8166666666666667,
+   "direction": 1,
+   "claimed": 1,
+   "claimedRight": 1,
+   "width": 149734600,
+   "marginRelError": 0.11919665104615644,
+   "marginCoverage": 0.8166666666666667
+  },
+  "stock drop_std": {
+   "n": 60,
+   "truth": -251300000,
+   "predicted": -226545500,
+   "relError": 0.1340277077238643,
+   "absError": 34071500,
+   "coverage": 0.8333333333333334,
+   "direction": 1,
+   "claimed": 1,
+   "claimedRight": 1,
+   "width": 158684699.99999997,
+   "marginRelError": 0.23058286109078321,
+   "marginCoverage": 0.8666666666666667
+  },
+  "purchase drop_std": {
+   "n": 60,
+   "truth": -251300000,
+   "predicted": -241456500,
+   "relError": 0.13171846526623546,
+   "absError": 35805000,
+   "coverage": 0.85,
+   "direction": 1,
+   "claimed": 1,
+   "claimedRight": 1,
+   "width": 136303000,
+   "marginRelError": 0.20384173720899096,
+   "marginCoverage": 0.8333333333333334
+  },
+  "full drop_std": {
+   "n": 60,
+   "truth": -251300000,
+   "predicted": -243645000,
+   "relError": 0.09818978292488817,
+   "absError": 28363000,
+   "coverage": 0.8333333333333334,
+   "direction": 1,
+   "claimed": 1,
+   "claimedRight": 1,
+   "width": 125749800,
+   "marginRelError": 0.1552018403325617,
+   "marginCoverage": 0.8166666666666667
+  },
+  "stock move_honam": {
+   "n": 60,
+   "truth": -24000,
+   "predicted": -6722000,
+   "relError": 1.0433987439324577,
+   "absError": 21018500,
+   "coverage": 1,
+   "direction": 0.55,
+   "claimed": 0,
+   "claimedRight": null,
+   "width": 141965399.99999997,
+   "marginRelError": 1.0501044997983369,
+   "marginCoverage": 1
+  },
+  "purchase move_honam": {
+   "n": 60,
+   "truth": -24000,
+   "predicted": -9571500,
+   "relError": 1.141701397401324,
+   "absError": 26019500,
+   "coverage": 0.8,
+   "direction": 0.55,
+   "claimed": 0,
+   "claimedRight": null,
+   "width": 74336500,
+   "marginRelError": 1.1596836211528834,
+   "marginCoverage": 0.8
+  },
+  "full move_honam": {
+   "n": 60,
+   "truth": -24000,
+   "predicted": -11287000,
+   "relError": 1.1585856401384083,
+   "absError": 21660500,
+   "coverage": 0.8333333333333334,
+   "direction": 0.5333333333333333,
+   "claimed": 0,
+   "claimedRight": null,
+   "width": 81609299.99999999,
+   "marginRelError": 1.2580549091278104,
+   "marginCoverage": 0.8666666666666667
+  },
+  "purchase lead": {
+   "n": 60,
+   "truth": 421314000,
+   "predicted": 419688000,
+   "relError": 0.10432778886511027,
+   "absError": 46224500,
+   "coverage": 0.7833333333333333,
+   "direction": 1,
+   "claimed": 1,
+   "claimedRight": 1,
+   "width": 147370200,
+   "marginRelError": 0.10341720133091957,
+   "marginCoverage": 0.7833333333333333
+  },
+  "purchase lead stockout": {
+   "n": 60,
+   "truth": -159,
+   "predicted": -161,
+   "relError": 0.08783783783783784,
+   "absError": 13,
+   "coverage": 0.7666666666666667,
+   "direction": 1,
+   "claimed": 1,
+   "claimedRight": 1,
+   "width": 47.099999999999994
+  },
+  "full lead": {
+   "n": 60,
+   "truth": 421314000,
+   "predicted": 425668500,
+   "relError": 0.10161878339027354,
+   "absError": 44702000,
+   "coverage": 0.7666666666666667,
+   "direction": 1,
+   "claimed": 1,
+   "claimedRight": 1,
+   "width": 148078000,
+   "marginRelError": 0.10013867429462651,
+   "marginCoverage": 0.75
+  },
+  "full lead stockout": {
+   "n": 60,
+   "truth": -159,
+   "predicted": -161,
+   "relError": 0.06382978723404255,
+   "absError": 9.5,
+   "coverage": 0.7666666666666667,
+   "direction": 1,
+   "claimed": 1,
+   "claimedRight": 1,
+   "width": 48.099999999999994
+  }
+ },
+ "dropRange": {
+  "sales": {
+   "inside": 1,
+   "low": -560658145.2532681,
+   "high": 563634925.5373602,
+   "truth": -251300000,
+   "states": [
+    "insufficient"
+   ]
+  }
+ },
+ "stockoutShare": 0.1793478260869565,
+ "dropGated": {
+  "ready": 1,
+  "readyScore": {
+   "n": 60,
+   "truth": -251300000,
+   "predicted": -241456500,
+   "relError": 0.13171846526623546,
+   "absError": 35805000,
+   "coverage": 0.85,
+   "direction": 1,
+   "claimed": 1,
+   "claimedRight": 1,
+   "width": 136303000
+  },
+  "rangeHolds": null,
+  "short": 0
+ },
+ "substitution": {
+  "circulator->dehumid": {
+   "truth": 0.15,
+   "median": 0.15361110462142819,
+   "coverage": 0.7166666666666667
+  },
+  "dehumid->circulator": {
+   "truth": 0.2,
+   "median": 0.22017997529545535,
+   "coverage": 0.65
+  },
+  "pro->std": {
+   "truth": 0.5,
+   "median": 0.5674580288587721,
+   "coverage": 0.7166666666666667
+  },
+  "std->pro": {
+   "truth": 0.35,
+   "median": 0.3754891077865707,
+   "coverage": 0.7
+  }
+ },
+ "base": {
+  "stock": {
+   "n": 60,
+   "truth": 1939509000,
+   "predicted": 1762418500,
+   "relError": 0.10262233198279103,
+   "absError": 196550500,
+   "coverage": 0.23333333333333334,
+   "direction": 1,
+   "claimed": 1,
+   "claimedRight": 1,
+   "width": 241115400
+  },
+  "purchase": {
+   "n": 60,
+   "truth": 1939509000,
+   "predicted": 1954696000,
+   "relError": 0.026639241952248316,
+   "absError": 51791500,
+   "coverage": 0.7666666666666667,
+   "direction": 1,
+   "claimed": 1,
+   "claimedRight": 1,
+   "width": 218375500
+  },
+  "full": {
+   "n": 60,
+   "truth": 1939509000,
+   "predicted": 1954294000,
+   "relError": 0.028809440129511057,
+   "absError": 56814500,
+   "coverage": 0.8166666666666667,
+   "direction": 1,
+   "claimed": 1,
+   "claimedRight": 1,
+   "width": 215690600
+  }
+ },
+ "replayWarned": {
+  "stock": 0,
+  "purchase": 0,
+  "full": 0
+ },
+ "seconds": 119
+}

@@ -86,9 +86,9 @@ language sql stable as $$
         'type', jsonb_build_object('type', 'string', 'enum', t.e), 'values', '{"type":"object"}'::jsonb,
         'reason', '{"type":"string"}'::jsonb, 'idempotency_key', '{"type":"string"}'::jsonb))),
     jsonb_build_object('name', 'erp_update',
-      'description', 'ERP 레코드 수정. 바꿀 필드만 넣는다. 확정 같은 업무 동작은 values.state 를 다음 상태로 바꾼다.',
+      'description', 'ERP 레코드 수정. 바꿀 필드만 넣는다. 확정 같은 업무 동작은 values.state 를 다음 상태로 바꾼다. 그 밖의 동작은 action 에 schema 의 extra_commands 이름을 넣는다.',
       'inputSchema', jsonb_build_object('type', 'object', 'required', '["type","id","values"]'::jsonb, 'properties', jsonb_build_object(
-        'type', jsonb_build_object('type', 'string', 'enum', t.e), 'id', '{"type":"string"}'::jsonb, 'values', '{"type":"object"}'::jsonb,
+        'type', jsonb_build_object('type', 'string', 'enum', t.e), 'id', '{"type":"string"}'::jsonb, 'values', '{"type":"object"}'::jsonb, 'action', '{"type":"string"}'::jsonb,
         'expected_version', '{"type":"integer"}'::jsonb, 'reason', '{"type":"string"}'::jsonb))),
     jsonb_build_object('name', 'erp_delete',
       'description', 'ERP 레코드 삭제. 이력은 원장에 남는다.',
@@ -151,7 +151,13 @@ begin
   case p_name
     when 'erp_read' then out_ := erp.mcp_read(a);
     when 'erp_create' then out_ := public.erp_command(t, null, 'create', coalesce(a -> 'values', '{}'::jsonb), null, a ->> 'reason', 'mcp', null, a ->> 'idempotency_key');
-    when 'erp_update' then out_ := public.erp_update(t, i, coalesce(a -> 'values', '{}'::jsonb), (a ->> 'expected_version')::int, a ->> 'reason', 'mcp');
+    when 'erp_update' then
+      -- Actions that are not a state change, such as recalculating prices, are named by the schema's extra_commands.
+      if a ? 'action' then
+        out_ := public.erp_command(t, i, a ->> 'action', coalesce(a -> 'values', '{}'::jsonb), (a ->> 'expected_version')::int, a ->> 'reason', 'mcp');
+      else
+        out_ := public.erp_update(t, i, coalesce(a -> 'values', '{}'::jsonb), (a ->> 'expected_version')::int, a ->> 'reason', 'mcp');
+      end if;
     when 'erp_delete' then out_ := public.erp_command(t, i, 'delete', '{}'::jsonb, (a ->> 'expected_version')::int, a ->> 'reason', 'mcp');
     else perform erp.fail('ERP_INVALID', format('없는 도구입니다: %s', p_name));
   end case;

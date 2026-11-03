@@ -1,0 +1,648 @@
+-- Analytics reads the ledger, never a module's derived tables, so history stays usable after a module is off (M8).
+-- Everything here runs as the caller and reads through public.erp_events and public.erp_records, so row security
+-- applies: someone who cannot read a document type gets no numbers built from it. Heavy calls take a time window
+-- because the API stops a statement after 8 seconds; the browser adds the batches up.
+
+create index if not exists events_quant_time_idx on erp.events (occurred_at) where (data -> 'effects') ? 'quant';
+create index if not exists events_gl_time_idx on erp.events (occurred_at) where (data -> 'effects') ? 'gl';
+create index if not exists events_picking_origin_idx on erp.events ((data ->> 'origin_id')) where event_type = 'PickingValidated';
+create index if not exists events_receipt_time_idx on erp.events (occurred_at) where event_type = 'PickingValidated' and data ->> 'picking_type' = 'incoming';
+create index if not exists events_paid_stream_idx on erp.events (stream_id) where event_type = 'InvoicePaymentApplied' and data ->> 'payment_state' = 'paid';
+create index if not exists events_sales_date_idx on erp.events ((data ->> 'date_order')) where event_type = 'SalesOrderConfirmed';
+
+create or replace function public.erp_analytics_tz() returns text
+language sql stable set search_path = public, pg_temp as $$
+  select coalesce((select state ->> 'timezone' from public.erp_records where id = '00000000-0000-0000-0000-000000000001'::uuid), 'Asia/Seoul')
+$$;
+
+-- A business date when the event states one, else when it was recorded. Backdated entries belong to their own day.
+create or replace function public.erp_biz_day(p_value text, p_at timestamptz, p_tz text) returns date
+language sql stable as $$
+  select case
+    when p_value is null or p_value = '' then (p_at at time zone p_tz)::date
+    when length(p_value) = 10 then p_value::date
+    else (p_value::timestamptz at time zone p_tz)::date end
+$$;
+
+-- Correlations undone by a rollback that itself still stands, as of that moment. A rollback of a rollback
+-- brings the original work back, so the newest rollback decides first.
+create or replace function public.erp_undone(p_as_of timestamptz) returns uuid[]
+language plpgsql stable set search_path = public, pg_temp as $$
+declare r record; out_ uuid[] := '{}';
+begin
+  for r in
+    select e.correlation_id, e.data -> 'reverted' -> 'correlations' as cs, max(e.seq) as last_seq
+      from public.erp_events e
+     where e.event_type = 'Reverted' and e.occurred_at <= p_as_of
+     group by e.correlation_id, e.data -> 'reverted' -> 'correlations'
+     order by last_seq desc
+  loop
+    if not r.correlation_id = any (out_) then
+      out_ := out_ || array(select jsonb_array_elements_text(coalesce(r.cs, '[]'::jsonb))::uuid);
+    end if;
+  end loop;
+  return out_;
+end $$;
+
+-- What was on, and when, is itself in the ledger.
+create or replace function public.erp_module_spans(p_as_of timestamptz default null) returns jsonb
+language sql stable set search_path = public, pg_temp as $$
+  with tz as (select public.erp_analytics_tz() as z),
+  ev as (
+    select e.stream_id, e.version, e.event_type, e.occurred_at, e.data -> 'set' ->> 'module_id' as mid
+      from public.erp_events e
+     where e.stream_type = 'module' and e.event_type in ('ModuleEnabled', 'ModuleDisabled')
+       and e.occurred_at <= coalesce(p_as_of, now())
+  ), steps as (
+    select stream_id, version, event_type, occurred_at,
+           lead(occurred_at) over (partition by stream_id order by version) as next_at,
+           row_number() over (partition by stream_id order by version desc) as newest
+      from ev
+  ), named as (
+    select stream_id, max(mid) as mid from ev group by stream_id
+  ), spans as (
+    select n.mid,
+           bool_or(s.newest = 1 and s.event_type = 'ModuleEnabled') as enabled,
+           coalesce(jsonb_agg(jsonb_build_object(
+             'from', (s.occurred_at at time zone (select z from tz))::date,
+             'to', (s.next_at at time zone (select z from tz))::date) order by s.version)
+             filter (where s.event_type = 'ModuleEnabled'), '[]'::jsonb) as periods
+      from steps s join named n using (stream_id)
+     where n.mid is not null
+     group by n.mid
+  )
+  select coalesce(jsonb_object_agg(mid, jsonb_build_object('enabled', enabled, 'periods', periods)), '{}'::jsonb) from spans
+$$;
+
+-- Master data as it stands now. Conversion factors are a fact about units, not about a moment.
+create or replace function public.erp_unit_maps() returns jsonb
+language sql stable set search_path = public, pg_temp as $$
+  with u as (
+    select id, coalesce((state ->> 'ratio')::numeric, 1) as ratio from public.erp_records where type = 'uom'
+  )
+  select jsonb_build_object(
+    'uom', coalesce((select jsonb_object_agg(id, ratio) from u), '{}'::jsonb),
+    'product', coalesce((select jsonb_object_agg(p.id, u.ratio) from public.erp_records p join u on u.id = (p.state ->> 'uom_id')::uuid where p.type = 'product'), '{}'::jsonb))
+$$;
+
+-- A stock location belongs to the warehouse above it. Customer, supplier and scrap locations are not stock on hand.
+create or replace function public.erp_location_map() returns jsonb
+language sql stable set search_path = public, pg_temp as $$
+  with recursive tree(id, wh) as (
+    select (w.state ->> 'stock_location_id')::uuid, w.id from public.erp_records w where w.type = 'warehouse' and w.state ? 'stock_location_id'
+    union all
+    select l.id, t.wh from public.erp_records l join tree t on (l.state ->> 'parent_id')::uuid = t.id where l.type = 'location'
+  )
+  select coalesce(jsonb_object_agg(l.id, jsonb_build_object('warehouse', t.wh, 'usage', l.state ->> 'usage')), '{}'::jsonb)
+    from public.erp_records l left join tree t on t.id = l.id where l.type = 'location'
+$$;
+
+-- One row per order line that still stands. Quantity is in the product's own unit.
+create or replace function public.erp_sales_lines(p_lo timestamptz, p_hi timestamptz, p_as_of timestamptz, p_tz text, p_undone uuid[], p_units jsonb)
+returns table(day date, variant_id text, product_id text, region text, warehouse_id text, qty numeric, revenue numeric, cost numeric, stream_id uuid)
+language sql stable set search_path = public, pg_temp as $$
+  with ev as (
+    select e.stream_id, e.version, e.event_type, e.data, e.occurred_at
+      from public.erp_events e
+     where e.event_type in ('SalesOrderConfirmed', 'SalesOrderLineAdded', 'SalesOrderLineQtyChanged')
+       and e.occurred_at >= p_lo and e.occurred_at < p_hi and e.occurred_at <= p_as_of
+       and not e.correlation_id = any (p_undone)
+       and not exists (
+         select 1 from public.erp_events x
+          where x.stream_id = e.stream_id and x.version > e.version
+            and x.event_type in ('SalesOrderCancelled', 'SalesOrderConfirmed')
+            and x.occurred_at <= p_as_of and not x.correlation_id = any (p_undone))
+  ), confirmed as (
+    select ev.stream_id, ev.occurred_at, ev.data as head, l, 1::numeric as sign_, null::numeric as delta
+      from ev, jsonb_array_elements(ev.data -> 'lines') l where ev.event_type = 'SalesOrderConfirmed'
+  ), later as (
+    -- A line added or changed after confirmation belongs to the order's own day, region and warehouse.
+    select ev.stream_id, c.occurred_at, c.data as head, x.l, 1::numeric as sign_,
+           case when ev.event_type = 'SalesOrderLineQtyChanged'
+                then (ev.data ->> 'to')::numeric - (ev.data ->> 'from')::numeric end as delta
+      from ev
+      cross join lateral (
+        select c.occurred_at, c.data from public.erp_events c
+         where c.stream_id = ev.stream_id and c.version < ev.version and c.event_type = 'SalesOrderConfirmed'
+         order by c.version desc limit 1) c
+      cross join lateral (
+        select case when ev.event_type = 'SalesOrderLineAdded' then ev.data -> 'line' else coalesce((
+          select l2 from public.erp_events a,
+                 jsonb_array_elements(case when a.event_type = 'SalesOrderConfirmed' then a.data -> 'lines' else jsonb_build_array(a.data -> 'line') end) l2
+           where a.stream_id = ev.stream_id and a.version < ev.version and a.event_type in ('SalesOrderConfirmed', 'SalesOrderLineAdded')
+             and l2 ->> 'line_id' = ev.data ->> 'line_id'
+           order by a.version desc limit 1), ev.data) end as l) x
+     where ev.event_type <> 'SalesOrderConfirmed'
+  ), rows_ as (select * from confirmed union all select * from later),
+  unit as (
+    select r.*,
+           coalesce((p_units -> 'uom' ->> (r.l ->> 'uom_id'))::numeric, 1) / coalesce((p_units -> 'product' ->> (r.l ->> 'product_id'))::numeric, 1) as factor,
+           coalesce(r.delta, (r.l ->> 'qty')::numeric) as q
+      from rows_ r
+     where r.l ->> 'variant_id' is not null and r.l ->> 'type' is distinct from 'service'
+  )
+  select public.erp_biz_day(u.head ->> 'date_order', u.occurred_at, p_tz),
+         u.l ->> 'variant_id', u.l ->> 'product_id', u.head ->> 'region', u.head ->> 'warehouse_id',
+         u.q * u.factor,
+         -- Keep the line's own net price: a changed quantity moves revenue at what that line was sold for.
+         case when (u.l ->> 'qty')::numeric > 0 and u.l ? 'subtotal'
+              then u.q * (u.l ->> 'subtotal')::numeric / (u.l ->> 'qty')::numeric
+              else u.q * coalesce((u.l ->> 'unit_price')::numeric, 0) * (1 - coalesce((u.l ->> 'discount')::numeric, 0) / 100) end,
+         u.q * coalesce((u.l ->> 'cost')::numeric, 0),
+         u.stream_id
+    from unit u
+$$;
+
+-- Rows of [day, variant_id, region, warehouse_id, qty, revenue, cost]. Windows go by when the ledger recorded the event,
+-- so a backdated line is in the batch of its entry and in the row of its own day; sums across batches come out right.
+create or replace function public.erp_sales_daily(p_from date, p_to date, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  tz text := public.erp_analytics_tz();
+  asof timestamptz := coalesce(p_as_of, now());
+  out_ jsonb;
+begin
+  select coalesce(jsonb_agg(jsonb_build_array(day, variant_id, region, warehouse_id, q, r, c)), '[]'::jsonb) into out_ from (
+    select day, variant_id, region, warehouse_id, sum(qty) as q, sum(revenue) as r, sum(cost) as c
+      from public.erp_sales_lines(p_from::timestamp at time zone tz, p_to::timestamp at time zone tz, asof, tz, public.erp_undone(asof), public.erp_unit_maps())
+     group by 1, 2, 3, 4) x;
+  return out_;
+end $$;
+
+-- Rows of [day, variant_id, warehouse_id, delta]. The browser adds them up to day-end stock. A rollback carries the
+-- opposite effect, so stock history keeps saying what the system believed at the time, and then the correction.
+create or replace function public.erp_stock_daily(p_from date, p_to date, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  tz text := public.erp_analytics_tz();
+  asof timestamptz := coalesce(p_as_of, now());
+  lo timestamptz := p_from::timestamp at time zone tz;
+  hi timestamptz := p_to::timestamp at time zone tz;
+  locs jsonb := public.erp_location_map();
+  out_ jsonb;
+begin
+  select coalesce(jsonb_agg(jsonb_build_array(day, variant_id, warehouse_id, q)), '[]'::jsonb) into out_ from (
+    select (e.occurred_at at time zone tz)::date as day, r ->> 'variant_id' as variant_id,
+           coalesce(locs -> (r ->> 'location_id') ->> 'warehouse', r ->> 'warehouse_id', e.data ->> 'warehouse_id') as warehouse_id,
+           sum((r ->> 'qty')::numeric) as q
+      from public.erp_events e, jsonb_array_elements(e.data -> 'effects' -> 'quant') r
+     where (e.data -> 'effects') ? 'quant' and e.occurred_at >= lo and e.occurred_at < hi and e.occurred_at <= asof
+       and coalesce((r ->> 'qty')::numeric, 0) <> 0
+       and coalesce(locs -> (r ->> 'location_id') ->> 'usage', 'internal') = 'internal'
+     group by 1, 2, 3) x;
+  return out_;
+end $$;
+
+-- Stretches of days a variant had nothing on hand in a warehouse: [{variant_id, warehouse_id, from, to, days}], `to` exclusive.
+-- Reads the whole stock history up to the end of the window, since today's level depends on all of it.
+create or replace function public.erp_stockout_days(p_from date, p_to date, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  tz text := public.erp_analytics_tz();
+  asof timestamptz := coalesce(p_as_of, now());
+  hi timestamptz := least(p_to::timestamp at time zone tz, asof);
+  today date := (asof at time zone tz)::date + 1;
+  locs jsonb := public.erp_location_map();
+  out_ jsonb;
+begin
+  with d as (
+    select (e.occurred_at at time zone tz)::date as day, r ->> 'variant_id' as v,
+           coalesce(locs -> (r ->> 'location_id') ->> 'warehouse', r ->> 'warehouse_id', e.data ->> 'warehouse_id') as w,
+           sum((r ->> 'qty')::numeric) as q
+      from public.erp_events e, jsonb_array_elements(e.data -> 'effects' -> 'quant') r
+     where (e.data -> 'effects') ? 'quant' and e.occurred_at < hi
+       and coalesce(locs -> (r ->> 'location_id') ->> 'usage', 'internal') = 'internal'
+     group by 1, 2, 3
+  ), c as (
+    select day, v, w, sum(q) over win as stock, lead(day) over win as next_day
+      from d window win as (partition by v, w order by day)
+  ), f as (
+    select *, lag(stock) over (partition by v, w order by day) as prev from c
+  ), g as (
+    select *, count(*) filter (where stock <= 0 and (prev is null or prev > 0)) over (partition by v, w order by day) as grp from f
+  ), p as (
+    select v, w, min(day) as from_, max(coalesce(next_day, least(today, p_to))) as to_ from g where stock <= 0 group by v, w, grp
+  )
+  select coalesce(jsonb_agg(jsonb_build_object('variant_id', v, 'warehouse_id', w, 'from', greatest(from_, p_from), 'to', least(to_, p_to),
+           'days', least(to_, p_to) - greatest(from_, p_from)) order by from_), '[]'::jsonb) into out_
+    from p where to_ > p_from and from_ < p_to;
+  return out_;
+end $$;
+
+-- Rows of [day, variant_id, warehouse_id, qty, origin_type, origin_id].
+create or replace function public.erp_receipts_daily(p_from date, p_to date, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  tz text := public.erp_analytics_tz();
+  asof timestamptz := coalesce(p_as_of, now());
+  undone uuid[] := public.erp_undone(asof);
+  out_ jsonb;
+begin
+  select coalesce(jsonb_agg(jsonb_build_array(day, variant_id, warehouse_id, q, origin_type, origin_id)), '[]'::jsonb) into out_ from (
+    select public.erp_biz_day(e.data ->> 'date_done', e.occurred_at, tz) as day, m ->> 'variant_id' as variant_id, e.data ->> 'warehouse_id' as warehouse_id,
+           sum((m ->> 'qty_done')::numeric) as q, e.data ->> 'origin_type' as origin_type, e.data ->> 'origin_id' as origin_id
+      from public.erp_events e, jsonb_array_elements(e.data -> 'moves') m
+     where e.event_type = 'PickingValidated' and e.data ->> 'picking_type' = 'incoming'
+       and coalesce((e.data ->> 'is_return')::boolean, false) = false
+       and e.occurred_at >= p_from::timestamp at time zone tz and e.occurred_at < p_to::timestamp at time zone tz and e.occurred_at <= asof
+       and not e.correlation_id = any (undone)
+     group by 1, 2, 3, 5, 6) x;
+  return out_;
+end $$;
+
+-- One row per purchase line confirmed in the window, with what has arrived so far. A line still open stays in:
+-- leaving it out reads long lead times too short.
+create or replace function public.erp_lead_times(p_from date, p_to date, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  tz text := public.erp_analytics_tz();
+  asof timestamptz := coalesce(p_as_of, now());
+  undone uuid[] := public.erp_undone(asof);
+  out_ jsonb;
+begin
+  with po as (
+    select e.stream_id, e.version, e.data, e.occurred_at
+      from public.erp_events e
+     where e.event_type = 'PurchaseOrderConfirmed'
+       and e.occurred_at >= p_from::timestamp at time zone tz and e.occurred_at < p_to::timestamp at time zone tz and e.occurred_at <= asof
+       and not e.correlation_id = any (undone)
+       and not exists (
+         select 1 from public.erp_events x
+          where x.stream_id = e.stream_id and x.version > e.version and x.event_type in ('PurchaseOrderCancelled', 'PurchaseOrderConfirmed')
+            and x.occurred_at <= asof and not x.correlation_id = any (undone))
+  ), lines as (
+    select po.stream_id, po.data as head, po.occurred_at, po.version, l from po, jsonb_array_elements(po.data -> 'lines') l
+    union all
+    select po.stream_id, po.data, po.occurred_at, a.version, a.data -> 'line'
+      from po join public.erp_events a on a.stream_id = po.stream_id and a.version > po.version
+     where a.event_type = 'PurchaseOrderLineAdded' and a.occurred_at <= asof and not a.correlation_id = any (undone)
+  ), moved as (
+    select e.data ->> 'origin_id' as po, m ->> 'origin_line_id' as line_id, e.data ->> 'warehouse_id' as wh,
+           public.erp_biz_day(e.data ->> 'date_done', e.occurred_at, tz) as day,
+           (case when coalesce((e.data ->> 'is_return')::boolean, false) then -1 else 1 end) * (m ->> 'qty_done')::numeric as q
+      from public.erp_events e, jsonb_array_elements(e.data -> 'moves') m
+     where e.event_type = 'PickingValidated' and e.data ->> 'origin_type' = 'purchase_order'
+       and e.data ->> 'origin_id' in (select stream_id::text from po)
+       and e.occurred_at <= asof and not e.correlation_id = any (undone)
+  ), rcv as (
+    select po, line_id, sum(q) as q, min(day) filter (where q > 0) as first_day, max(day) filter (where q > 0) as last_day, max(wh) as wh from moved group by 1, 2
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+      'po', ln.stream_id, 'line_id', ln.l ->> 'line_id', 'vendor_id', ln.head ->> 'partner_id', 'variant_id', ln.l ->> 'variant_id',
+      -- An order may name no warehouse; the goods still arrive at one.
+      'warehouse_id', coalesce(ln.head ->> 'warehouse_id', r.wh),
+      'ordered_on', public.erp_biz_day(ln.head ->> 'date_order', ln.occurred_at, tz),
+      'planned_on', public.erp_biz_day(coalesce(ln.l ->> 'date_planned', ln.head ->> 'date_planned'), ln.occurred_at, tz),
+      'qty', coalesce((select (q.data ->> 'to')::numeric from public.erp_events q
+                        where q.stream_id = ln.stream_id and q.version > ln.version and q.event_type = 'PurchaseOrderLineQtyChanged'
+                          and q.data ->> 'line_id' = ln.l ->> 'line_id' and q.occurred_at <= asof and not q.correlation_id = any (undone)
+                        order by q.version desc limit 1), (ln.l ->> 'qty')::numeric),
+      'received', coalesce(r.q, 0), 'first_received_on', r.first_day, 'last_received_on', r.last_day)), '[]'::jsonb) into out_
+    from lines ln
+    left join rcv r on r.po = ln.stream_id::text and r.line_id = ln.l ->> 'line_id'
+   where ln.l ->> 'variant_id' is not null and ln.l ->> 'type' is distinct from 'service';
+  return out_;
+end $$;
+
+-- One row per customer invoice posted in the window, with what has been paid by then.
+create or replace function public.erp_payment_delays(p_from date, p_to date, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  tz text := public.erp_analytics_tz();
+  asof timestamptz := coalesce(p_as_of, now());
+  undone uuid[] := public.erp_undone(asof);
+  out_ jsonb;
+begin
+  with inv as (
+    select e.stream_id, e.version, e.data, e.occurred_at
+      from public.erp_events e
+     where e.event_type = 'InvoicePosted' and e.data ->> 'move_type' = 'out_invoice'
+       and e.occurred_at >= p_from::timestamp at time zone tz and e.occurred_at < p_to::timestamp at time zone tz and e.occurred_at <= asof
+       and not e.correlation_id = any (undone)
+       and not exists (
+         select 1 from public.erp_events x
+          where x.stream_id = e.stream_id and x.version > e.version and x.event_type in ('InvoiceCancelled', 'InvoiceResetToDraft', 'InvoicePosted')
+            and x.occurred_at <= asof and not x.correlation_id = any (undone))
+  ), refunds as (
+    select distinct e.data ->> 'reversal_of' as id from public.erp_events e
+     where e.event_type = 'InvoicePosted' and e.data ->> 'reversal_of' is not null and e.occurred_at <= asof and not e.correlation_id = any (undone)
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+      'id', i.stream_id, 'partner_id', i.data ->> 'partner_id',
+      'date', public.erp_biz_day(coalesce(i.data ->> 'invoice_date', i.data ->> 'date'), i.occurred_at, tz),
+      'due_date', public.erp_biz_day(coalesce(i.data ->> 'due_date', i.data ->> 'invoice_date', i.data ->> 'date'), i.occurred_at, tz),
+      'amount', (i.data ->> 'amount_total')::numeric,
+      'paid', coalesce(p.paid, 0),
+      'residual', coalesce(p.residual, (i.data ->> 'amount_total')::numeric),
+      'paid_on', case when p.residual <= 0 then p.last_day end,
+      'state', case when f.id is not null then 'reversed' else p.state end)), '[]'::jsonb) into out_
+    from inv i
+    left join refunds f on f.id = i.stream_id::text
+    left join lateral (
+      select sum((a.data ->> 'amount')::numeric) as paid,
+             (array_agg((a.data ->> 'residual')::numeric order by a.version desc))[1] as residual,
+             (array_agg(a.data ->> 'payment_state' order by a.version desc))[1] as state,
+             (array_agg(public.erp_biz_day(a.data ->> 'date', a.occurred_at, tz) order by a.version desc))[1] as last_day
+        from public.erp_events a
+       where a.stream_id = i.stream_id and a.version > i.version and a.event_type = 'InvoicePaymentApplied'
+         and a.occurred_at <= asof and not a.correlation_id = any (undone)) p on true;
+  return out_;
+end $$;
+
+-- Rows of [month, account_id, account_type, name, amount]: income as credit minus debit, expense as debit minus credit.
+-- The window goes by each row's own accounting date. Turning accounting on late re-creates old entries now, so when an
+-- entry was recorded says nothing about the period it belongs to. A rollback's negated row keeps that date and nets out there.
+create or replace function public.erp_journal_monthly(p_from date, p_to date, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  tz text := public.erp_analytics_tz();
+  asof timestamptz := coalesce(p_as_of, now());
+  out_ jsonb;
+begin
+  select coalesce(jsonb_agg(jsonb_build_array(month, account_id, account_type, name, amount)), '[]'::jsonb) into out_ from (
+    select to_char(x.day, 'YYYY-MM') as month,
+           x.r ->> 'account_id' as account_id, a.state ->> 'account_type' as account_type, a.state ->> 'name' as name,
+           sum(case when a.state ->> 'account_type' = 'income'
+                    then coalesce((x.r ->> 'credit')::numeric, 0) - coalesce((x.r ->> 'debit')::numeric, 0)
+                    else coalesce((x.r ->> 'debit')::numeric, 0) - coalesce((x.r ->> 'credit')::numeric, 0) end) as amount
+      from (
+        select r, public.erp_biz_day(coalesce(r ->> 'date', e.data ->> 'date'), e.occurred_at, tz) as day
+          from public.erp_events e, jsonb_array_elements(e.data -> 'effects' -> 'gl') r
+         where (e.data -> 'effects') ? 'gl' and e.occurred_at <= asof) x
+      join public.erp_records a on a.id = (x.r ->> 'account_id')::uuid and a.type = 'account' and a.state ->> 'account_type' in ('income', 'expense')
+     where x.day >= p_from and x.day < p_to
+     group by 1, 2, 3, 4) y;
+  return out_;
+end $$;
+
+-- The latest stated rule per variant and location, folded from the rule's own events.
+create or replace function public.erp_reorder_rules(p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  asof timestamptz := coalesce(p_as_of, now());
+  locs jsonb := public.erp_location_map();
+  out_ jsonb;
+begin
+  select coalesce(jsonb_agg(jsonb_build_object(
+      'variant_id', s ->> 'variant_id', 'warehouse_id', coalesce(locs -> (s ->> 'location_id') ->> 'warehouse', s ->> 'warehouse_id'),
+      'min_qty', (s ->> 'min_qty')::numeric, 'max_qty', (s ->> 'max_qty')::numeric, 'vendor_id', s ->> 'vendor_id')), '[]'::jsonb) into out_
+    from (
+      select e.stream_id, jsonb_object_agg(kv.key, kv.value order by e.version) as s
+        from public.erp_events e, jsonb_each(e.data -> 'set') kv
+       where e.stream_type in ('reorder_rule') and e.occurred_at <= asof
+       group by e.stream_id) x
+   -- A manual rule says what could be ordered, not how the company actually orders.
+   where coalesce((s ->> 'active')::boolean, true) and not coalesce((s ->> 'deleted')::boolean, false) and s ->> 'trigger' is distinct from 'manual';
+  return out_;
+end $$;
+
+-- What the browser needs before it can plan batches.
+create or replace function public.erp_analytics_context(p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  tz text := public.erp_analytics_tz();
+  asof timestamptz := coalesce(p_as_of, now());
+  first_ timestamptz;
+begin
+  select least(
+    (select min(occurred_at) from public.erp_events where event_type = 'SalesOrderConfirmed'),
+    (select min(occurred_at) from public.erp_events where (data -> 'effects') ? 'quant'),
+    (select min(occurred_at) from public.erp_events where event_type = 'PurchaseOrderConfirmed'),
+    (select min(occurred_at) from public.erp_events where event_type = 'InvoicePosted'),
+    (select min(occurred_at) from public.erp_events where (data -> 'effects') ? 'gl')) into first_;
+  return jsonb_build_object(
+    'as_of', ((asof at time zone tz) + interval '1 second')::date - 1,
+    'timezone', tz,
+    'modules', public.erp_module_spans(asof),
+    'extent', jsonb_build_object('first_day', (first_ at time zone tz)::date, 'last_day', (asof at time zone tz)::date),
+    'warehouses', coalesce((select jsonb_agg(jsonb_build_object('id', id, 'name', state ->> 'name')) from public.erp_records where type = 'warehouse'), '[]'::jsonb),
+    'variants', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', v ->> 'id', 'product_id', p.id,
+        'name', coalesce(v ->> 'name', p.state ->> 'name'),
+        'category_id', p.state ->> 'category_id', 'type', p.state ->> 'type',
+        'list_price', coalesce((p.state ->> 'list_price')::numeric, 0) + coalesce((v ->> 'price_extra')::numeric, 0),
+        'standard_price', coalesce((v ->> 'standard_price')::numeric, (p.state ->> 'standard_price')::numeric),
+        'active', coalesce((v ->> 'active')::boolean, true) and p.active))
+      from public.erp_records p, jsonb_array_elements(coalesce(p.state -> 'variants', '[]'::jsonb)) v
+      where p.type = 'product'), '[]'::jsonb));
+end $$;
+
+-- Sales by period, region and product. p_grain is day, week, month, quarter or year.
+create or replace function public.erp_flow_stats(p_from date, p_to date, p_as_of timestamptz default null, p_grain text default 'quarter') returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  tz text := public.erp_analytics_tz();
+  asof timestamptz := coalesce(p_as_of, now());
+  rows_ jsonb;
+begin
+  if p_grain not in ('day', 'week', 'month', 'quarter', 'year') then raise exception 'ERP_INVALID: 알 수 없는 묶음 단위입니다 (%)', p_grain; end if;
+  select coalesce(jsonb_agg(jsonb_build_object('period', period, 'region', region, 'product_id', product_id,
+      'qty', q, 'revenue', r, 'margin', r - c, 'orders', n) order by period, region, product_id), '[]'::jsonb) into rows_
+    from (
+      select date_trunc(p_grain, day)::date as period, region, product_id, sum(qty) as q, sum(revenue) as r, sum(cost) as c, count(distinct stream_id) as n
+        from public.erp_sales_lines('-infinity'::timestamptz, 'infinity'::timestamptz, asof, tz, public.erp_undone(asof), public.erp_unit_maps())
+       where day >= p_from and day < p_to
+       group by 1, 2, 3) x;
+  return jsonb_build_object('grain', p_grain, 'from', p_from, 'to', p_to, 'rows', rows_);
+end $$;
+
+-- Of the quotes created in the window, how many became orders. Quotes still undecided are shown apart: counting them
+-- as lost reads a recent month too low.
+create or replace function public.erp_quote_conversion(p_from date, p_to date, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  tz text := public.erp_analytics_tz();
+  asof timestamptz := coalesce(p_as_of, now());
+  undone uuid[] := public.erp_undone(asof);
+  n int; won int; lost int; med numeric;
+  z numeric := 1.2816; p numeric; d numeric; c numeric; h numeric; decided int;
+begin
+  with q as (
+    select e.stream_id, e.occurred_at from public.erp_events e
+     where e.event_type = 'QuotationCreated'
+       and e.occurred_at >= p_from::timestamp at time zone tz and e.occurred_at < p_to::timestamp at time zone tz and e.occurred_at <= asof
+       and not e.correlation_id = any (undone)
+  ), o as (
+    select q.stream_id, q.occurred_at,
+           (select min(x.occurred_at) from public.erp_events x
+             where x.stream_id = q.stream_id and x.event_type = 'SalesOrderConfirmed' and x.occurred_at <= asof and not x.correlation_id = any (undone)) as won_at,
+           (select min(x.occurred_at) from public.erp_events x
+             where x.stream_id = q.stream_id and x.event_type in ('SalesOrderCancelled', 'QuotationDeclined', 'QuotationDeleted') and x.occurred_at <= asof and not x.correlation_id = any (undone)) as lost_at
+      from q
+  )
+  select count(*), count(won_at), count(*) filter (where won_at is null and lost_at is not null),
+         percentile_cont(0.5) within group (order by extract(epoch from won_at - occurred_at) / 86400) filter (where won_at is not null)
+    into n, won, lost, med from o;
+  decided := won + lost;
+  if n = 0 then
+    return jsonb_build_object('quotes', 0, 'won', 0, 'lost', 0, 'open', 0, 'rate', null, 'low', null, 'high', null, 'median_days', null);
+  end if;
+  p := won::numeric / n; d := 1 + z * z / n; c := p + z * z / (2 * n); h := z * sqrt(p * (1 - p) / n + z * z / (4.0 * n * n));
+  return jsonb_build_object('quotes', n, 'won', won, 'lost', lost, 'open', n - decided, 'rate', round(p, 4),
+    'low', round(greatest(0, (c - h) / d), 4), 'high', round(least(1, (c + h) / d), 4),
+    'decided_rate', case when decided > 0 then round(won::numeric / decided, 4) end, 'median_days', round(med, 1));
+end $$;
+
+-- Every model and its state. Thresholds come from experiments/whatif/results-thresholds.json and match web/src/lib/forecast/thresholds.ts.
+-- Modules on and off, and what counts as evidence, are all read from the ledger, using its indexes.
+create or replace function public.erp_models(p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  tz text := public.erp_analytics_tz();
+  asof timestamptz := coalesce(p_as_of, now());
+  today date := ((asof at time zone tz) + interval '1 second')::date;
+  spans jsonb := public.erp_module_spans(asof);
+  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계"}';
+  readable text[] := erp.readable_types();
+  m record;
+  missing text[];
+  stale text[];
+  m_ text;
+  have numeric; need numeric; unit_ text; since_ date; msg text; ok boolean; extra jsonb; sales_need int;
+  out_ jsonb := '[]'::jsonb;
+  -- Evidence, each answered by one indexed lookup.
+  first_sale date; sales_months int; orders int;
+  quotes int;
+  stock_first date; stock_until date; stock_days int := 0;
+  warehouses int;
+  stock_out_cases int;
+  receipts int;
+  paid int;
+  term_changes int;
+  gl_months int; gl_first date;
+  span jsonb;
+  a date; b date;
+begin
+  select (min(e.data ->> 'date_order'))::date, count(*) into first_sale, orders
+    from public.erp_events e where e.event_type = 'SalesOrderConfirmed' and e.occurred_at <= asof;
+  if first_sale is null then
+    select (min(e.occurred_at) at time zone tz)::date into first_sale from public.erp_events e where e.event_type = 'SalesOrderConfirmed' and e.occurred_at <= asof;
+  end if;
+  -- Months that actually had sales: one old order must not read as a long history.
+  select count(distinct date_trunc('month', coalesce((e.data ->> 'date_order')::date, (e.occurred_at at time zone tz)::date))) into sales_months
+    from public.erp_events e where e.event_type = 'SalesOrderConfirmed' and e.occurred_at <= asof;
+  select count(*) into quotes from public.erp_events e where e.event_type = 'QuotationCreated' and e.occurred_at <= asof;
+  select (min(e.occurred_at) at time zone tz)::date into stock_first
+    from public.erp_events e where (e.data -> 'effects') ? 'quant' and e.occurred_at <= asof;
+  if stock_first is not null then
+    for span in select * from jsonb_array_elements(coalesce(spans -> 'inventory' -> 'periods', '[]'::jsonb)) loop
+      a := greatest((span ->> 'from')::date, stock_first);
+      b := coalesce((span ->> 'to')::date, today);
+      if b > a then stock_days := stock_days + (b - a); stock_until := b; end if;
+    end loop;
+  end if;
+  select count(*) into warehouses from public.erp_records r where r.type = 'warehouse';
+  select count(*) into receipts from public.erp_events e
+   where e.event_type = 'PickingValidated' and e.data ->> 'picking_type' = 'incoming' and e.occurred_at <= asof and e.data ->> 'origin_type' = 'purchase_order';
+  select count(*) into paid from public.erp_events e
+   where e.event_type = 'InvoicePaymentApplied' and e.data ->> 'payment_state' = 'paid' and e.occurred_at <= asof;
+  select count(*) into term_changes from (
+    select e.data ->> 'partner_id' as partner
+      from public.erp_events e
+     where e.event_type = 'InvoicePosted' and e.data ->> 'move_type' = 'out_invoice' and e.occurred_at <= asof
+     group by 1
+    having count(distinct public.erp_biz_day(e.data ->> 'due_date', e.occurred_at, tz) - public.erp_biz_day(coalesce(e.data ->> 'invoice_date', e.data ->> 'date'), e.occurred_at, tz)) > 1) x;
+  -- By accounting date, not when the entry was recorded: books turned on late are rebuilt all at once.
+  select count(distinct date_trunc('month', d)), min(d)::date into gl_months, gl_first
+    from (select public.erp_biz_day(coalesce(e.data -> 'effects' -> 'gl' -> 0 ->> 'date', e.data ->> 'date'), e.occurred_at, tz) as d
+            from public.erp_events e where (e.data -> 'effects') ? 'gl' and e.occurred_at <= asof) x;
+
+  -- The drop what-if asks for stockouts. Counted only when stock history exists, because this one walks every stock change.
+  stock_out_cases := 0;
+  if stock_days > 0 then
+    stock_out_cases := jsonb_array_length(public.erp_stockout_days('0001-01-01'::date, today + 1, asof));
+  end if;
+
+  for m in
+    select * from (values
+      ('stat_sales', 'stat', '지역·제품·시즌 통계', array['sales'], false, array['sales_order']),
+      ('quote_conversion', 'stat', '견적 전환율', array['sales'], false, array['sales_order']),
+      ('demand_sales', 'forecast', '판매 기준 수요 예측', array['sales'], false, array['sales_order']),
+      ('demand_true', 'forecast', '품절 보정 수요 예측', array['sales', 'inventory'], false, array['sales_order', 'picking']),
+      ('stockout_risk', 'forecast', '품절 예상일', array['sales', 'inventory'], true, array['sales_order', 'picking']),
+      ('whatif_policy', 'whatif', '발주 정책 변경', array['sales', 'inventory'], true, array['sales_order', 'picking']),
+      ('whatif_realloc', 'whatif', '창고 재배치', array['sales', 'inventory'], true, array['sales_order', 'picking']),
+      ('whatif_drop', 'whatif', '단종', array['sales'], false, array['sales_order']),
+      ('lead_time', 'forecast', '실측 납기', array['purchase', 'inventory'], false, array['purchase_order', 'picking']),
+      ('whatif_lead', 'whatif', '납기·공급사 변경', array['sales', 'inventory', 'purchase'], true, array['sales_order', 'picking', 'purchase_order']),
+      ('reorder_plan', 'forecast', '발주 필요 예측', array['sales', 'inventory', 'purchase'], true, array['sales_order', 'picking', 'purchase_order']),
+      ('cash_in', 'forecast', '입금 예측', array['invoicing'], true, array['account_move']),
+      ('whatif_terms', 'whatif', '결제 조건 변경', array['invoicing'], true, array['account_move']),
+      ('pnl_outlook', 'forecast', '손익 전망', array['sales', 'accounting'], false, array['sales_order', 'journal_entry'])
+    ) as t(id, kind, label, modules, needs_current, types)
+  loop
+    missing := '{}'; stale := '{}';
+    foreach m_ in array m.modules loop
+      if jsonb_array_length(coalesce(spans -> m_ -> 'periods', '[]'::jsonb)) = 0 then missing := missing || m_;
+      elsif not coalesce((spans -> m_ ->> 'enabled')::boolean, false) then
+        -- History stays readable after a module goes off, but nothing can be said about today's stock or open invoices.
+        if m.needs_current then missing := missing || m_; else stale := stale || m_; end if;
+      end if;
+    end loop;
+
+    have := 0; need := 0; unit_ := ''; since_ := null; msg := ''; extra := '{}'::jsonb;
+    case m.id
+      when 'stat_sales' then have := orders; unit_ := '건'; since_ := first_sale; msg := format('주문 %s건', orders);
+      when 'quote_conversion' then have := quotes; need := 40; unit_ := '건'; since_ := first_sale; msg := '견적';
+      when 'demand_sales' then have := sales_months; need := 15; unit_ := '개월'; since_ := first_sale; msg := '판매';
+      when 'demand_true' then have := stock_days; need := 30; unit_ := '일'; since_ := stock_first; msg := '재고 이력';
+      when 'stockout_risk' then have := stock_days; need := 30; unit_ := '일'; since_ := stock_first; msg := '재고 이력';
+      when 'whatif_policy' then
+        -- Order dates and lead times on record shorten this a lot: without them the reorder point is only a guess from receipts.
+        have := stock_days; need := case when receipts >= 10 then 180 else 270 end; unit_ := '일'; since_ := stock_first; msg := '재고 이력';
+      when 'whatif_realloc' then
+        have := stock_days; need := 180; unit_ := '일'; since_ := stock_first; msg := '재고 이력';
+        extra := jsonb_build_object('warehouses', warehouses, 'warehouses_need', 2);
+      when 'whatif_drop' then have := stock_out_cases; need := 5; unit_ := '건'; since_ := stock_first; msg := '대체 상품 품절 사례';
+      when 'lead_time', 'whatif_lead' then have := receipts; need := 10; unit_ := '건'; since_ := (spans -> 'purchase' -> 'periods' -> 0 ->> 'from')::date; msg := '입고';
+      when 'reorder_plan' then have := receipts; need := 30; unit_ := '건'; since_ := (spans -> 'purchase' -> 'periods' -> 0 ->> 'from')::date; msg := '입고';
+      when 'cash_in' then have := paid; need := 100; unit_ := '건'; since_ := (spans -> 'invoicing' -> 'periods' -> 0 ->> 'from')::date; msg := '입금 완료 청구서';
+      when 'whatif_terms' then
+        have := paid; need := 100; unit_ := '건'; since_ := (spans -> 'invoicing' -> 'periods' -> 0 ->> 'from')::date; msg := '입금 완료 청구서';
+        extra := jsonb_build_object('term_changes', term_changes, 'term_changes_need', 3);
+      when 'pnl_outlook' then have := gl_months; need := 3; unit_ := '개월'; since_ := gl_first; msg := '전표';
+    end case;
+
+    ok := have >= need;
+    if m.id = 'whatif_realloc' and warehouses < 2 then ok := false; end if;
+    -- Paid invoices say how customers pay, not whether they would follow new terms. Only a customer whose own term changed can.
+    if m.id = 'whatif_terms' and term_changes < 3 then ok := false; end if;
+    -- Stock history says which days to trust; the season still has to have been seen in sales.
+    sales_need := case when m.id = 'demand_true' then 12 when m.id in ('whatif_policy', 'whatif_realloc', 'whatif_lead', 'whatif_drop') then 9 else 0 end;
+    if m.id = 'stat_sales' then msg := msg;
+    elsif ok and sales_months < sales_need then
+      ok := false;
+      msg := format('판매 %s개월 필요 (지금 %s개월)', sales_need, sales_months);
+    elsif ok then msg := format('%s %s%s', msg, have, unit_);
+    elsif m.id = 'whatif_realloc' and warehouses < 2 then msg := format('창고 2곳 필요 (지금 %s곳)', warehouses);
+    elsif m.id = 'whatif_terms' and have >= need then msg := format('결제 조건이 바뀐 거래처 3곳 필요 (지금 %s곳). 고객이 따를지 알 수 없어 범위로만 보여 줍니다', term_changes);
+    else msg := format('%s %s%s 필요 (지금 %s%s)', msg, need, unit_, have, unit_);
+    end if;
+    if m.id = 'whatif_drop' and not ok then msg := msg || '. 대체율을 몰라 0~100% 범위로만 보여 줍니다'; end if;
+
+    if cardinality(missing) > 0 then
+      msg := (select string_agg(labels ->> x, '·') from unnest(missing) x) || ' 모듈을 켜면 열립니다';
+    elsif cardinality(stale) > 0 then
+      msg := msg || format('. %s 모듈이 꺼져 있어 %s까지의 이력으로 계산합니다',
+        (select string_agg(labels ->> x, '·') from unnest(stale) x), coalesce(stock_until::text, '꺼진 날'));
+    end if;
+
+    -- Someone who may not read the documents behind a model does not see a count of them either.
+    if exists (select 1 from erp.catalog c where c.type = any (m.types) and not c.type = any (readable)) then
+      out_ := out_ || jsonb_build_object('id', m.id, 'kind', m.kind, 'label', m.label, 'state', 'locked', 'missing_modules', '[]'::jsonb,
+        'forbidden', true, 'evidence', jsonb_build_object('have', 0, 'need', need, 'unit', unit_, 'message', '이 모델을 볼 권한이 없습니다'), 'since', null);
+      continue;
+    end if;
+
+    out_ := out_ || jsonb_build_object(
+      'id', m.id, 'kind', m.kind, 'label', m.label,
+      'state', case when cardinality(missing) > 0 then 'locked' when ok then 'ready' else 'insufficient' end,
+      'missing_modules', to_jsonb(missing),
+      'modules', to_jsonb(m.modules),
+      'stale_modules', to_jsonb(stale),
+      'evidence', jsonb_build_object('have', have, 'need', need, 'unit', unit_, 'message', msg) || extra,
+      'since', since_);
+  end loop;
+  return out_;
+end $$;

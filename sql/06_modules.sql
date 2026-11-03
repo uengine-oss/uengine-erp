@@ -178,7 +178,7 @@ language plpgsql as $$
 declare m erp.modules;
 begin
   for m in select * from erp.modules order by coalesce((doc ->> 'sort')::int, 100), id loop
-    if (p is null and coalesce((m.doc ->> 'default_on')::boolean, false))
+    if ((p is null or jsonb_typeof(p) = 'null') and coalesce((m.doc ->> 'default_on')::boolean, false))
        or p = '"all"'::jsonb
        or (jsonb_typeof(p) = 'array' and p ? m.id) then
       perform erp.h_module(null, 'enable', jsonb_build_object('id', m.id));

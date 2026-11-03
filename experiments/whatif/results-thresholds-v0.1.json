@@ -1,0 +1,599 @@
+{
+ "seeds": 30,
+ "firstSeed": 3001,
+ "runs": 150,
+ "volume": 0.1,
+ "models": {
+  "demand_sales": {
+   "unit": "개월",
+   "levels": [
+    {
+     "level": 3,
+     "wape": 0.5081998952151577,
+     "wapeDemand": 0.5939966121459492,
+     "cover": 1,
+     "cases": 60
+    },
+    {
+     "level": 6,
+     "wape": 0.6022976437676295,
+     "wapeDemand": 0.6724195433791758,
+     "cover": 1,
+     "cases": 60
+    },
+    {
+     "level": 9,
+     "wape": 0.668014201090787,
+     "wapeDemand": 0.43377798344139634,
+     "cover": 0.7777777777777778,
+     "cases": 60
+    },
+    {
+     "level": 12,
+     "wape": 0.17444095246730804,
+     "wapeDemand": 0.36791688039698583,
+     "cover": 0.9444444444444444,
+     "cases": 60
+    },
+    {
+     "level": 15,
+     "wape": 0.16431407845392282,
+     "wapeDemand": 0.335198683028676,
+     "cover": 0.8333333333333334,
+     "cases": 60
+    },
+    {
+     "level": 18,
+     "wape": 0.15188354233089157,
+     "wapeDemand": 0.32610552073084675,
+     "cover": 0.8333333333333334,
+     "cases": 60
+    },
+    {
+     "level": 24,
+     "wape": 0.15356980783352425,
+     "wapeDemand": 0.3118263428414277,
+     "cover": 0.8333333333333334,
+     "cases": 60
+    }
+   ],
+   "measured": 12,
+   "scenario": 12
+  },
+  "demand_true": {
+   "unit": "일",
+   "levels": [
+    {
+     "level": 30,
+     "wape": 0.14132913630610244,
+     "bias": -0.031012035253502667,
+     "cover": 0.8888888888888888
+    },
+    {
+     "level": 60,
+     "wape": 0.14133327066993048,
+     "bias": -0.034389656029750686,
+     "cover": 0.8888888888888888
+    },
+    {
+     "level": 90,
+     "wape": 0.14131506421851953,
+     "bias": -0.033928122908214196,
+     "cover": 0.8333333333333334
+    },
+    {
+     "level": 120,
+     "wape": 0.1437196757956284,
+     "bias": -0.03372879618237088,
+     "cover": 0.8888888888888888
+    },
+    {
+     "level": 180,
+     "wape": 0.14061810987927822,
+     "bias": -0.03527650180093009,
+     "cover": 0.8333333333333334
+    },
+    {
+     "level": 270,
+     "wape": 0.14167197371303758,
+     "bias": -0.038745722689308315,
+     "cover": 0.8888888888888888
+    },
+    {
+     "level": 365,
+     "wape": 0.15450108365235962,
+     "bias": 0.011968343772824614,
+     "cover": 0.7777777777777778
+    },
+    {
+     "level": 517,
+     "wape": 0.15289624893558643,
+     "bias": 0.012625570442240098,
+     "cover": 0.8333333333333334
+    }
+   ],
+   "measured": 30,
+   "scenario": 90
+  },
+  "whatif_policy": {
+   "unit": "일",
+   "levels": [
+    {
+     "level": 30,
+     "n": 0,
+     "available": 0,
+     "withPurchase": {
+      "n": 5,
+      "truth": 33471000,
+      "predicted": 2403000,
+      "relError": 0.9310414095904956,
+      "absError": 30441000,
+      "coverage": 0,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 1877899.9999999995
+     }
+    },
+    {
+     "level": 60,
+     "n": 1,
+     "truth": 39852000,
+     "predicted": 1958000,
+     "relError": 0.9508682123858275,
+     "absError": 37894000,
+     "coverage": 0,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 2314000,
+     "available": 0.03333333333333333,
+     "withPurchase": {
+      "n": 28,
+      "truth": 38270000,
+      "predicted": 6497000,
+      "relError": 0.8362508573643873,
+      "absError": 31132000,
+      "coverage": 0,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 5263800
+     }
+    },
+    {
+     "level": 90,
+     "n": 11,
+     "truth": 40584000,
+     "predicted": 1735500,
+     "relError": 0.9572948044677845,
+     "absError": 38937500,
+     "coverage": 0,
+     "direction": 1,
+     "claimed": 0.7272727272727273,
+     "claimedRight": 1,
+     "width": 3026000,
+     "available": 0.36666666666666664,
+     "withPurchase": {
+      "n": 30,
+      "truth": 37513000,
+      "predicted": 22149500,
+      "relError": 0.4614188659524432,
+      "absError": 17658500,
+      "coverage": 0.13333333333333333,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 12299100
+     }
+    },
+    {
+     "level": 120,
+     "n": 22,
+     "truth": 38735000,
+     "predicted": 7003500,
+     "relError": 0.8102500097507703,
+     "absError": 34596500,
+     "coverage": 0,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 8119200,
+     "available": 0.7333333333333333,
+     "withPurchase": {
+      "n": 30,
+      "truth": 37513000,
+      "predicted": 26921500,
+      "relError": 0.31560604104814766,
+      "absError": 10773500,
+      "coverage": 0.4,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 15937200
+     }
+    },
+    {
+     "level": 180,
+     "n": 30,
+     "truth": 37513000,
+     "predicted": 21623000,
+     "relError": 0.42711314634611713,
+     "absError": 16723000,
+     "coverage": 0.3333333333333333,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 17571099.999999996,
+     "available": 1,
+     "withPurchase": {
+      "n": 30,
+      "truth": 37513000,
+      "predicted": 34549000,
+      "relError": 0.14891300967250334,
+      "absError": 5539000,
+      "coverage": 0.7,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 19062700
+     }
+    },
+    {
+     "level": 270,
+     "n": 30,
+     "truth": 37513000,
+     "predicted": 33134000,
+     "relError": 0.1906042981992349,
+     "absError": 6128500,
+     "coverage": 0.9333333333333333,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 27516800,
+     "available": 1,
+     "withPurchase": {
+      "n": 30,
+      "truth": 37513000,
+      "predicted": 34383500,
+      "relError": 0.16783312748730617,
+      "absError": 5541500,
+      "coverage": 0.7666666666666667,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 20435700
+     }
+    },
+    {
+     "level": 365,
+     "n": 30,
+     "truth": 37513000,
+     "predicted": 36668000,
+     "relError": 0.1297346150686057,
+     "absError": 5285500,
+     "coverage": 0.9666666666666667,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 24836600,
+     "available": 1,
+     "withPurchase": {
+      "n": 30,
+      "truth": 37513000,
+      "predicted": 36104000,
+      "relError": 0.1771266296630954,
+      "absError": 6118500,
+      "coverage": 0.6666666666666666,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 18743599.999999993
+     }
+    },
+    {
+     "level": 517,
+     "n": 30,
+     "truth": 37513000,
+     "predicted": 35924500,
+     "relError": 0.12445195469492144,
+     "absError": 4873500,
+     "coverage": 0.9333333333333333,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 25573200,
+     "available": 1,
+     "withPurchase": {
+      "n": 30,
+      "truth": 37513000,
+      "predicted": 35971000,
+      "relError": 0.18175718237340124,
+      "absError": 6636500,
+      "coverage": 0.8,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 18487900
+     }
+    }
+   ],
+   "measured": 270,
+   "measuredWithPurchase": 517,
+   "scenario": 90
+  },
+  "whatif_realloc": {
+   "unit": "일",
+   "levels": [
+    {
+     "level": 30,
+     "n": 0,
+     "strong": {
+      "n": 0
+     },
+     "withPurchase": {
+      "n": 0
+     },
+     "bad": {
+      "n": 0
+     }
+    },
+    {
+     "level": 60,
+     "n": 0,
+     "strong": {
+      "n": 0
+     },
+     "withPurchase": {
+      "n": 0
+     },
+     "bad": {
+      "n": 0
+     }
+    },
+    {
+     "level": 90,
+     "n": 0,
+     "strong": {
+      "n": 0
+     },
+     "withPurchase": {
+      "n": 7,
+      "truth": -2111000,
+      "predicted": -289000,
+      "relError": 1,
+      "absError": 2945500,
+      "coverage": 0.7142857142857143,
+      "direction": 0.42857142857142855,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 7253900
+     },
+     "bad": {
+      "n": 0
+     }
+    },
+    {
+     "level": 120,
+     "n": 0,
+     "strong": {
+      "n": 0
+     },
+     "withPurchase": {
+      "n": 16,
+      "truth": -1156000,
+      "predicted": -289000,
+      "relError": 1,
+      "absError": 2935000,
+      "coverage": 0.8125,
+      "direction": 0.375,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 7831899.999999998
+     },
+     "bad": {
+      "n": 0
+     }
+    },
+    {
+     "level": 180,
+     "n": 9,
+     "truth": -1198000,
+     "predicted": -867000,
+     "relError": 0.8826729457616109,
+     "absError": 2646000,
+     "coverage": 1,
+     "direction": 0.6666666666666666,
+     "claimed": 0,
+     "claimedRight": null,
+     "width": 16212899.999999998,
+     "strong": {
+      "n": 9,
+      "truth": -777000,
+      "predicted": -2890000,
+      "relError": 2,
+      "absError": 2113000,
+      "coverage": 1,
+      "direction": 0.7777777777777778,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 16328499.999999998
+     },
+     "withPurchase": {
+      "n": 29,
+      "truth": -1156000,
+      "predicted": -289000,
+      "relError": 1,
+      "absError": 2692000,
+      "coverage": 0.7586206896551724,
+      "direction": 0.5172413793103449,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 8120899.999999998
+     },
+     "bad": {
+      "n": 9,
+      "truth": 423000,
+      "predicted": 867000,
+      "relError": 0.6857841804838272,
+      "absError": 5046000,
+      "coverage": 1,
+      "direction": 0.7777777777777778,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 17137699.999999996
+     }
+    },
+    {
+     "level": 270,
+     "n": 30,
+     "truth": -1090000,
+     "predicted": -289000,
+     "relError": 1.126465954839839,
+     "absError": 2890000,
+     "coverage": 0.9666666666666667,
+     "direction": 0.4,
+     "claimed": 0,
+     "claimedRight": null,
+     "width": 14767899.999999998,
+     "strong": {
+      "n": 30,
+      "truth": -1443000,
+      "predicted": -289000,
+      "relError": 1.1511506276150627,
+      "absError": 2557000,
+      "coverage": 1,
+      "direction": 0.4,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 15085799.999999996
+     },
+     "withPurchase": {
+      "n": 30,
+      "truth": -1090000,
+      "predicted": -433500,
+      "relError": 1,
+      "absError": 2544500,
+      "coverage": 0.7333333333333333,
+      "direction": 0.5333333333333333,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 7860799.999999998
+     },
+     "bad": {
+      "n": 30,
+      "truth": 423000,
+      "predicted": 289000,
+      "relError": 0.9644832247757159,
+      "absError": 3523500,
+      "coverage": 0.9666666666666667,
+      "direction": 0.5333333333333333,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 16241799.999999998
+     }
+    },
+    {
+     "level": 365,
+     "n": 30,
+     "truth": -1090000,
+     "predicted": -289000,
+     "relError": 1.051570306923626,
+     "absError": 2601000,
+     "coverage": 1,
+     "direction": 0.5333333333333333,
+     "claimed": 0,
+     "claimedRight": null,
+     "width": 14478900,
+     "strong": {
+      "n": 30,
+      "truth": -1443000,
+      "predicted": -289000,
+      "relError": 1.0186721991701244,
+      "absError": 2047500,
+      "coverage": 1,
+      "direction": 0.4666666666666667,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 15085799.999999998
+     },
+     "withPurchase": {
+      "n": 30,
+      "truth": -1090000,
+      "predicted": -289000,
+      "relError": 1.015843429636533,
+      "absError": 2601000,
+      "coverage": 0.7666666666666667,
+      "direction": 0.43333333333333335,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 8409900
+     },
+     "bad": {
+      "n": 30,
+      "truth": 423000,
+      "predicted": 1322000,
+      "relError": 1.178942929434917,
+      "absError": 3402000,
+      "coverage": 0.9,
+      "direction": 0.5333333333333333,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 16212899.999999998
+     }
+    },
+    {
+     "level": 517,
+     "n": 30,
+     "truth": -1090000,
+     "predicted": -44000,
+     "relError": 1,
+     "absError": 2456500,
+     "coverage": 0.9666666666666667,
+     "direction": 0.4666666666666667,
+     "claimed": 0,
+     "claimedRight": null,
+     "width": 14507799.999999998,
+     "strong": {
+      "n": 30,
+      "truth": -1443000,
+      "predicted": -213500,
+      "relError": 1.2042024267534774,
+      "absError": 2412500,
+      "coverage": 1,
+      "direction": 0.4666666666666667,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 15114699.999999998
+     },
+     "withPurchase": {
+      "n": 30,
+      "truth": -1090000,
+      "predicted": -578000,
+      "relError": 1.0469308216953557,
+      "absError": 2890000,
+      "coverage": 0.7666666666666667,
+      "direction": 0.5,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 7860799.999999998
+     },
+     "bad": {
+      "n": 30,
+      "truth": 423000,
+      "predicted": 1445000,
+      "relError": 1.0178108808290156,
+      "absError": 3143000,
+      "coverage": 0.9666666666666667,
+      "direction": 0.5666666666666667,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 16608400
+     }
+    }
+   ],
+   "measured": 180,
+   "scenario": 90
+  }
+ }
+}

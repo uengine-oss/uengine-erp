@@ -59,12 +59,12 @@ export async function wipe() {
  * Installs and creates the company without the browser, for specs that test what comes after setup.
  * `since` backdates the company, for specs that look at or go back to a date while it already existed.
  */
-export async function freshCompany({ since } = {}) {
+export async function freshCompany({ since, modules = 'all' } = {}) {
   await wipe()
   await sql(installScript())
   await sql(`select erp.set_setup_code('test-setup-code')`)
   await waitForInstalled()
-  const company = { name: COMPANY, currency: 'KRW', decimal_places: 0, timezone: 'Asia/Seoul' }
+  const company = { name: COMPANY, currency: 'KRW', decimal_places: 0, timezone: 'Asia/Seoul', modules }
   if (since) {
     await sql(`with c as materialized (select set_config('erp.clock', $1, true)) select public.erp_bootstrap('test-setup-code', $2::jsonb, $3, $4, $5) from c`,
       [since, JSON.stringify(company), ADMIN.email, ADMIN.password, ADMIN.name])

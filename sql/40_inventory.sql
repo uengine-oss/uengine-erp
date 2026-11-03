@@ -2232,8 +2232,6 @@ begin
 end $$;
 insert into erp.default_seeds(fn, sort) values ('erp.seed_inventory', 40) on conflict (fn) do nothing;
 
--- Master seeds set a stock field on the default category, which an off module would refuse. Off is the state of
--- a company choosing modules, not of its starting data, so the door stays open while the seeds run.
 
 select erp.module_put('{
   "id": "inventory", "label": "재고", "label_en": "Inventory", "sort": 20, "default_on": false,

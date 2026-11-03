@@ -76,7 +76,8 @@ begin
       n := erp.num(p_v, null);
       if n is null then perform erp.fail('ERP_INVALID', format('%s 항목은 숫자여야 합니다', label)); end if;
       if t = 'integer' and n <> trunc(n) then perform erp.fail('ERP_INVALID', format('%s 항목은 정수여야 합니다', label)); end if;
-      return to_jsonb(case when t = 'money' then erp.money(n) else n end);
+      -- Prices keep what was typed: a catalogue price of 1234.56 in a whole-won company is not 1235. Amounts round.
+      return to_jsonb(case when t = 'money' and not coalesce((p_f ->> 'precise')::boolean, false) then erp.money(n) else n end);
     when 'boolean' then
       if jsonb_typeof(p_v) <> 'boolean' then perform erp.fail('ERP_INVALID', format('%s 항목은 참/거짓이어야 합니다', label)); end if;
     when 'enum' then
@@ -210,6 +211,14 @@ begin
   end if;
 end $$;
 
+-- Keeps the keys whose field belongs to a module that is on.
+create or replace function erp.fields_on(p_type text, p jsonb) returns jsonb
+language sql stable as $$
+  select coalesce(jsonb_object_agg(e.key, e.value), '{}'::jsonb) from jsonb_each(p) e
+   where not exists (select 1 from jsonb_array_elements(erp.catalog_of(p_type) -> 'fields') f
+                      where f ->> 'name' = e.key and not erp.module_on(f ->> 'module'))
+$$;
+
 -- Create and update for types without a state machine. p_check is erp.check_x(id, next state, current state).
 create or replace function erp.h_master(p_type text, p_id uuid, p_command text, p_p jsonb, p_check text default null)
 returns uuid language plpgsql as $$
@@ -314,10 +323,27 @@ language sql as $$ select erp.h_master('tag', p_id, p_command, p_p) $$;
 create or replace function erp.h_account(p_id uuid, p_command text, p_p jsonb) returns uuid
 language sql as $$ select erp.h_master('account', p_id, p_command, p_p) $$;
 
+-- A negative rate is how withholding is written, so only a division that would divide by zero or less is refused.
 create or replace function erp.check_tax(p_id uuid, p_next jsonb, p_cur jsonb) returns void
 language plpgsql as $$
+declare
+  kid text;
+  k jsonb;
 begin
-  if erp.num(p_next -> 'amount') < 0 then perform erp.fail('ERP_INVALID', '세금 값은 0 이상이어야 합니다'); end if;
+  if p_next ->> 'amount_type' = 'division' and (erp.num(p_next -> 'amount') < 0 or erp.num(p_next -> 'amount') >= 100) then
+    perform erp.fail('ERP_INVALID', '나눗셈 세금의 세율은 0 이상 100 미만이어야 합니다');
+  end if;
+  if p_next ->> 'amount_type' = 'group' then
+    if exists (select 1 from erp.records where type = 'tax' and not deleted and id <> p_id
+                  and state @> jsonb_build_object('children_tax_ids', jsonb_build_array(p_id))) then
+      perform erp.fail('ERP_INVALID', '세금 그룹 안에 세금 그룹을 넣을 수 없습니다');
+    end if;
+    for kid in select value from jsonb_array_elements_text(coalesce(p_next -> 'children_tax_ids', '[]'::jsonb)) loop
+      k := erp.require_state(kid::uuid, 'tax');
+      if k ->> 'amount_type' = 'group' then perform erp.fail('ERP_INVALID', '세금 그룹 안에 세금 그룹을 넣을 수 없습니다'); end if;
+      if k ->> 'scope' <> p_next ->> 'scope' then perform erp.fail('ERP_INVALID', '세금 그룹과 하위 세금의 적용 범위가 같아야 합니다'); end if;
+    end loop;
+  end if;
 end $$;
 
 -- amount is a rate for percent taxes and money for fixed ones, so it is rounded here and not by its field type.
@@ -329,6 +355,9 @@ declare
 begin
   if p_command in ('create', 'update') and kind = 'fixed' and erp.num(p_p -> 'amount', null) is not null then
     p := p || jsonb_build_object('amount', erp.money(erp.num(p_p -> 'amount')));
+  end if;
+  if p_command = 'create' then
+    p := jsonb_build_object('price_include', coalesce((erp.setting('default_price_include'))::boolean, false)) || p;
   end if;
   return erp.h_master('tax', p_id, p_command, p, 'erp.check_tax');
 end $$;
@@ -356,65 +385,126 @@ language sql as $$ select erp.h_master('warehouse', p_id, p_command, p_p, 'erp.c
 ------------------------------------------------------------------------------------------------
 -- Payment terms
 ------------------------------------------------------------------------------------------------
+-- Percent lines must add up to exactly 100, so a term always accounts for the whole amount. A term without
+-- lines is allowed and means "due on the invoice date". Early discount only makes sense on one 100% line.
 create or replace function erp.check_payment_term(p_id uuid, p_next jsonb, p_cur jsonb) returns void
 language plpgsql as $$
 declare
   rows_ jsonb := coalesce(p_next -> 'lines', '[]'::jsonb);
-  n int := jsonb_array_length(rows_);
+  l jsonb;
+  dn numeric;
 begin
-  if n = 0 or rows_ -> (n - 1) ->> 'value' <> 'balance' then
-    perform erp.fail('ERP_INVALID', '결제 조건의 마지막 줄은 잔금이어야 합니다');
+  if rows_ <> '[]'::jsonb and (select coalesce(sum(erp.num(value -> 'amount')), 0) from jsonb_array_elements(rows_) where value ->> 'value' = 'percent') <> 100 then
+    perform erp.fail('ERP_INVALID', '결제 조건에는 비율 줄이 있어야 하고 비율 합계는 100 이어야 합니다');
   end if;
-  if (select count(*) from jsonb_array_elements(rows_) where value ->> 'value' = 'balance') > 1 then
-    perform erp.fail('ERP_INVALID', '잔금 줄은 하나만 둘 수 있습니다');
-  end if;
-  if exists (select 1 from jsonb_array_elements(rows_) where value ->> 'value' <> 'balance' and erp.num(value -> 'amount') <= 0) then
-    perform erp.fail('ERP_INVALID', '결제 조건의 비율과 금액은 0보다 커야 합니다');
-  end if;
-  if exists (select 1 from jsonb_array_elements(rows_) where erp.num(value -> 'days') < 0) then
-    perform erp.fail('ERP_INVALID', '결제 조건의 일수는 0 이상이어야 합니다');
-  end if;
-  if (select coalesce(sum(erp.num(value -> 'amount')), 0) from jsonb_array_elements(rows_) where value ->> 'value' = 'percent') > 100 then
-    perform erp.fail('ERP_INVALID', '결제 조건의 비율 합계는 100을 넘을 수 없습니다');
+  for l in select value from jsonb_array_elements(rows_) loop
+    if l ->> 'value' = 'percent' and (erp.num(l -> 'amount') < 0 or erp.num(l -> 'amount') > 100) then
+      perform erp.fail('ERP_INVALID', '결제 조건의 비율은 0 에서 100 사이여야 합니다');
+    end if;
+    if l ->> 'value' = 'fixed' and erp.num(l -> 'amount') < 0 then
+      perform erp.fail('ERP_INVALID', '결제 조건의 금액은 0 이상이어야 합니다');
+    end if;
+    if l ->> 'delay_type' = 'days_end_of_month_on_the' then
+      dn := erp.num(l -> 'days_next_month');
+      if dn < 0 or dn > 31 or dn <> trunc(dn) then perform erp.fail('ERP_INVALID', '다음 달 지정일은 0 에서 31 사이의 정수여야 합니다'); end if;
+    end if;
+  end loop;
+  if coalesce((p_next ->> 'early_discount')::boolean, false) then
+    if erp.num(p_next -> 'discount_percentage') <= 0 or erp.num(p_next -> 'discount_percentage') > 100 then
+      perform erp.fail('ERP_INVALID', '조기 할인율은 0 보다 크고 100 이하여야 합니다');
+    end if;
+    if erp.num(p_next -> 'discount_days') <= 0 then perform erp.fail('ERP_INVALID', '조기 할인 기한은 1일 이상이어야 합니다'); end if;
+    if jsonb_array_length(rows_) <> 1 or rows_ -> 0 ->> 'value' <> 'percent' or erp.num(rows_ -> 0 -> 'amount') <> 100 then
+      perform erp.fail('ERP_INVALID', '조기 할인은 100% 한 줄인 결제 조건에만 쓸 수 있습니다');
+    end if;
   end if;
 end $$;
 
 create or replace function erp.h_payment_term(p_id uuid, p_command text, p_p jsonb) returns uuid
 language sql as $$ select erp.h_master('payment_term', p_id, p_command, p_p, 'erp.check_payment_term') $$;
 
--- Percent lines take a share of the total and fixed lines their amount, in line order, never more than
--- what is left. The balance line takes the rest, so rounding differences land there and the sum is exact.
--- Refunds keep the sign. Installments that come to zero are left out.
-create or replace function erp.payment_term_schedule(p_term_id uuid, p_amount numeric, p_invoice_date date default null) returns jsonb
+create or replace function erp.payment_term_due(p_line jsonb, p_invoice_date date) returns date
+language plpgsql immutable as $$
+declare
+  n int := erp.num(p_line -> 'days')::int;
+  month_end date;
+begin
+  case p_line ->> 'delay_type'
+    when 'days_after_end_of_month' then
+      return (date_trunc('month', p_invoice_date) + interval '1 month - 1 day')::date + n;
+    when 'days_after_end_of_next_month' then
+      return (date_trunc('month', p_invoice_date) + interval '2 month - 1 day')::date + n;
+    when 'days_end_of_month_on_the' then
+      month_end := (date_trunc('month', p_invoice_date + n) + interval '1 month - 1 day')::date;
+      -- The chosen day falls in the following month, or on its last day when that month is shorter.
+      return least(month_end + erp.num(p_line -> 'days_next_month')::int,
+                   (date_trunc('month', month_end + 1) + interval '1 month - 1 day')::date);
+    else
+      return p_invoice_date + n;
+  end case;
+end $$;
+
+-- Percent lines take a share of the total. The last percent line takes what the others left, so rounding
+-- lands there and the sum is exact. A fixed line never exceeds what is left, so no installment is negative
+-- even when the invoice is smaller than the fixed amount. An installment that comes to zero stays, because
+-- the invoice's due date is the date of the last installment. Refunds keep the sign.
+create or replace function erp.payment_term_split(p_term jsonb, p_amount numeric, p_date date, p_untaxed numeric default null) returns jsonb
 language plpgsql stable as $$
 declare
-  d date := coalesce(p_invoice_date, erp.today());
   total numeric := erp.money(p_amount);
   sign_ numeric := case when total < 0 then -1 else 1 end;
   rest numeric := abs(total);
+  rows_ jsonb := coalesce(p_term -> 'lines', '[]'::jsonb);
+  last_share int;
+  fixed_after numeric;
   l jsonb;
+  i int;
   amt numeric;
-  last_due date := d;
+  row_ jsonb;
+  disc_base numeric;
   out_ jsonb := '[]'::jsonb;
 begin
-  if p_term_id is null then
-    return jsonb_build_array(jsonb_build_object('due_date', d::text, 'amount', total));
+  if rows_ = '[]'::jsonb then
+    return jsonb_build_array(jsonb_build_object('due_date', p_date::text, 'amount', total));
   end if;
-  for l in select value from jsonb_array_elements(erp.require_state(p_term_id, 'payment_term') -> 'lines') loop
-    last_due := d + erp.num(l -> 'days')::int;
-    amt := case l ->> 'value'
-             when 'percent' then least(erp.money(abs(total) * erp.num(l -> 'amount') / 100), rest)
-             when 'fixed' then least(erp.money(erp.num(l -> 'amount')), rest)
-             else rest end;
-    rest := rest - amt;
-    if amt <> 0 then
-      out_ := out_ || jsonb_build_object('due_date', last_due::text, 'amount', sign_ * amt);
+  select max(o) into last_share from jsonb_array_elements(rows_) with ordinality t(v, o) where v ->> 'value' <> 'fixed';
+  for l, i in select v, o from jsonb_array_elements(rows_) with ordinality t(v, o) loop
+    if l ->> 'value' = 'fixed' then
+      amt := least(erp.money(erp.num(l -> 'amount')), rest);
+    elsif i = last_share then
+      select coalesce(sum(erp.money(erp.num(v -> 'amount'))), 0) into fixed_after
+        from jsonb_array_elements(rows_) with ordinality t(v, o) where o > i and v ->> 'value' = 'fixed';
+      amt := greatest(rest - fixed_after, 0);
+    else
+      amt := least(erp.money(abs(total) * erp.num(l -> 'amount') / 100), rest);
     end if;
+    rest := rest - amt;
+    row_ := jsonb_build_object('due_date', erp.payment_term_due(l, p_date)::text, 'amount', sign_ * amt);
+    if coalesce((p_term ->> 'early_discount')::boolean, false) then
+      disc_base := case when p_term ->> 'discount_mode' = 'excluded' then abs(coalesce(p_untaxed, total)) else abs(total) end;
+      row_ := row_ || jsonb_build_object('discount_date', (p_date + erp.num(p_term -> 'discount_days')::int)::text,
+        'discount_amount', sign_ * (amt - erp.money(disc_base * erp.num(p_term -> 'discount_percentage') / 100)));
+    end if;
+    out_ := out_ || row_;
   end loop;
-  if out_ = '[]'::jsonb then
-    return jsonb_build_array(jsonb_build_object('due_date', last_due::text, 'amount', 0));
-  end if;
   return out_;
+end $$;
+
+drop function if exists erp.payment_term_schedule(uuid, numeric, date);
+create or replace function erp.payment_term_schedule(p_term_id uuid, p_amount numeric, p_invoice_date date default null, p_untaxed numeric default null) returns jsonb
+language plpgsql stable as $$
+begin
+  return erp.payment_term_split(
+    case when p_term_id is null then '{}'::jsonb else erp.require_state(p_term_id, 'payment_term') end,
+    p_amount, coalesce(p_invoice_date, erp.today()), p_untaxed);
+end $$;
+
+-- What a term would do to any amount on any date, so the form can show it before anything is saved.
+create or replace function erp.preview_payment_term(p jsonb) returns jsonb
+language plpgsql stable as $$
+begin
+  return p || jsonb_build_object('schedule', erp.payment_term_split(p, erp.num(p -> 'amount', 1000),
+    coalesce((p ->> 'date')::date, erp.today()), erp.num(p -> 'untaxed', null)));
 end $$;
 
 ------------------------------------------------------------------------------------------------
@@ -517,6 +607,23 @@ begin
   return erp.h_master('partner', p_id, p_command, p_p, 'erp.check_partner');
 end $$;
 
+-- Contacts that may be the same, for a person to look at and merge. Blank values never match.
+create or replace function public.erp_partner_duplicates(p_fields text[] default array['email']) returns jsonb
+language plpgsql stable security definer set search_path = erp, pg_temp as $$
+begin
+  if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '구성원만 볼 수 있습니다'); end if;
+  if exists (select 1 from unnest(p_fields) f where f not in ('email', 'name', 'company_type', 'tax_id', 'parent_id', 'phone')) or cardinality(p_fields) = 0 then
+    perform erp.fail('ERP_INVALID', '비교할 수 있는 항목은 email, name, company_type, tax_id, parent_id, phone 입니다');
+  end if;
+  return (select coalesce(jsonb_agg(jsonb_build_object('values', k, 'partners', ids) order by k), '[]'::jsonb) from (
+    select k, jsonb_agg(jsonb_build_object('id', id, 'name', name) order by created_at, id) as ids
+      from (select r.id, r.name, r.created_at, (select jsonb_object_agg(f, lower(btrim(r.state ->> f))) from unnest(p_fields) f) as k
+              from erp.records r
+             where r.type = 'partner' and not r.deleted and r.active
+               and not exists (select 1 from unnest(p_fields) f where coalesce(btrim(r.state ->> f), '') = '')) x
+     group by k having count(*) > 1) t);
+end $$;
+
 ------------------------------------------------------------------------------------------------
 -- Products and variants
 ------------------------------------------------------------------------------------------------
@@ -560,7 +667,7 @@ language sql as $$
          'values', p_values,
          'name', (p_state ->> 'name') || coalesce(' (' || (
             select string_agg(p_info -> 'names' ->> v, ', ' order by i) from jsonb_array_elements_text(p_values) with ordinality t(v, i)) || ')', ''),
-         'price_extra', erp.money((select coalesce(sum(erp.num(p_info -> 'extras' -> v)), 0) from jsonb_array_elements_text(p_values) v)))
+         'price_extra', (select coalesce(sum(erp.num(p_info -> 'extras' -> v)), 0) from jsonb_array_elements_text(p_values) v))
 $$;
 
 -- What the variant rows should be for this product state. Existing rows keep their id, sku, barcode and cost.
@@ -685,7 +792,7 @@ begin
     if exists (select 1 from jsonb_each(coalesce(nullif(l -> 'extras', 'null'::jsonb), '{}'::jsonb)) where erp.num(value, null) is null) then
       perform erp.fail('ERP_INVALID', format('추가 금액은 숫자여야 합니다: %s', a ->> 'name'));
     end if;
-    select coalesce(jsonb_object_agg(key, erp.money(erp.num(value))), '{}'::jsonb) into extras
+    select coalesce(jsonb_object_agg(key, erp.num(value)), '{}'::jsonb) into extras
       from jsonb_each(coalesce(nullif(l -> 'extras', 'null'::jsonb), '{}'::jsonb)) where (l -> 'value_ids') ? key;
     out_ := out_ || (l || jsonb_build_object('extras', extras));
   end loop;
@@ -699,6 +806,23 @@ begin
   perform erp.uom_factor((p_next ->> 'uom_id')::uuid, (p_next ->> 'purchase_uom_id')::uuid);
   if p_next ->> 'type' = 'service' and coalesce(p_next ->> 'tracking', 'none') <> 'none' then
     perform erp.fail('ERP_INVALID', '서비스 제품은 추적할 수 없습니다');
+  end if;
+  if p_next ->> 'type' = 'combo' then
+    if jsonb_array_length(coalesce(p_next -> 'combos', '[]'::jsonb)) = 0 then
+      perform erp.fail('ERP_INVALID', '콤보 제품에는 선택 항목이 하나 이상 필요합니다');
+    end if;
+    for v in select value from jsonb_array_elements(p_next -> 'combos') loop
+      if jsonb_array_length(coalesce(v -> 'items', '[]'::jsonb)) = 0 then
+        perform erp.fail('ERP_INVALID', format('콤보 선택 항목에 제품이 없습니다: %s', v ->> 'name'));
+      end if;
+      if (select count(*) <> count(distinct i ->> 'variant_id') from jsonb_array_elements(v -> 'items') i) then
+        perform erp.fail('ERP_DUPLICATE', format('콤보 선택 항목에 같은 제품을 두 번 넣을 수 없습니다: %s', v ->> 'name'));
+      end if;
+      if exists (select 1 from jsonb_array_elements(v -> 'items') i join erp.variants x on x.id = (i ->> 'variant_id')::uuid
+                   join erp.records r on r.id = x.product_id where r.state ->> 'type' = 'combo') then
+        perform erp.fail('ERP_INVALID', '콤보 선택 항목에 콤보 제품을 넣을 수 없습니다');
+      end if;
+    end loop;
   end if;
   for v in select value from jsonb_array_elements(coalesce(p_next -> 'vendors', '[]'::jsonb)) loop
     if v ->> 'date_end' < v ->> 'date_start' then perform erp.fail('ERP_INVALID', '공급사 가격의 종료일이 시작일보다 빠릅니다'); end if;
@@ -772,18 +896,24 @@ begin
     if exists (select 1 from erp.records where id = new_id) then
       perform erp.fail('ERP_DUPLICATE', format('이미 있는 레코드입니다: %s', new_id));
     end if;
-    p := jsonb_strip_nulls(jsonb_build_object(
+    -- Defaults are not the caller asking for a field, so a field of a module that is off just gets none.
+    p := erp.fields_on('product', jsonb_strip_nulls(jsonb_build_object(
            'uom_id', (select id from erp.records where id = erp.seed_id('개') and not deleted),
            'category_id', (select id from erp.records where id = erp.seed_id('기본 분류') and not deleted),
            'sale_tax_ids', case when erp.setting('default_sale_tax_id') is not null then jsonb_build_array(erp.setting('default_sale_tax_id')) end,
-           'purchase_tax_ids', case when erp.setting('default_purchase_tax_id') is not null then jsonb_build_array(erp.setting('default_purchase_tax_id')) end)) || p;
-    p := jsonb_build_object('purchase_uom_id', p -> 'uom_id') || p;
+           'purchase_tax_ids', case when erp.setting('default_purchase_tax_id') is not null then jsonb_build_array(erp.setting('default_purchase_tax_id')) end))) || p;
+    p := erp.fields_on('product', jsonb_build_object('purchase_uom_id', p -> 'uom_id')) || p;
   else
     cur := erp.require_state(p_id, 'product');
   end if;
   vals := erp.validate('product', erp.clean_payload('product', p - 'variants', cur), p_command = 'create');
   if vals ? 'attributes' then vals := vals || jsonb_build_object('attributes', erp.product_attributes(vals -> 'attributes')); end if;
   next_ := cur || vals;
+  -- Only goods can sit in stock. A goods product with the switch off still ships, it just changes no quantity.
+  if next_ ->> 'type' <> 'goods' and coalesce((next_ ->> 'is_storable')::boolean, false) then
+    vals := vals || '{"is_storable": false}'::jsonb;
+    next_ := cur || vals;
+  end if;
   perform erp.check_product(next_);
 
   rows_ := coalesce(cur -> 'variants', '[]'::jsonb);
@@ -904,7 +1034,7 @@ begin
     'product_name', s ->> 'name',
     'sku', coalesce(v ->> 'sku', s ->> 'internal_ref'),
     'barcode', (select barcode from erp.variants where id = p_variant_id),
-    'list_price', erp.money(erp.num(s -> 'list_price') + erp.num(v -> 'price_extra')),
+    'list_price', erp.num(s -> 'list_price') + erp.num(v -> 'price_extra'),
     'standard_price', coalesce(nullif(v -> 'standard_price', 'null'::jsonb), s -> 'standard_price', '0'::jsonb),
     'active', coalesce((v ->> 'active')::boolean, true) and coalesce((s ->> 'active')::boolean, true));
 end $$;
@@ -939,6 +1069,8 @@ select erp.catalog_master('{
     {"name": "zip", "label": "우편번호", "type": "text"},
     {"name": "country", "label": "국가", "type": "text", "help": "ISO 국가 코드 (KR, US ...)"},
     {"name": "tax_id", "label": "사업자등록번호", "type": "text", "search": true},
+    {"name": "ref", "label": "참조 번호", "type": "text", "search": true},
+    {"name": "industry", "label": "업종", "type": "text"},
     {"name": "lang", "label": "언어", "type": "text"},
     {"name": "tags", "label": "태그", "type": "refs", "ref": "tag", "default": []},
     {"name": "salesperson_id", "label": "담당 영업", "type": "ref", "ref": "member"},
@@ -958,15 +1090,16 @@ select erp.catalog_master('{
   "type": "product", "sort": 20, "label": "제품", "label_en": "Product",
   "fields": [
     {"name": "type", "label": "제품 유형", "type": "enum", "required": true, "default": "goods", "list": true,
-     "options": [{"value": "goods", "label": "재화"}, {"value": "service", "label": "서비스"}]},
+     "options": [{"value": "goods", "label": "재화"}, {"value": "service", "label": "서비스"}, {"value": "combo", "label": "콤보"}]},
+    {"name": "is_storable", "label": "재고 추적", "type": "boolean", "default": true, "help": "끄면 전표는 생겨도 재고 수량은 변하지 않습니다"},
     {"name": "name", "label": "제품명", "type": "text", "required": true, "list": true, "search": true},
     {"name": "internal_ref", "label": "내부 참조", "type": "text", "list": true, "search": true},
     {"name": "barcode", "label": "바코드", "type": "text", "unique": true, "search": true},
     {"name": "category_id", "label": "제품 분류", "type": "ref", "ref": "product_category", "required": true, "list": true},
     {"name": "uom_id", "label": "단위", "type": "ref", "ref": "uom", "required": true, "list": true},
     {"name": "purchase_uom_id", "label": "구매 단위", "type": "ref", "ref": "uom"},
-    {"name": "list_price", "label": "판매가", "type": "money", "default": 0, "list": true},
-    {"name": "standard_price", "label": "원가", "type": "money", "default": 0, "list": true},
+    {"name": "list_price", "label": "판매가", "type": "money", "precise": true, "default": 0, "list": true},
+    {"name": "standard_price", "label": "원가", "type": "money", "precise": true, "default": 0, "list": true},
     {"name": "sale_ok", "label": "판매 가능", "type": "boolean", "default": true},
     {"name": "purchase_ok", "label": "구매 가능", "type": "boolean", "default": true},
     {"name": "sale_tax_ids", "label": "매출 세금", "type": "refs", "ref": "tax", "default": []},
@@ -992,20 +1125,28 @@ select erp.catalog_master('{
       {"name": "sku", "label": "SKU", "type": "text"},
       {"name": "barcode", "label": "바코드", "type": "text"},
       {"name": "values", "label": "속성값", "type": "tags", "readonly": true, "default": []},
-      {"name": "price_extra", "label": "추가 금액", "type": "money", "readonly": true},
-      {"name": "standard_price", "label": "변형 원가", "type": "money"},
+      {"name": "price_extra", "label": "추가 금액", "type": "money", "precise": true, "readonly": true},
+      {"name": "standard_price", "label": "변형 원가", "type": "money", "precise": true},
       {"name": "active", "label": "사용", "type": "boolean", "default": true}
     ]},
     {"name": "vendors", "label": "공급사 가격", "type": "lines", "default": [], "columns": [
       {"name": "partner_id", "label": "공급사", "type": "ref", "ref": "partner", "required": true},
       {"name": "min_qty", "label": "최소 수량", "type": "number", "default": 0},
-      {"name": "price", "label": "단가", "type": "money", "default": 0},
+      {"name": "price", "label": "단가", "type": "money", "precise": true, "default": 0},
       {"name": "delay_days", "label": "납기 일수", "type": "integer", "default": 0},
       {"name": "vendor_code", "label": "공급사 제품 코드", "type": "text"},
       {"name": "discount", "label": "할인(%)", "type": "number", "default": 0},
       {"name": "date_start", "label": "시작일", "type": "date"},
       {"name": "date_end", "label": "종료일", "type": "date"}
-    ]}
+    ]},
+    {"name": "combos", "label": "콤보 선택 항목", "type": "lines", "default": [], "columns": [
+      {"name": "name", "label": "항목명", "type": "text", "required": true},
+      {"name": "items", "label": "고를 수 있는 제품", "type": "lines", "default": [], "columns": [
+        {"name": "variant_id", "label": "제품", "type": "ref", "ref": "variant", "required": true},
+        {"name": "extra_price", "label": "추가 금액", "type": "money", "precise": true, "default": 0}
+      ]}
+    ]},
+    {"name": "optional_product_ids", "label": "선택 제품", "type": "refs", "ref": "product", "default": [], "help": "견적에 이 제품을 담으면 함께 제안합니다"}
   ]
 }'::jsonb, '["sales", "purchase", "inventory"]'::jsonb);
 
@@ -1064,9 +1205,14 @@ select erp.catalog_master('{
     {"name": "scope", "label": "적용 범위", "type": "enum", "required": true, "default": "sale", "list": true,
      "options": [{"value": "sale", "label": "매출"}, {"value": "purchase", "label": "매입"}]},
     {"name": "amount_type", "label": "계산 방식", "type": "enum", "required": true, "default": "percent", "list": true,
-     "options": [{"value": "percent", "label": "비율"}, {"value": "fixed", "label": "고정 금액"}]},
+     "options": [{"value": "percent", "label": "비율"}, {"value": "fixed", "label": "고정 금액"},
+                 {"value": "division", "label": "나눗셈"}, {"value": "group", "label": "세금 그룹"}]},
     {"name": "amount", "label": "세율 또는 금액", "type": "number", "required": true, "default": 0, "list": true},
     {"name": "price_include", "label": "가격에 포함", "type": "boolean", "default": false, "list": true},
+    {"name": "include_base_amount", "label": "다음 세금의 기준에 더함", "type": "boolean", "default": false},
+    {"name": "is_base_affected", "label": "앞 세금의 영향을 받음", "type": "boolean", "default": true},
+    {"name": "sequence", "label": "계산 순서", "type": "integer", "default": 1},
+    {"name": "children_tax_ids", "label": "그룹의 세금", "type": "refs", "ref": "tax", "default": []},
     {"name": "account_id", "label": "세금 계정", "type": "ref", "ref": "account"},
     {"name": "description", "label": "설명", "type": "text"}
   ]
@@ -1090,11 +1236,20 @@ select erp.catalog_master('{
   "fields": [
     {"name": "name", "label": "이름", "type": "text", "required": true, "list": true, "search": true},
     {"name": "note", "label": "설명", "type": "text"},
+    {"name": "early_discount", "label": "조기 할인", "type": "boolean", "default": false},
+    {"name": "discount_percentage", "label": "조기 할인율(%)", "type": "number", "default": 2},
+    {"name": "discount_days", "label": "조기 할인 기한(일)", "type": "integer", "default": 10},
+    {"name": "discount_mode", "label": "조기 할인 기준", "type": "enum", "default": "included",
+     "options": [{"value": "included", "label": "세금 포함 금액"}, {"value": "excluded", "label": "공급가액"}]},
     {"name": "lines", "label": "할부", "type": "lines", "default": [], "columns": [
-      {"name": "value", "label": "방식", "type": "enum", "required": true, "default": "balance",
-       "options": [{"value": "percent", "label": "비율"}, {"value": "fixed", "label": "고정 금액"}, {"value": "balance", "label": "잔금"}]},
-      {"name": "amount", "label": "비율 또는 금액", "type": "number", "default": 0},
-      {"name": "days", "label": "일수", "type": "integer", "default": 0}
+      {"name": "value", "label": "방식", "type": "enum", "required": true, "default": "percent",
+       "options": [{"value": "percent", "label": "비율"}, {"value": "fixed", "label": "고정 금액"}]},
+      {"name": "amount", "label": "비율 또는 금액", "type": "number", "default": 100},
+      {"name": "days", "label": "일수", "type": "integer", "default": 0},
+      {"name": "delay_type", "label": "기일 기준", "type": "enum", "default": "days_after",
+       "options": [{"value": "days_after", "label": "청구일 뒤"}, {"value": "days_after_end_of_month", "label": "청구일 월말 뒤"},
+                   {"value": "days_after_end_of_next_month", "label": "다음 달 말 뒤"}, {"value": "days_end_of_month_on_the", "label": "일수 뒤 월말의 다음 달 지정일"}]},
+      {"name": "days_next_month", "label": "다음 달 지정일", "type": "integer", "default": 0}
     ]}
   ]
 }'::jsonb, '["accounting"]'::jsonb);
@@ -1136,9 +1291,12 @@ select erp.catalog_master('{
 -- The kernel owns the company entry and rewrites it on every install, so these fields are added back each time.
 select erp.catalog_put(d || jsonb_build_object('fields', (
     select jsonb_agg(value) from jsonb_array_elements(d -> 'fields')
-     where value ->> 'name' not in ('default_sale_tax_id', 'default_purchase_tax_id')) || '[
+     where value ->> 'name' not in ('default_sale_tax_id', 'default_purchase_tax_id', 'default_price_include', 'early_discount_gain_account_id', 'early_discount_loss_account_id')) || '[
     {"name": "default_sale_tax_id", "label": "기본 매출 세금", "type": "ref", "ref": "tax"},
-    {"name": "default_purchase_tax_id", "label": "기본 매입 세금", "type": "ref", "ref": "tax"}
+    {"name": "default_purchase_tax_id", "label": "기본 매입 세금", "type": "ref", "ref": "tax"},
+    {"name": "default_price_include", "label": "새 세금은 가격에 포함", "type": "boolean", "default": false},
+    {"name": "early_discount_gain_account_id", "label": "조기 할인 이익 계정", "type": "ref", "ref": "account"},
+    {"name": "early_discount_loss_account_id", "label": "조기 할인 손실 계정", "type": "ref", "ref": "account"}
   ]'::jsonb))
   from (select erp.catalog_of('company') as d) t;
 
@@ -1200,11 +1358,11 @@ begin
       jsonb_build_object('default_sale_tax_id', sale_tax, 'default_purchase_tax_id', purchase_tax)));
   end if;
 
-  perform erp.seed_put('payment_term', '즉시', '{"name": "즉시", "lines": [{"value": "balance", "days": 0}]}');
-  perform erp.seed_put('payment_term', '15일', '{"name": "15일", "lines": [{"value": "balance", "days": 15}]}');
-  perform erp.seed_put('payment_term', '30일', '{"name": "30일", "lines": [{"value": "balance", "days": 30}]}');
+  perform erp.seed_put('payment_term', '즉시', '{"name": "즉시", "lines": [{"value": "percent", "amount": 100, "days": 0}]}');
+  perform erp.seed_put('payment_term', '15일', '{"name": "15일", "lines": [{"value": "percent", "amount": 100, "days": 15}]}');
+  perform erp.seed_put('payment_term', '30일', '{"name": "30일", "lines": [{"value": "percent", "amount": 100, "days": 30}]}');
   perform erp.seed_put('payment_term', '30%선금+잔금 60일', '{"name": "30%선금+잔금 60일",
-    "lines": [{"value": "percent", "amount": 30, "days": 0}, {"value": "balance", "days": 60}]}');
+    "lines": [{"value": "percent", "amount": 30, "days": 0}, {"value": "percent", "amount": 70, "days": 60}]}');
 
   perform erp.seed_put('product_category', '기본 분류', jsonb_build_object('name', '기본 분류', 'cost_method', 'standard',
     'income_account_id', erp.seed_id('상품매출'), 'expense_account_id', erp.seed_id('상품매출원가')));
@@ -1220,7 +1378,9 @@ insert into erp.default_seeds(fn, sort) values ('erp.seed_master', 10) on confli
 
 -- Fields that mean nothing until the module that uses them is on.
 select erp.catalog_tag_fields('product', 'purchase', array['purchase_uom_id', 'purchase_ok', 'purchase_tax_ids', 'bill_policy', 'vendors', 'description_purchase']);
-select erp.catalog_tag_fields('product', 'inventory', array['tracking', 'weight', 'volume']);
+select erp.catalog_tag_fields('product', 'inventory', array['tracking', 'weight', 'volume', 'is_storable']);
+select erp.catalog_tag_fields('product', 'sales', array['optional_product_ids', 'combos']);
+select erp.catalog_tag_fields('company', 'accounting', array['early_discount_gain_account_id', 'early_discount_loss_account_id']);
 select erp.catalog_tag_fields('product', 'invoicing', array['invoice_policy']);
 select erp.catalog_tag_fields('product_category', 'accounting', array['income_account_id', 'expense_account_id']);
 select erp.catalog_tag_fields('product_category', 'inventory', array['cost_method']);

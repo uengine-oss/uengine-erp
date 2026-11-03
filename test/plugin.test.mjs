@@ -83,6 +83,20 @@ test('uninstalling leaves the core working and the history intact', async () => 
   assert.equal((await c.db.query(`select count(*)::int n from erp.subscriptions where module = 'points'`)).rows[0].n, 0)
 })
 
+test('an order that earned points can still be rolled back after the plugin is gone', async () => {
+  await c.db.query(file('points.sql'))
+  await c.admin('module', null, 'enable', { id: 'points' })
+  await c.db.query(`create or replace function erp_points.on_order(ev erp.events) returns void language plpgsql as $f$
+    begin perform erp.emit('points_entry', erp.seed_id('points:' || ev.stream_id), 'PointsEarned', jsonb_build_object('set', jsonb_build_object('name', 'x', 'points', 1, 'origin_id', ev.stream_id))); end $f$`)
+  const o = await confirmed(1000)
+  await c.settle()
+  await c.db.query(file('points-uninstall.sql'))
+  const plan = (await c.db.asUser(c.adminId, 'select public.erp_rollback_preview($1, $2) as p', ['correlation', JSON.stringify({ correlation_id: o.corr })])).rows[0].p
+  assert.ok(plan.streams.some((s) => s.type === 'points_entry'))
+  await c.db.asUser(c.adminId, 'select public.erp_rollback_apply($1, $2, $3, $4, $5) as r', ['correlation', JSON.stringify({ correlation_id: o.corr }), plan.hash, true, '플러그인을 지운 뒤'])
+  assert.equal((await c.db.query(`select count(*)::int n from erp.records where type = 'points_entry' and state ->> 'origin_id' = $1 and not deleted and state ? 'name'`, [o.id])).rows[0].n, 0)
+})
+
 test('installing it again resumes from now', async () => {
   await c.db.query(file('points.sql'))
   await c.admin('module', null, 'enable', { id: 'points' })

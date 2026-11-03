@@ -77,16 +77,19 @@
 | `product_category` | `name, parent_id, income_account_id, expense_account_id, cost_method(standard/average)` |
 | `tag` | `name, color` |
 | `account` | `code(unique), name, account_type(asset_receivable, asset_cash, asset_current, asset_non_current, liability_payable, liability_current, equity, income, expense)` |
-| `tax` | `name, scope(sale/purchase), amount_type(percent/fixed), amount, price_include, account_id, description` |
+| `tax` | `name, scope(sale/purchase), amount_type(percent/fixed/division/group), amount, price_include, include_base_amount, is_base_affected, sequence, children_tax_ids, account_id, description` |
 | `fiscal_position` | `name, auto_apply, country, tax_map[{id, from_tax_id, to_tax_id}]` |
-| `payment_term` | `name, note, lines[{id, value(percent/fixed/balance), amount, days}]`. 잔금 줄은 마지막에 하나 |
+| `payment_term` | `name, note, early_discount, discount_percentage, discount_days, discount_mode(included/excluded), lines[{id, value(percent/fixed), amount, days, delay_type(days_after/days_after_end_of_month/days_after_end_of_next_month/days_end_of_month_on_the), days_next_month}]`. 비율 합은 100, 줄이 없어도 된다 |
 | `attribute` | `name, display_type(pills/color/radio/select/multi), create_variant(always/dynamic/no_variant), values[{id, name, color}]`. `multi` 는 `no_variant` 만. 제품에 쓰인 뒤 `create_variant` 변경 금지 |
-| `partner` | `company_type(company/person), name, parent_id, address_type(contact/invoice/delivery/other), job_position, phone, mobile, email, website, street, region, city, zip, country, tax_id, lang, tags, salesperson_id, payment_term_id, vendor_payment_term_id, pricelist_id, fiscal_position_id, note, merged_into, active`. 명령 `merge{into}` |
-| `product` | `type(goods/service), name, internal_ref, barcode, category_id, uom_id, purchase_uom_id, list_price, standard_price, sale_ok, purchase_ok, sale_tax_ids, purchase_tax_ids, invoice_policy(order/delivery), bill_policy(order/receipt), tracking(none/lot/serial), weight, volume, customer_lead_days, description_sale, description_purchase, attributes[{id, attribute_id, value_ids, extras:{value_id:price}}], variants[{id, sku, barcode, values:[value_id], name, price_extra, standard_price, active}], vendors[{id, partner_id, min_qty, price, delay_days, vendor_code, discount, date_start, date_end}]` |
+| `partner` | `company_type(company/person), name, parent_id, address_type(contact/invoice/delivery/other), job_position, phone, mobile, email, website, street, region, city, zip, country, tax_id, ref, industry, lang, tags, salesperson_id, payment_term_id, vendor_payment_term_id, pricelist_id, fiscal_position_id, note, merged_into, active`. 명령 `merge{into}` |
+| `product` | `type(goods/service/combo), is_storable, name, internal_ref, barcode, category_id, uom_id, purchase_uom_id, list_price, standard_price, sale_ok, purchase_ok, sale_tax_ids, purchase_tax_ids, invoice_policy(order/delivery), bill_policy(order/receipt), tracking(none/lot/serial), weight, volume, customer_lead_days, description_sale, description_purchase, attributes[{id, attribute_id, value_ids, extras:{value_id:price}}], variants[{id, sku, barcode, values:[value_id], name, price_extra, standard_price, active}], vendors[{id, partner_id, min_qty, price, delay_days, vendor_code, discount, date_start, date_end}], combos[{id, name, items[{id, variant_id, extra_price}]}], optional_product_ids` |
 | `warehouse` | `name, code, stock_location_id` |
 | `location` | `name, parent_id, usage(view/internal/customer/supplier/inventory/transit), scrap` |
 
 - 속성 없는 제품도 기본 변형 한 줄이 생긴다. 주문·재고는 언제나 `variant_id` 를 쓴다.
+- `is_storable` 은 재화만 켤 수 있다(서비스·콤보는 저장할 때 꺼진다). 끈 재화도 전표는 생기고 재고 수량만 변하지 않는다. 재고 모듈을 켜기 전에 만든 제품에는 값이 없고, 없으면 재화는 저장되는 것으로 본다.
+- `combo` 제품에는 `combos` 선택 항목이 하나 이상 있어야 하고, 각 항목에는 제품이 하나 이상이며 같은 제품이 겹치지 않고 콤보 제품을 넣을 수 없다. 콤보 자체에는 재고도 세금도 없다. 주문에서 어떻게 값이 매겨지는지는 `docs/modules/sales.md`.
+- 가격은 입력한 값을 그대로 저장한다(`list_price`, `standard_price`, 값별 추가 금액, 공급사 단가, 가격 규칙의 고정 가격·추가금·마진). 카탈로그에 `"precise": true` 로 표시한다. 통화 자릿수로 반올림되는 것은 줄 금액부터다.
 - 파생 표 `erp.variants(id, product_id, sku, barcode, name, active)` 를 project 훅으로 유지한다. 화면은 뷰 `public.erp_variants` 로 읽는다.
 - 함수 `erp.variant(variant_id) returns jsonb`: 변형 + 제품 필드 + `variant_id, product_id, product_name, list_price`(제품 가격 + `price_extra`), `standard_price`(변형 원가, 없으면 제품 원가), `active`(변형과 제품이 모두 사용 중), 없으면 `ERP_NOT_FOUND`. 보관된 변형도 읽힌다(옛 문서용).
 - 함수 `erp.uom_convert(qty, from_uom, to_uom)`: 대상 단위의 `rounding` 으로 반올림(반은 올림). 다른 분류면 `ERP_UOM`.
@@ -95,7 +98,11 @@
 - 화면이 변형 줄에서 고칠 수 있는 것은 `sku, barcode, standard_price, active` 뿐이다. 줄을 넣거나 뺄 수 없다.
 - 줄 이벤트: 처리기가 차이를 계산해 `<유형><줄>Added/Changed/Removed/Reordered` 를 종류별로 하나씩 낸다. `PaymentTermLine*`, `FiscalPositionTaxMap*`, `AttributeValue*`, `ProductAttribute*`, `ProductVendor*`. 변형은 `ProductVariantAdded/Changed/Archived/Reactivated` 이고 `ProductCreated` 바로 뒤의 `ProductVariantAdded` 에 실린다.
 - 줄 컬럼의 추가 속성: `ref: "variant"` 는 `erp_variants` 에서 고른다. `options_from: {field, path}` 는 같은 줄의 `field` 가 가리키는 레코드의 `path` 목록에서 값을 고른다(제품 속성의 `value_ids`).
-- 결제 조건 계산: `erp.payment_term_schedule(term_id, amount, invoice_date) returns jsonb` → `[{due_date, amount}]`. `percent` 는 합계의 비율, `fixed` 는 그 금액(남은 금액까지만), `balance` 는 나머지이므로 합이 정확히 맞는다. 환불은 부호를 유지한다. 0원 할부는 뺀다. `term_id` 가 없으면 청구일 한 줄.
+- 결제 조건 계산: `erp.payment_term_schedule(term_id, amount, invoice_date, untaxed) returns jsonb` → `[{due_date, amount, discount_date?, discount_amount?}]`. `percent` 는 합계의 비율이고 **마지막 비율 줄이 나머지**를 받으므로 합이 정확히 맞는다. `fixed` 는 그 금액이되 남은 금액까지만이라 음수 할부가 없다. 환불은 부호를 유지한다. 0원이 된 회차도 남는다(청구서 기일은 마지막 회차 날짜다). `term_id` 가 없거나 줄이 없으면 청구일 한 줄.
+- 기일: `days_after` 청구일 + 일수, `days_after_end_of_month` 청구일의 월말 + 일수, `days_after_end_of_next_month` 다음 달 말 + 일수, `days_end_of_month_on_the` 청구일 + 일수가 속한 달의 월말에서 다음 달 `days_next_month` 일(0 이면 그 월말, 그 달보다 크면 그 달 말일).
+- 조기 할인은 100% 한 줄인 조건에만 쓴다. `discount_amount` 는 기한 안에 내면 되는 금액이다. `included` 는 세금 포함 금액, `excluded` 는 `untaxed` 의 `discount_percentage` 를 뺀다. 조기 할인 이익·손실 계정은 회사 설정 `early_discount_gain_account_id`, `early_discount_loss_account_id`.
+- `erp.preview_payment_term({lines, early_discount, ..., amount, date, untaxed})` → 그대로 + `schedule`. 저장 전에 아무 금액·날짜로 미리 본다.
+- `public.erp_partner_duplicates(fields)`: 고른 항목(`email, name, company_type, tax_id, parent_id, phone`)이 모두 같은 사용 중 연락처 묶음을 돌려준다. 빈 값은 맞는 것으로 치지 않는다. 합치는 것은 사람이 `merge` 로 한다.
 - `merge{into}`: 원본은 `merged_into` + `active=false` 로 남고 더 고칠 수 없다(`ERP_MERGED`). 대상의 빈 칸을 원본 값으로 채우고 태그를 합치며, 하위 연락처와 제품 `vendors` 는 대상으로 옮긴다. 발행된 문서의 `partner_id` 는 사실이므로 바꾸지 않는다. 문서를 옮겨야 하는 모듈은 `PartnerMerged` 에 react 한다. 자신의 하위 연락처로는 합칠 수 없다.
 - 기본 시드(`erp.default_seeds`). ID 는 `erp.seed_id('이름')`(이름에서 만든 고정 uuid)으로 얻는다. 이름은 아래 그대로다.
   - 단위: `개`, `다스`, `g`, `kg`, `톤`, `시간`, `일`, `cm`, `m`, `km`, `mL`, `L`
@@ -103,17 +110,20 @@
   - 결제 조건: `즉시`, `15일`, `30일`, `30%선금+잔금 60일`
   - 계정과목: `현금`, `보통예금`, `외상매출금`, `선급금`, `부가세대급금`, `상품`, `비품`, `외상매입금`, `부가세예수금`, `선수금`, `자본금`, `이월이익잉여금`, `상품매출`, `잡이익`, `상품매출원가`, `대손상각비`, `재고자산감모손실`, `잡손실`
   - 분류: `기본 분류`. 창고: `WH`. 위치: `재고`, `공급사`, `고객`, `재고조정`, `폐기`. 가격표: `기본 가격표`
-- 회사 설정의 기본 세금 `default_sale_tax_id`, `default_purchase_tax_id` 는 새 제품의 기본값이다. 이 두 필드는 `10_master.sql` 이 회사 카탈로그에 더한다. 새 제품의 단위와 분류 기본값은 시드 `개`, `기본 분류` 다.
+- 회사 설정의 기본 세금 `default_sale_tax_id`, `default_purchase_tax_id` 는 새 제품의 기본값이다. `default_price_include` 는 포함 여부를 밝히지 않은 새 세금의 기본값이다. 이 필드들은 `10_master.sql` 이 회사 카탈로그에 더한다. 새 제품의 단위와 분류 기본값은 시드 `개`, `기본 분류` 다.
 
 ## 3. 가격 (`sql/20_pricing.sql`)
 
 `pricelist`: `name, currency, sort, country_group, rules[{id, apply_on(all/category/product/variant), category_id, product_id, variant_id, min_qty, date_start, date_end, price_type(discount/formula/fixed), discount, fixed_price, base(list_price/standard_price/pricelist), base_pricelist_id, formula_discount, round_to, surcharge, min_margin, max_margin}]`
 
-- `erp.price_for(pricelist_id, variant_id, qty, on_date, uom_id) returns jsonb` → `{price_unit, list_price, discount, rule_id}`. 선택 순서: 구체적인 대상(변형 > 제품 > 분류 > 전체), 그다음 기준 수량이 큰 쪽, 그다음 가까운 분류, 그래도 같으면 나중에 넣은 규칙. 기준 수량은 제품 단위로 재고, 시작일과 종료일 모두 그날을 포함한다. 맞는 규칙이 없거나 가격표가 `null` 이면 정가.
+- `erp.price_for(pricelist_id, variant_id, qty, on_date, uom_id) returns jsonb` → `{price_unit, list_price, discount, rule_id}`. 선택 순서: 구체적인 대상(변형 > 제품 > 분류 > 전체), 그다음 기준 수량이 큰 쪽, 그다음 가까운 분류, 그래도 같으면 나중에 넣은 규칙. 기준 수량은 제품 단위로 재고, 시작일과 종료일은 날짜로 비교하고 모두 그날을 포함한다. 맞는 규칙이 없거나 가격표가 `null` 이면 정가.
 - `discount` 유형은 할인율을 줄의 `discount` 로 보여 주고, `formula`·`fixed` 는 단가에 녹인다. `formula` 순서: 기준 가격에서 `formula_discount`(음수면 할증) → `round_to` 반올림(반은 올림) → `surcharge` → `기준 + min_margin` 이상, `기준 + max_margin` 이하(0 이면 그 한도 없음). 최소 마진을 넣으려면 그보다 큰 최대 마진도 넣어야 한다. `base=pricelist` 의 기준 가격은 그 가격표의 할인까지 뺀 값이다. 가격과 추가금·마진은 요청 단위로 바꿔서 계산한다.
-- `price_unit`, `list_price` 는 단가이므로 통화 자릿수로 자르지 않는다(자릿수 + 4). 금액은 `tax_compute` 가 줄 합계에서 반올림한다.
-- `erp.tax_compute(price_unit, qty, discount, tax_ids jsonb, fiscal_position_id) returns jsonb` → `{subtotal, tax, total, taxes:[{tax_id, name, base, amount, account_id}], tax_ids, price_unit}`. 줄 단위 반올림: 줄 합계(`단가 × 수량 × (1 - 할인)`)를 먼저 반올림한다. `price_include` 세금은 그 합계에서 뺀다. 비율은 합쳐서 한 번에 나누고 세금마다 반올림하며, `subtotal` 은 남은 금액이다. 별도 세금은 `subtotal` 에 매긴다. 고정 금액 세금은 수량을 곱하고 할인과 무관하다. 세금끼리 곱해지지 않는다.
-- 세금 조정은 `tax_ids` 를 바꾼다(대상이 비면 제거, 한 세금이 여럿으로 갈 수 있음). 원래 세금이 **전부 포함 세금**일 때 조정으로 세금이 바뀌면 단가도 바뀐다: 원래 세금을 빼고 새 포함 세금을 더한다. 줄에는 결과의 `price_unit` 과 `tax_ids` 를 저장한다. 그 값으로 다시 계산해도 금액이 같다.
+- `price_unit`, `list_price` 는 단가이므로 통화 자릿수로 자르지 않는다. 입력한 값은 그대로이고, 환산과 계산식에서 생긴 끝수만 소수 10자리에서 정리한다. 금액은 `tax_compute` 가 줄 합계에서 반올림한다.
+- `erp.tax_compute(price_unit, qty, discount, tax_ids jsonb, fiscal_position_id) returns jsonb` → `{subtotal, tax, total, taxes:[{tax_id, name, base, amount, account_id}], tax_ids, price_unit}`. 줄 단위 반올림: 줄 합계(`단가 × 수량 × (1 - 할인)`)를 먼저 반올림한다. `price_include` 세금은 그 합계에서 뺀다. 고정 금액을 먼저 빼고, 나눗셈 세금은 남은 금액의 비율이며, 비율 세금은 합쳐서 한 번에 나눈다. 세금마다 반올림하고 `subtotal` 은 남은 금액이다. 별도 세금은 `subtotal` 에 매긴다. 고정 금액 세금은 수량을 곱하고 할인과 무관하다.
+- 세금 유형: `division` 은 세금 포함 금액에 대한 비율이다(별도 10% 면 900 → 세금 100, 별도 여럿은 나누는 수를 합친다). `group` 은 `children_tax_ids` 로 풀리고 줄의 `tax_ids` 에는 그룹이 남는다. 같은 세금이 두 번 닿아도 한 번만 계산한다. 그룹 안에 그룹은 안 되고 적용 범위가 같아야 한다. 음수 세율은 원천세로 허용한다.
+- 세금 순서는 `sequence`, 그다음 먼저 만든 세금이다(줄에 고른 순서가 아니다). 세금끼리는 독립이지만 `include_base_amount` 세금의 금액은 그 뒤의 `is_base_affected`(기본 켜짐) 세금 기준에 더해진다: 1000 + 고정 100 + 1100 의 10% = 세액 210.
+- 세금 조정은 `tax_ids` 를 바꾼다(대상이 비면 제거, 한 세금이 여럿으로 갈 수 있음). 원래 세금이 **전부 포함 세금**일 때 조정으로 세금이 바뀌면 단가도 바뀐다: 원래 세금을 빼고 새 포함 세금을 더한다. 줄에는 결과의 `price_unit` 과 `tax_ids` 를 저장한다. 그 값으로 다시 계산해도 금액이 같다. 조정이 없으면 `price_unit` 은 들어온 값 그대로다.
+- `erp.combo_item_price(parent_variant jsonb, parent_price, item_id) returns jsonb` → 항목 + `price_unit`. 콤보 판매가를 선택 항목마다 그 항목에서 가장 싼 제품의 정가 비율로 나누고 그 제품의 `extra_price` 를 더한다. 없는 항목이면 `null`.
 - `public.erp_price(pricelist_id, variant_id, qty, date, uom_id)` 는 화면이 호출한다. 기본 가격표 시드는 `erp.seed_id('기본 가격표')`.
 
 ## 4. 모듈

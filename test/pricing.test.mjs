@@ -97,8 +97,8 @@ async function runTax(ctx, k) {
 }
 
 async function runSchedule(ctx, k) {
-  const term = k.given.no_term ? null : (await ctx.co.admin('payment_term', null, 'create', { name: uniq('조건'), lines: k.given.lines })).id
-  const out = await ctx.q1('select erp.payment_term_schedule($1, $2, $3) as r', [term, k.input.amount, k.input.date])
+  const term = k.given.no_term ? null : (await ctx.co.admin('payment_term', null, 'create', { name: uniq('조건'), lines: k.given.lines, ...(k.given.term ?? {}) })).id
+  const out = await ctx.q1('select erp.payment_term_schedule($1, $2, $3, $4) as r', [term, k.input.amount, k.input.date, k.input.untaxed ?? null])
   assert.deepEqual(out, k.expect)
   const sum = out.reduce((s, r) => s + r.amount, 0)
   assert.ok(Math.abs(sum - k.input.amount) < 1e-9, 'installments add up to the amount exactly')
@@ -167,7 +167,7 @@ test('rules are checked when saved', async () => {
   await save({ price_type: 'formula', max_margin: 5 })
   const same = await save({ date_start: '2026-02-01', date_end: '2026-02-01', hacker: 1, fixed_price: 10.4 })
   assert.equal(same.state.rules[0].hacker, undefined)
-  assert.equal(same.state.rules[0].fixed_price, 10)
+  assert.equal(same.state.rules[0].fixed_price, 10.4, 'a price keeps what was typed')
 })
 
 test('a pricelist cannot end up based on itself, directly or through others', async () => {
@@ -191,6 +191,64 @@ test('saving rules records only what changed', async () => {
   await c.co.admin('pricelist', p.id, 'update', { rules: [a] })
   assert.equal((await types()).at(-1), 'PricelistRuleRemoved')
   assert.deepEqual(await c.co.verifyProjection(), [])
+})
+
+test('prices keep every digit that was typed, in a whole-won company too', async () => {
+  const p = await c.co.admin('product', null, 'create', { name: uniq('제품'), list_price: 1234.56789, standard_price: 99.12345 })
+  const vid = (await c.co.rec(p.id)).state.variants[0].id
+  const pl = await c.co.admin('pricelist', null, 'create', { name: uniq('가격표'), rules: [{ apply_on: 'variant', variant_id: vid, price_type: 'fixed', fixed_price: 777.12345 }] })
+  assert.equal(p.state.list_price, 1234.56789)
+  assert.equal((await c.q1('select erp.price_for(null, $1) as r', [vid])).price_unit, 1234.56789)
+  assert.equal((await c.q1('select erp.price_for($1, $2) as r', [pl.id, vid])).price_unit, 777.12345)
+  const out = await c.q1('select erp.tax_compute(1234.56789, 10000) as r')
+  assert.equal(out.price_unit, 1234.56789, 'a price nobody adjusted comes back untouched')
+  assert.equal(out.subtotal, 12345679)
+  const formula = await c.co.admin('pricelist', null, 'create', { name: uniq('가격표'), rules: [{ price_type: 'formula', formula_discount: 12.5 }] })
+  const d = await c.co.admin('product', null, 'create', { name: uniq('제품'), list_price: 19.99 })
+  assert.equal((await c.q1('select erp.price_for($1, $2) as r', [formula.id, (await c.co.rec(d.id)).state.variants[0].id])).price_unit, 17.49125)
+})
+
+test('a tax group stands for its children, and a tax reached twice counts once', async () => {
+  const t = (x) => c.co.admin('tax', null, 'create', { name: `세금 ${uniq('')}`, ...x })
+  const a = await t({ amount: 10 })
+  const b = await t({ amount: 5 })
+  const inc = await t({ amount: 10, price_include: true })
+  const inc5 = await t({ amount: 5, price_include: true })
+  const g = await t({ amount_type: 'group', children_tax_ids: [a.id, b.id] })
+  const compute = (price, ids) => c.q1('select erp.tax_compute($1, 1, 0, $2) as r', [price, JSON.stringify(ids)])
+  const out = await compute(1000, [g.id])
+  assert.deepEqual([out.subtotal, out.tax, out.total], [1000, 150, 1150])
+  assert.deepEqual(out.tax_ids, [g.id], 'the line keeps the group')
+  assert.deepEqual(out.taxes.map((x) => [x.tax_id, x.amount]), [[a.id, 100], [b.id, 50]])
+  assert.equal((await compute(1000, [g.id, b.id])).tax, 150)
+  const gi = await t({ amount_type: 'group', children_tax_ids: [inc.id, inc5.id] })
+  const included = await compute(1150, [gi.id])
+  assert.deepEqual([included.subtotal, included.tax, included.total], [1000, 150, 1150])
+  const empty = await t({ amount_type: 'group' })
+  assert.equal((await compute(1000, [empty.id])).tax, 0)
+  await rejects(t({ amount_type: 'group', children_tax_ids: [g.id] }), 'ERP_INVALID')
+  await rejects(c.co.admin('tax', a.id, 'update', { amount_type: 'group', children_tax_ids: [b.id] }), 'ERP_INVALID')
+  const other = await t({ scope: 'purchase', amount: 5 })
+  await rejects(t({ amount_type: 'group', scope: 'sale', children_tax_ids: [other.id] }), 'ERP_INVALID')
+  await rejects(t({ amount_type: 'division', amount: 100 }), 'ERP_INVALID')
+  const withholding = await t({ amount: -3 })
+  assert.equal((await compute(1000, [a.id, withholding.id])).tax, 70, 'a negative rate is withholding')
+})
+
+test('a new tax follows the company choice unless it says otherwise', async () => {
+  await c.co.admin('company', '00000000-0000-0000-0000-000000000001', 'update', { default_price_include: true })
+  const a = await c.co.admin('tax', null, 'create', { name: `세금 ${uniq('')}`, amount: 10 })
+  const b = await c.co.admin('tax', null, 'create', { name: `세금 ${uniq('')}`, amount: 10, price_include: false })
+  await c.co.admin('company', '00000000-0000-0000-0000-000000000001', 'update', { default_price_include: false })
+  assert.equal(a.state.price_include, true)
+  assert.equal(b.state.price_include, false)
+})
+
+test('a payment term can be tried on any amount before it is saved', async () => {
+  const admin = c.co.adminId
+  const r = (await c.co.db.asUser(admin, `select public.erp_preview('payment_term', $1) as r`, [JSON.stringify({
+    lines: [{ value: 'percent', amount: 30, days: 0 }, { value: 'percent', amount: 70, days: 60 }], amount: 1000, date: '2026-01-10' })])).rows[0].r
+  assert.deepEqual(r.schedule, [{ due_date: '2026-01-10', amount: 300 }, { due_date: '2026-03-11', amount: 700 }])
 })
 
 test('prices are reads: they write nothing and use the business date by default', async () => {

@@ -161,7 +161,9 @@ begin
      group by e.stream_id, e.stream_type, rec.version, rec.name, rec.status, rec.state
      order by e.stream_id
   loop
-    doc := erp.catalog_of(r.stream_type);
+    -- A removed plugin leaves its records in the ledger; they can still go back with what caused them.
+    select c.doc into doc from erp.catalog c where c.type = r.stream_type;
+    doc := coalesce(doc, jsonb_build_object('label', r.stream_type));
     target := erp.fold_to_version(r.stream_id, r.first_version - 1);
     select coalesce(jsonb_object_agg(kind, rows_), '{}'::jsonb) into effects from (
       select kind, jsonb_agg(row_) as rows_ from erp.events e, jsonb_each(e.data -> 'effects') as t(kind, arr), jsonb_array_elements(arr) row_

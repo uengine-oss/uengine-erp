@@ -1,0 +1,1806 @@
+{
+ "seeds": 30,
+ "firstSeed": 3001,
+ "runs": 150,
+ "volume": 1,
+ "models": {
+  "demand_sales": {
+   "unit": "개월",
+   "levels": [
+    {
+     "level": 3,
+     "wape": 0.7446995880441165,
+     "wapeDemand": 0.6376136199645976,
+     "cover": 1,
+     "cases": 60
+    },
+    {
+     "level": 6,
+     "wape": 0.7497850163861031,
+     "wapeDemand": 0.615168628233737,
+     "cover": 1,
+     "cases": 60
+    },
+    {
+     "level": 9,
+     "wape": 0.34863725826099373,
+     "wapeDemand": 0.2295056672885135,
+     "cover": 0.7777777777777778,
+     "cases": 60
+    },
+    {
+     "level": 12,
+     "wape": 0.17343286260029586,
+     "wapeDemand": 0.3880517889662671,
+     "cover": 0.8888888888888888,
+     "cases": 60
+    },
+    {
+     "level": 15,
+     "wape": 0.1293868146642909,
+     "wapeDemand": 0.308541322702457,
+     "cover": 0.7222222222222222,
+     "cases": 60
+    },
+    {
+     "level": 18,
+     "wape": 0.11829743612870808,
+     "wapeDemand": 0.3033538488625371,
+     "cover": 0.7222222222222222,
+     "cases": 60
+    },
+    {
+     "level": 24,
+     "wape": 0.10771139028455558,
+     "wapeDemand": 0.2962591866116579,
+     "cover": 0.8333333333333334,
+     "cases": 60
+    }
+   ],
+   "measured": 15,
+   "scenario": 12
+  },
+  "young_company": {
+   "unit": "일",
+   "levels": [
+    {
+     "level": 90,
+     "wape": 0.5449796758923535,
+     "cover": 1,
+     "policy": {
+      "n": 30,
+      "truth": 384950000,
+      "predicted": 126697500,
+      "relError": 0.6448662242323038,
+      "absError": 262697500,
+      "coverage": 0.26666666666666666,
+      "direction": 1,
+      "claimed": 0.9333333333333333,
+      "claimedRight": 1,
+      "width": 318734199.99999994
+     },
+     "stockoutBrier": 0.10192505787037048
+    },
+    {
+     "level": 180,
+     "wape": 0.8137300528192176,
+     "cover": 0.9444444444444444,
+     "policy": {
+      "n": 30,
+      "truth": 384950000,
+      "predicted": 245757000,
+      "relError": 0.32944162436548224,
+      "absError": 153034000,
+      "coverage": 0.9333333333333333,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 506081399.99999994
+     },
+     "stockoutBrier": 0.1223394097222223
+    },
+    {
+     "level": 270,
+     "wape": 0.1833037652258264,
+     "cover": 0.8888888888888888,
+     "policy": {
+      "n": 30,
+      "truth": 384950000,
+      "predicted": 315965500,
+      "relError": 0.167213156675939,
+      "absError": 63642000,
+      "coverage": 0.8333333333333334,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 256693499.99999994
+     },
+     "stockoutBrier": 0.06369473379629628
+    },
+    {
+     "level": 365,
+     "wape": 0.10079822345920812,
+     "cover": 0.9444444444444444,
+     "policy": {
+      "n": 30,
+      "truth": 384950000,
+      "predicted": 348535000,
+      "relError": 0.11765088120039738,
+      "absError": 47945500,
+      "coverage": 0.8333333333333334,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 220641099.99999994
+     },
+     "stockoutBrier": 0.04968142361111108
+    },
+    {
+     "level": 456,
+     "wape": 0.06003386637944877,
+     "cover": 0.9444444444444444,
+     "policy": {
+      "n": 30,
+      "truth": 384950000,
+      "predicted": 368811500,
+      "relError": 0.11520107310924575,
+      "absError": 46977500,
+      "coverage": 0.8333333333333334,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 152116099.99999994
+     },
+     "stockoutBrier": 0.041495081018518495
+    },
+    {
+     "level": 517,
+     "wape": 0.048824457168522836,
+     "cover": 0.8888888888888888,
+     "policy": {
+      "n": 30,
+      "truth": 384950000,
+      "predicted": 368449500,
+      "relError": 0.12429780848708379,
+      "absError": 42374000,
+      "coverage": 0.7333333333333333,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 133932600
+     },
+     "stockoutBrier": 0.038779513888888915
+    },
+    {
+     "level": 730,
+     "wape": 0.08365421936365902,
+     "cover": 0.8888888888888888,
+     "policy": {
+      "n": 30,
+      "truth": 384950000,
+      "predicted": 382479500,
+      "relError": 0.15798328404963477,
+      "absError": 64621000,
+      "coverage": 0.8,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 165314299.99999994
+     },
+     "stockoutBrier": 0.04116782407407406
+    }
+   ],
+   "measured": 365,
+   "measuredPolicy": 270
+  },
+  "demand_true": {
+   "unit": "일",
+   "levels": [
+    {
+     "level": 30,
+     "wape": 0.09565902070984424,
+     "bias": 0.03607491061331157,
+     "cover": 1
+    },
+    {
+     "level": 60,
+     "wape": 0.09564297715690821,
+     "bias": 0.035858915258462666,
+     "cover": 1
+    },
+    {
+     "level": 90,
+     "wape": 0.09554389086712183,
+     "bias": 0.03362247288429098,
+     "cover": 1
+    },
+    {
+     "level": 120,
+     "wape": 0.095775984206188,
+     "bias": 0.033823019950767114,
+     "cover": 1
+    },
+    {
+     "level": 180,
+     "wape": 0.09647981177560173,
+     "bias": 0.03387951572284241,
+     "cover": 0.9444444444444444
+    },
+    {
+     "level": 270,
+     "wape": 0.09438628050022616,
+     "bias": 0.03337484179792399,
+     "cover": 1
+    },
+    {
+     "level": 365,
+     "wape": 0.08444592519530207,
+     "bias": 0.0035017983056867407,
+     "cover": 0.7777777777777778
+    },
+    {
+     "level": 517,
+     "wape": 0.08430815996819653,
+     "bias": 0.0037400546555380414,
+     "cover": 0.8333333333333334
+    }
+   ],
+   "measured": 30,
+   "scenario": 90
+  },
+  "whatif_policy": {
+   "unit": "일",
+   "levels": [
+    {
+     "level": 30,
+     "n": 0,
+     "available": 0,
+     "withPurchase": {
+      "n": 5,
+      "truth": 347433000,
+      "predicted": 22695000,
+      "relError": 0.9343881722357458,
+      "absError": 323203000,
+      "coverage": 0,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 18271700
+     }
+    },
+    {
+     "level": 60,
+     "n": 0,
+     "available": 0,
+     "withPurchase": {
+      "n": 28,
+      "truth": 385202000,
+      "predicted": 91267500,
+      "relError": 0.7397726701499466,
+      "absError": 277458500,
+      "coverage": 0,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 57604900
+     }
+    },
+    {
+     "level": 90,
+     "n": 17,
+     "truth": 385202000,
+     "predicted": 22695000,
+     "relError": 0.9384856137841778,
+     "absError": 363056000,
+     "coverage": 0,
+     "direction": 1,
+     "claimed": 0.8235294117647058,
+     "claimedRight": 1,
+     "width": 40601800,
+     "available": 0.5666666666666667,
+     "withPurchase": {
+      "n": 30,
+      "truth": 384950000,
+      "predicted": 211466000,
+      "relError": 0.4647063905379758,
+      "absError": 176747000,
+      "coverage": 0,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 120670000
+     }
+    },
+    {
+     "level": 120,
+     "n": 30,
+     "truth": 384950000,
+     "predicted": 79165500,
+     "relError": 0.7967805437753805,
+     "absError": 301188000,
+     "coverage": 0,
+     "direction": 1,
+     "claimed": 0.9666666666666667,
+     "claimedRight": 1,
+     "width": 93227500,
+     "available": 1,
+     "withPurchase": {
+      "n": 30,
+      "truth": 384950000,
+      "predicted": 356333500,
+      "relError": 0.15210948089983917,
+      "absError": 64972500,
+      "coverage": 0.6,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 172890600
+     }
+    },
+    {
+     "level": 180,
+     "n": 30,
+     "truth": 384950000,
+     "predicted": 278101500,
+     "relError": 0.3320629492558804,
+     "absError": 147348000,
+     "coverage": 0.5,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 217646300,
+     "available": 1,
+     "withPurchase": {
+      "n": 30,
+      "truth": 384950000,
+      "predicted": 394632500,
+      "relError": 0.1422139094718571,
+      "absError": 53705500,
+      "coverage": 0.8666666666666667,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 194777799.99999994
+     }
+    },
+    {
+     "level": 270,
+     "n": 30,
+     "truth": 384950000,
+     "predicted": 368181000,
+     "relError": 0.12056791065298193,
+     "absError": 52114000,
+     "coverage": 1,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 291786300,
+     "available": 1,
+     "withPurchase": {
+      "n": 30,
+      "truth": 384950000,
+      "predicted": 383549500,
+      "relError": 0.14214712481407718,
+      "absError": 54229000,
+      "coverage": 0.9333333333333333,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 188708999.99999994
+     }
+    },
+    {
+     "level": 365,
+     "n": 30,
+     "truth": 384950000,
+     "predicted": 374258000,
+     "relError": 0.1342395190205053,
+     "absError": 51443000,
+     "coverage": 1,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 219034200,
+     "available": 1,
+     "withPurchase": {
+      "n": 30,
+      "truth": 384950000,
+      "predicted": 377774500,
+      "relError": 0.14456404366294406,
+      "absError": 52639000,
+      "coverage": 0.7666666666666667,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 148707000
+     }
+    },
+    {
+     "level": 517,
+     "n": 30,
+     "truth": 384950000,
+     "predicted": 379575500,
+     "relError": 0.13564980321538084,
+     "absError": 51603000,
+     "coverage": 0.9666666666666667,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 226655899.99999994,
+     "available": 1,
+     "withPurchase": {
+      "n": 30,
+      "truth": 384950000,
+      "predicted": 392682000,
+      "relError": 0.15455726574757223,
+      "absError": 56913000,
+      "coverage": 0.7333333333333333,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 157756800
+     }
+    }
+   ],
+   "measured": 270,
+   "measuredWithPurchase": 180,
+   "scenario": 90
+  },
+  "whatif_realloc": {
+   "unit": "일",
+   "levels": [
+    {
+     "level": 30,
+     "n": 0,
+     "strong": {
+      "n": 0
+     },
+     "withPurchase": {
+      "n": 0
+     },
+     "bad": {
+      "n": 0
+     }
+    },
+    {
+     "level": 60,
+     "n": 0,
+     "strong": {
+      "n": 0
+     },
+     "withPurchase": {
+      "n": 0
+     },
+     "bad": {
+      "n": 0
+     }
+    },
+    {
+     "level": 90,
+     "n": 0,
+     "strong": {
+      "n": 0
+     },
+     "withPurchase": {
+      "n": 3,
+      "truth": -11183000,
+      "predicted": -4046000,
+      "relError": 0.9323018123535939,
+      "absError": 19795500,
+      "coverage": 1,
+      "direction": 0.6666666666666666,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 86960100
+     },
+     "bad": {
+      "n": 0
+     }
+    },
+    {
+     "level": 120,
+     "n": 0,
+     "strong": {
+      "n": 0
+     },
+     "withPurchase": {
+      "n": 17,
+      "truth": -32991000,
+      "predicted": -8814500,
+      "relError": 0.7739527040754134,
+      "absError": 27428000,
+      "coverage": 0.7058823529411765,
+      "direction": 0.7058823529411765,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 78434600
+     },
+     "bad": {
+      "n": 0
+     }
+    },
+    {
+     "level": 180,
+     "n": 9,
+     "truth": -39855000,
+     "predicted": -11560000,
+     "relError": 0.73665377605903,
+     "absError": 23272000,
+     "coverage": 1,
+     "direction": 0.8888888888888888,
+     "claimed": 0,
+     "claimedRight": null,
+     "width": 184873300,
+     "strong": {
+      "n": 9,
+      "truth": -12050000,
+      "predicted": -14161000,
+      "relError": 1.4584022161654975,
+      "absError": 19508500,
+      "coverage": 1,
+      "direction": 0.6666666666666666,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 219408800
+     },
+     "withPurchase": {
+      "n": 30,
+      "truth": -13872000,
+      "predicted": -12571500,
+      "relError": 0.8968649073033207,
+      "absError": 23775500,
+      "coverage": 0.7333333333333333,
+      "direction": 0.6333333333333333,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 79908499.99999997
+     },
+     "bad": {
+      "n": 9,
+      "truth": -13894000,
+      "predicted": 18640500,
+      "relError": 0.9682378800830382,
+      "absError": 31934500,
+      "coverage": 1,
+      "direction": 0.6666666666666666,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 204496400
+     }
+    },
+    {
+     "level": 270,
+     "n": 30,
+     "truth": -13872000,
+     "predicted": -5635500,
+     "relError": 1.0227672592631496,
+     "absError": 29689500,
+     "coverage": 0.9333333333333333,
+     "direction": 0.5333333333333333,
+     "claimed": 0,
+     "claimedRight": null,
+     "width": 153083300,
+     "strong": {
+      "n": 30,
+      "truth": -1711000,
+      "predicted": 9970500,
+      "relError": 1.4692404834926935,
+      "absError": 24432000,
+      "coverage": 0.9,
+      "direction": 0.5333333333333333,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 159759200
+     },
+     "withPurchase": {
+      "n": 30,
+      "truth": -13872000,
+      "predicted": -12138000,
+      "relError": 0.800884562386096,
+      "absError": 26009000,
+      "coverage": 0.6666666666666666,
+      "direction": 0.6666666666666666,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 74186300
+     },
+     "bad": {
+      "n": 30,
+      "truth": -10271000,
+      "predicted": 4913000,
+      "relError": 1.3496249697556255,
+      "absError": 38726000,
+      "coverage": 1,
+      "direction": 0.4,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 175480800
+     }
+    },
+    {
+     "level": 365,
+     "n": 30,
+     "truth": -13872000,
+     "predicted": -11707500,
+     "relError": 0.9825668844778696,
+     "absError": 23708000,
+     "coverage": 0.9666666666666667,
+     "direction": 0.6333333333333333,
+     "claimed": 0,
+     "claimedRight": null,
+     "width": 141436600,
+     "strong": {
+      "n": 30,
+      "truth": -1711000,
+      "predicted": 6358000,
+      "relError": 0.9726301088200493,
+      "absError": 18913500,
+      "coverage": 0.9333333333333333,
+      "direction": 0.6,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 142245799.99999997
+     },
+     "withPurchase": {
+      "n": 30,
+      "truth": -13872000,
+      "predicted": -12261000,
+      "relError": 0.8124522253729504,
+      "absError": 24897500,
+      "coverage": 0.7,
+      "direction": 0.7,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 74131200
+     },
+     "bad": {
+      "n": 30,
+      "truth": -10271000,
+      "predicted": 9826000,
+      "relError": 1.0465006577461233,
+      "absError": 27014500,
+      "coverage": 1,
+      "direction": 0.4666666666666667,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 154617500
+     }
+    },
+    {
+     "level": 517,
+     "n": 30,
+     "truth": -13872000,
+     "predicted": -8881500,
+     "relError": 0.9863478164792973,
+     "absError": 26947500,
+     "coverage": 0.9666666666666667,
+     "direction": 0.6,
+     "claimed": 0,
+     "claimedRight": null,
+     "width": 136257000,
+     "strong": {
+      "n": 30,
+      "truth": -1711000,
+      "predicted": 3221000,
+      "relError": 1.0157180221696351,
+      "absError": 17810500,
+      "coverage": 0.9666666666666667,
+      "direction": 0.5,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 143272200
+     },
+     "withPurchase": {
+      "n": 30,
+      "truth": -13872000,
+      "predicted": -14889000,
+      "relError": 0.8691183555484182,
+      "absError": 27436000,
+      "coverage": 0.7666666666666667,
+      "direction": 0.7,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 79637800
+     },
+     "bad": {
+      "n": 30,
+      "truth": -10271000,
+      "predicted": 11312500,
+      "relError": 1.0122526851328435,
+      "absError": 27976500,
+      "coverage": 0.9666666666666667,
+      "direction": 0.5,
+      "claimed": 0,
+      "claimedRight": null,
+      "width": 153372300
+     }
+    }
+   ],
+   "measured": 180,
+   "scenario": 90
+  },
+  "stockout_risk": {
+   "unit": "일",
+   "levels": [
+    {
+     "level": 30,
+     "brier": 0.04230314814814814,
+     "refBrier": 0.23806241426611863,
+     "skill": 0.8223022803555228,
+     "dateError": 1,
+     "dateCoverage": 0.8971061093247589,
+     "buckets": [
+      {
+       "from": 0,
+       "to": 0.2,
+       "n": 173,
+       "said": 0.025144508670520215,
+       "happened": 0.028901734104046242
+      },
+      {
+       "from": 0.2,
+       "to": 0.5,
+       "n": 45,
+       "said": 0.3535555555555556,
+       "happened": 0.28888888888888886
+      },
+      {
+       "from": 0.5,
+       "to": 0.8,
+       "n": 40,
+       "said": 0.6587500000000002,
+       "happened": 0.725
+      },
+      {
+       "from": 0.8,
+       "to": 1.01,
+       "n": 282,
+       "said": 0.9824822695035461,
+       "happened": 1
+      }
+     ]
+    },
+    {
+     "level": 90,
+     "brier": 0.042589629629629575,
+     "refBrier": 0.23806241426611863,
+     "skill": 0.8210988922341154,
+     "dateError": 1,
+     "dateCoverage": 0.8990536277602523,
+     "buckets": [
+      {
+       "from": 0,
+       "to": 0.2,
+       "n": 168,
+       "said": 0.03053571428571427,
+       "happened": 0.011904761904761904
+      },
+      {
+       "from": 0.2,
+       "to": 0.5,
+       "n": 37,
+       "said": 0.337027027027027,
+       "happened": 0.2702702702702703
+      },
+      {
+       "from": 0.5,
+       "to": 0.8,
+       "n": 43,
+       "said": 0.6765116279069766,
+       "happened": 0.7209302325581395
+      },
+      {
+       "from": 0.8,
+       "to": 1.01,
+       "n": 292,
+       "said": 0.9824315068493152,
+       "happened": 0.9794520547945206
+      }
+     ]
+    },
+    {
+     "level": 180,
+     "brier": 0.043137592592592595,
+     "refBrier": 0.23806241426611863,
+     "skill": 0.8187971304686041,
+     "dateError": 1,
+     "dateCoverage": 0.8934169278996865,
+     "buckets": [
+      {
+       "from": 0,
+       "to": 0.2,
+       "n": 168,
+       "said": 0.029583333333333323,
+       "happened": 0.017857142857142856
+      },
+      {
+       "from": 0.2,
+       "to": 0.5,
+       "n": 29,
+       "said": 0.31965517241379315,
+       "happened": 0.2413793103448276
+      },
+      {
+       "from": 0.5,
+       "to": 0.8,
+       "n": 37,
+       "said": 0.658918918918919,
+       "happened": 0.5405405405405406
+      },
+      {
+       "from": 0.8,
+       "to": 1.01,
+       "n": 306,
+       "said": 0.9816013071895429,
+       "happened": 0.9771241830065359
+      }
+     ]
+    },
+    {
+     "level": 365,
+     "brier": 0.04146185185185185,
+     "refBrier": 0.23806241426611863,
+     "skill": 0.8258362119880729,
+     "dateError": 1,
+     "dateCoverage": 0.8683385579937304,
+     "buckets": [
+      {
+       "from": 0,
+       "to": 0.2,
+       "n": 173,
+       "said": 0.02734104046242773,
+       "happened": 0.023121387283236993
+      },
+      {
+       "from": 0.2,
+       "to": 0.5,
+       "n": 27,
+       "said": 0.3414814814814815,
+       "happened": 0.2222222222222222
+      },
+      {
+       "from": 0.5,
+       "to": 0.8,
+       "n": 35,
+       "said": 0.6520000000000001,
+       "happened": 0.5714285714285714
+      },
+      {
+       "from": 0.8,
+       "to": 1.01,
+       "n": 305,
+       "said": 0.986131147540984,
+       "happened": 0.980327868852459
+      }
+     ]
+    },
+    {
+     "level": 517,
+     "brier": 0.041976851851851814,
+     "refBrier": 0.23806241426611863,
+     "skill": 0.8236729137556007,
+     "dateError": 1,
+     "dateCoverage": 0.8580441640378549,
+     "buckets": [
+      {
+       "from": 0,
+       "to": 0.2,
+       "n": 170,
+       "said": 0.025117647058823515,
+       "happened": 0.01764705882352941
+      },
+      {
+       "from": 0.2,
+       "to": 0.5,
+       "n": 35,
+       "said": 0.354,
+       "happened": 0.2571428571428571
+      },
+      {
+       "from": 0.5,
+       "to": 0.8,
+       "n": 34,
+       "said": 0.6944117647058825,
+       "happened": 0.5882352941176471
+      },
+      {
+       "from": 0.8,
+       "to": 1.01,
+       "n": 301,
+       "said": 0.9878405315614617,
+       "happened": 0.9867109634551495
+      }
+     ]
+    }
+   ],
+   "scenario": 90
+  },
+  "realloc_power": {
+   "good": {
+    "n": 30,
+    "truth": 54910000,
+    "predicted": 36602000,
+    "relError": 0.6526293464654094,
+    "absError": 28497000,
+    "coverage": 0.8,
+    "direction": 1,
+    "claimed": 0.26666666666666666,
+    "claimedRight": 1,
+    "width": 89804000
+   },
+   "bad": {
+    "n": 30,
+    "truth": -38148000,
+    "predicted": -35501500,
+    "relError": 0.17532467532467533,
+    "absError": 6348500,
+    "coverage": 0.9333333333333333,
+    "direction": 0.9666666666666667,
+    "claimed": 0.7666666666666667,
+    "claimedRight": 1,
+    "width": 33259399.999999996
+   }
+  },
+  "whatif_drop": {
+   "unit": "품절 사례",
+   "levels": [
+    {
+     "level": 1,
+     "name": "1-2",
+     "n": 340,
+     "truth": -349544000,
+     "predicted": -342249500,
+     "relError": 0.2763962200362074,
+     "absError": 94334500,
+     "coverage": 0.4441176470588235,
+     "direction": 0.9529411764705882,
+     "claimed": 0.9352941176470588,
+     "claimedRight": 0.9622641509433962,
+     "width": 136573100.00000006,
+     "rateAbsError": 0.27859635039862907,
+     "rateCoverage": 0.18529411764705883
+    },
+    {
+     "level": 3,
+     "name": "3-4",
+     "n": 171,
+     "truth": -372976000,
+     "predicted": -358576000,
+     "relError": 0.1925984265093176,
+     "absError": 68371000,
+     "coverage": 0.672514619883041,
+     "direction": 0.9532163742690059,
+     "claimed": 0.9005847953216374,
+     "claimedRight": 1,
+     "width": 227740500,
+     "rateAbsError": 0.13808324916764264,
+     "rateCoverage": 0.6081871345029239
+    },
+    {
+     "level": 5,
+     "name": "5-9",
+     "n": 392,
+     "truth": -405031000,
+     "predicted": -415750500,
+     "relError": 0.11611202865599932,
+     "absError": 53728500,
+     "coverage": 0.7474489795918368,
+     "direction": 0.9974489795918368,
+     "claimed": 0.9923469387755102,
+     "claimedRight": 1,
+     "width": 180458800,
+     "rateAbsError": 0.06984052624619505,
+     "rateCoverage": 0.6760204081632653
+    },
+    {
+     "level": 10,
+     "name": "10-19",
+     "n": 338,
+     "truth": -379405000,
+     "predicted": -372064500,
+     "relError": 0.07916197274367691,
+     "absError": 32284000,
+     "coverage": 0.7958579881656804,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 136864700,
+     "rateAbsError": 0.0408341311663053,
+     "rateCoverage": 0.7899408284023669
+    },
+    {
+     "level": 20,
+     "name": "20-39",
+     "n": 83,
+     "truth": -340060000,
+     "predicted": -338503500,
+     "relError": 0.07993545398855503,
+     "absError": 22800500,
+     "coverage": 0.8674698795180723,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 115741900,
+     "rateAbsError": 0.04714155998443359,
+     "rateCoverage": 0.7710843373493976
+    },
+    {
+     "level": 40,
+     "name": "40+",
+     "n": 8,
+     "truth": -396341000,
+     "predicted": -394432000,
+     "relError": 0.03096873337969971,
+     "absError": 12111500,
+     "coverage": 1,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 100673700,
+     "rateAbsError": 0.06797691937203287,
+     "rateCoverage": 0.75
+    }
+   ],
+   "measured": 5,
+   "noCases": {
+    "states": {
+     "0": 1068
+    },
+    "inside": 1068,
+    "n": 1068,
+    "rangeHolds": 1
+   },
+   "falseSubstitutes": {
+    "claimed": 57,
+    "pairs": 758,
+    "rate": 0.07519788918205805
+   },
+   "falseSubstitutesNoCategory": {
+    "claimed": 22,
+    "pairs": 780,
+    "rate": 0.028205128205128206
+   },
+   "scenario": "사례 있음"
+  },
+  "lead_time": {
+   "unit": "건",
+   "levels": [
+    {
+     "level": 3,
+     "received": 3,
+     "meanError": 0.13043478260869565,
+     "meanCoverage": 0.6666666666666666,
+     "whatif": {
+      "n": 30,
+      "truth": 409101000,
+      "predicted": 367945000,
+      "relError": 0.12598635639550576,
+      "absError": 47611000,
+      "coverage": 0.6666666666666666,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 143767600
+     },
+     "stockout": {
+      "n": 30,
+      "truth": -161,
+      "predicted": -119,
+      "relError": 0.2236024844720497,
+      "absError": 36,
+      "coverage": 0.1,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 30.099999999999994
+     },
+     "planSafe": 0.5780487804878048,
+     "planEarly": 2,
+     "planCells": 410,
+     "needNowCells": 130,
+     "needNowReallyLate": 0.5769230769230769
+    },
+    {
+     "level": 5,
+     "received": 5,
+     "meanError": 0.07378364389233955,
+     "meanCoverage": 0.6666666666666666,
+     "whatif": {
+      "n": 30,
+      "truth": 409101000,
+      "predicted": 368920500,
+      "relError": 0.09839975519314541,
+      "absError": 40180500,
+      "coverage": 0.7333333333333333,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 148541800
+     },
+     "stockout": {
+      "n": 30,
+      "truth": -161,
+      "predicted": -123,
+      "relError": 0.20245398773006135,
+      "absError": 33,
+      "coverage": 0.1,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 32
+     },
+     "planSafe": 0.6102564102564103,
+     "planEarly": 3,
+     "planCells": 390,
+     "needNowCells": 150,
+     "needNowReallyLate": 0.5466666666666666
+    },
+    {
+     "level": 10,
+     "received": 10,
+     "meanError": 0.047101449275362424,
+     "meanCoverage": 0.8,
+     "whatif": {
+      "n": 30,
+      "truth": 409101000,
+      "predicted": 391628000,
+      "relError": 0.1238337232126052,
+      "absError": 50660500,
+      "coverage": 0.7666666666666667,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 151703400
+     },
+     "stockout": {
+      "n": 30,
+      "truth": -161,
+      "predicted": -133.5,
+      "relError": 0.14873417721518986,
+      "absError": 23.5,
+      "coverage": 0.36666666666666664,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 35.099999999999994
+     },
+     "planSafe": 0.6835820895522388,
+     "planEarly": 7,
+     "planCells": 335,
+     "needNowCells": 205,
+     "needNowReallyLate": 0.44878048780487806
+    },
+    {
+     "level": 15,
+     "received": 15,
+     "meanError": 0.03768115942028972,
+     "meanCoverage": 0.8,
+     "whatif": {
+      "n": 30,
+      "truth": 409101000,
+      "predicted": 398402500,
+      "relError": 0.09869518518027395,
+      "absError": 42421000,
+      "coverage": 0.7333333333333333,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 156323200
+     },
+     "stockout": {
+      "n": 30,
+      "truth": -161,
+      "predicted": -150,
+      "relError": 0.07407407407407407,
+      "absError": 12,
+      "coverage": 0.8333333333333334,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 42.099999999999994
+     },
+     "planSafe": 0.7733333333333333,
+     "planEarly": 9,
+     "planCells": 300,
+     "needNowCells": 240,
+     "needNowReallyLate": 0.43333333333333335
+    },
+    {
+     "level": 20,
+     "received": 20,
+     "meanError": 0.04270245416429312,
+     "meanCoverage": 0.7333333333333333,
+     "whatif": {
+      "n": 30,
+      "truth": 409101000,
+      "predicted": 414821000,
+      "relError": 0.10390241048443716,
+      "absError": 44397500,
+      "coverage": 0.7666666666666667,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 147396800
+     },
+     "stockout": {
+      "n": 30,
+      "truth": -161,
+      "predicted": -159,
+      "relError": 0.0684931506849315,
+      "absError": 11,
+      "coverage": 0.9,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 43.099999999999994
+     },
+     "planSafe": 0.8483754512635379,
+     "planEarly": 10,
+     "planCells": 277,
+     "needNowCells": 263,
+     "needNowReallyLate": 0.40304182509505704
+    },
+    {
+     "level": 30,
+     "received": 30,
+     "meanError": 0.03304787000439176,
+     "meanCoverage": 0.8333333333333334,
+     "whatif": {
+      "n": 30,
+      "truth": 409101000,
+      "predicted": 420608500,
+      "relError": 0.1127086841791203,
+      "absError": 42498500,
+      "coverage": 0.7666666666666667,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 153684500
+     },
+     "stockout": {
+      "n": 30,
+      "truth": -161,
+      "predicted": -160,
+      "relError": 0.05828220858895705,
+      "absError": 10,
+      "coverage": 0.9,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 46
+     },
+     "planSafe": 0.9400749063670412,
+     "planEarly": 12,
+     "planCells": 267,
+     "needNowCells": 273,
+     "needNowReallyLate": 0.3956043956043956
+    },
+    {
+     "level": 50,
+     "received": 50,
+     "meanError": 0.03165781362712286,
+     "meanCoverage": 0.7666666666666667,
+     "whatif": {
+      "n": 30,
+      "truth": 409101000,
+      "predicted": 409682000,
+      "relError": 0.12289135069477695,
+      "absError": 48765500,
+      "coverage": 0.8,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 151834500
+     },
+     "stockout": {
+      "n": 30,
+      "truth": -161,
+      "predicted": -154,
+      "relError": 0.08098591549295775,
+      "absError": 13,
+      "coverage": 0.8333333333333334,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 46.099999999999994
+     },
+     "planSafe": 0.9808429118773946,
+     "planEarly": 12,
+     "planCells": 261,
+     "needNowCells": 279,
+     "needNowReallyLate": 0.3870967741935484
+    },
+    {
+     "level": 100,
+     "received": 100,
+     "meanError": 0.021416075455637965,
+     "meanCoverage": 0.8333333333333334,
+     "whatif": {
+      "n": 30,
+      "truth": 409101000,
+      "predicted": 413041000,
+      "relError": 0.11108240236891188,
+      "absError": 46216500,
+      "coverage": 0.7666666666666667,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 143564399.99999994
+     },
+     "stockout": {
+      "n": 30,
+      "truth": -161,
+      "predicted": -156,
+      "relError": 0.06134969325153374,
+      "absError": 10,
+      "coverage": 0.8333333333333334,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 45.19999999999999
+     },
+     "planSafe": 0.9702602230483272,
+     "planEarly": 10,
+     "planCells": 269,
+     "needNowCells": 271,
+     "needNowReallyLate": 0.3985239852398524
+    },
+    {
+     "level": 1000,
+     "received": 280,
+     "meanError": 0.009226941917836979,
+     "meanCoverage": 0.8666666666666667,
+     "whatif": {
+      "n": 30,
+      "truth": 409101000,
+      "predicted": 412421500,
+      "relError": 0.12699208459081748,
+      "absError": 51288500,
+      "coverage": 0.8333333333333334,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 147562300
+     },
+     "stockout": {
+      "n": 30,
+      "truth": -161,
+      "predicted": -160.5,
+      "relError": 0.05379746835443038,
+      "absError": 9,
+      "coverage": 0.8666666666666667,
+      "direction": 1,
+      "claimed": 1,
+      "claimedRight": 1,
+      "width": 47.099999999999994
+     },
+     "planSafe": 0.9771863117870723,
+     "planEarly": 12,
+     "planCells": 263,
+     "needNowCells": 277,
+     "needNowReallyLate": 0.3898916967509025
+    }
+   ],
+   "measured": 10,
+   "measuredWhatif": 5,
+   "scenario": 10
+  },
+  "cash_in": {
+   "unit": "건",
+   "levels": [
+    {
+     "level": 1,
+     "name": "1-10",
+     "n": 100,
+     "truth": 1872979662,
+     "predicted": 1823452358.3489108,
+     "relError": 0.06123316288766424,
+     "absError": 115297388.54218245,
+     "coverage": 0.6,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 274781446.50281596
+    },
+    {
+     "level": 11,
+     "name": "11-20",
+     "n": 71,
+     "truth": 1860043225,
+     "predicted": 1818169103.0553482,
+     "relError": 0.051436726958512605,
+     "absError": 100761675.498034,
+     "coverage": 0.676056338028169,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 245721076.60889196
+    },
+    {
+     "level": 21,
+     "name": "21-30",
+     "n": 64,
+     "truth": 1886738535,
+     "predicted": 1792666801.074306,
+     "relError": 0.050250889039279746,
+     "absError": 92862183.56732702,
+     "coverage": 0.71875,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 250058815.3472469
+    },
+    {
+     "level": 31,
+     "name": "31-50",
+     "n": 98,
+     "truth": 1881746029,
+     "predicted": 1837304720.8368382,
+     "relError": 0.0412443219497207,
+     "absError": 76641770.34859061,
+     "coverage": 0.7040816326530612,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 260936333.36844683
+    },
+    {
+     "level": 51,
+     "name": "51-100",
+     "n": 123,
+     "truth": 1898701543,
+     "predicted": 1863575983.9218853,
+     "relError": 0.05279939244470491,
+     "absError": 97002579.4201734,
+     "coverage": 0.6260162601626016,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 259909735.99764085
+    },
+    {
+     "level": 101,
+     "name": "101-300",
+     "n": 204,
+     "truth": 1916475519,
+     "predicted": 1865927486.958694,
+     "relError": 0.042935824724875636,
+     "absError": 83072246.74534392,
+     "coverage": 0.7352941176470589,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 233887970.31839633
+    },
+    {
+     "level": 301,
+     "name": "301+",
+     "n": 90,
+     "truth": 1914867520,
+     "predicted": 1929159149.516858,
+     "relError": 0.022009115788309837,
+     "absError": 42609157.26050663,
+     "coverage": 0.8555555555555555,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 209927944.94589376
+    }
+   ],
+   "measured": 101,
+   "scenario": 30
+  },
+  "whatif_terms": {
+   "unit": "거래처",
+   "levels": [
+    {
+     "level": 0,
+     "n": 30,
+     "truth": 95103203,
+     "predicted": 0,
+     "relError": 1,
+     "absError": 95103203,
+     "coverage": 0,
+     "direction": 0,
+     "claimed": 0,
+     "claimedRight": null,
+     "width": 0,
+     "usableCases": 0,
+     "rangeHolds": 1
+    },
+    {
+     "level": 1,
+     "n": 30,
+     "truth": 85702869,
+     "predicted": 82680400.83023143,
+     "relError": 0.36860707541110865,
+     "absError": 30060469.8510592,
+     "coverage": 0.43333333333333335,
+     "direction": 0.9666666666666667,
+     "claimed": 0.9666666666666667,
+     "claimedRight": 1,
+     "width": 48839044.56702846,
+     "betaError": 0.22600032627984362,
+     "usableCases": 1,
+     "rangeHolds": 1
+    },
+    {
+     "level": 2,
+     "n": 30,
+     "truth": 93636511,
+     "predicted": 91016930.50518572,
+     "relError": 0.16210149771430424,
+     "absError": 12597903.129495025,
+     "coverage": 0.7666666666666667,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 64926983.98999979,
+     "betaError": 0.12270330052564904,
+     "usableCases": 2,
+     "rangeHolds": 1
+    },
+    {
+     "level": 3,
+     "n": 30,
+     "truth": 93938339,
+     "predicted": 88431564.81623697,
+     "relError": 0.24785194079470574,
+     "absError": 22103676.11718881,
+     "coverage": 0.7,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 61562213.22609785,
+     "betaError": 0.10186235393030396,
+     "usableCases": 3,
+     "rangeHolds": null
+    },
+    {
+     "level": 5,
+     "n": 30,
+     "truth": 87072424,
+     "predicted": 86505454.26390636,
+     "relError": 0.1840590490464271,
+     "absError": 14930038.821342349,
+     "coverage": 0.7666666666666667,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 58653539.76231223,
+     "betaError": 0.1185608715006945,
+     "usableCases": 5,
+     "rangeHolds": null
+    },
+    {
+     "level": 8,
+     "n": 30,
+     "truth": 78297988,
+     "predicted": 86176751.07310116,
+     "relError": 0.16082083817603623,
+     "absError": 10102147.180558324,
+     "coverage": 0.7333333333333333,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 54515066.49088639,
+     "betaError": 0.06995295195354034,
+     "usableCases": 8,
+     "rangeHolds": null
+    },
+    {
+     "level": 12,
+     "n": 30,
+     "truth": 78714622,
+     "predicted": 80561591.07477498,
+     "relError": 0.1553515211941118,
+     "absError": 10231714.400173545,
+     "coverage": 0.9,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 48330459.8895741,
+     "betaError": 0.027546274327538978,
+     "usableCases": 12,
+     "rangeHolds": null
+    },
+    {
+     "level": 20,
+     "n": 30,
+     "truth": 73664184,
+     "predicted": 79193557.54347694,
+     "relError": 0.09160501661265091,
+     "absError": 7603489.831553698,
+     "coverage": 0.8666666666666667,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 44273766.264499694,
+     "betaError": 0.037331103692867185,
+     "usableCases": 20,
+     "rangeHolds": null
+    }
+   ],
+   "measured": 2,
+   "scenario": "입금 완료 청구서 30건만"
+  },
+  "pnl_outlook": {
+   "unit": "개월",
+   "levels": [
+    {
+     "level": 1,
+     "n": 30,
+     "truth": 355722277.42710155,
+     "predicted": 341200370.1822299,
+     "relError": 0.0758951129450582,
+     "absError": 26138756.647196412,
+     "coverage": 0.9333333333333333,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 132702133.93626043
+    },
+    {
+     "level": 2,
+     "n": 30,
+     "truth": 355722277.42710155,
+     "predicted": 355187754.88779485,
+     "relError": 0.05855583946202984,
+     "absError": 19898144.91451019,
+     "coverage": 0.9333333333333333,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 99414025.97352308
+    },
+    {
+     "level": 3,
+     "n": 30,
+     "truth": 355722277.42710155,
+     "predicted": 352591924.4234036,
+     "relError": 0.0334666175294471,
+     "absError": 11194085.93463564,
+     "coverage": 0.9666666666666667,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 94782104.82135856
+    },
+    {
+     "level": 4,
+     "n": 30,
+     "truth": 355722277.42710155,
+     "predicted": 349485772.9029461,
+     "relError": 0.02570632554976683,
+     "absError": 9038735.957362413,
+     "coverage": 0.9666666666666667,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 93678015.95596159
+    },
+    {
+     "level": 6,
+     "n": 30,
+     "truth": 355722277.42710155,
+     "predicted": 351065282.276571,
+     "relError": 0.03784738440606309,
+     "absError": 12664864.314066231,
+     "coverage": 0.9,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 89485173.74757272
+    },
+    {
+     "level": 9,
+     "n": 30,
+     "truth": 355722277.42710155,
+     "predicted": 351065282.276571,
+     "relError": 0.03784738440606309,
+     "absError": 12664864.314066231,
+     "coverage": 0.9,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 89485173.74757272
+    },
+    {
+     "level": 12,
+     "n": 30,
+     "truth": 355722277.42710155,
+     "predicted": 351065282.276571,
+     "relError": 0.03784738440606309,
+     "absError": 12664864.314066231,
+     "coverage": 0.9,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 89485173.74757272
+    },
+    {
+     "level": 18,
+     "n": 30,
+     "truth": 355722277.42710155,
+     "predicted": 351065282.276571,
+     "relError": 0.03784738440606309,
+     "absError": 12664864.314066231,
+     "coverage": 0.9,
+     "direction": 1,
+     "claimed": 1,
+     "claimedRight": 1,
+     "width": 89485173.74757272
+    }
+   ],
+   "measured": 1,
+   "scenario": 3
+  },
+  "quote_conversion": {
+   "unit": "건",
+   "levels": [
+    {
+     "level": 10,
+     "halfWidth": 0.16518693008555285,
+     "coverage": 0.69625
+    },
+    {
+     "level": 20,
+     "halfWidth": 0.12347874652410372,
+     "coverage": 0.76675
+    },
+    {
+     "level": 30,
+     "halfWidth": 0.10306808597023462,
+     "coverage": 0.83125
+    },
+    {
+     "level": 40,
+     "halfWidth": 0.09010597524808703,
+     "coverage": 0.76275
+    },
+    {
+     "level": 50,
+     "halfWidth": 0.08113306858233874,
+     "coverage": 0.84075
+    },
+    {
+     "level": 80,
+     "halfWidth": 0.06465117607996002,
+     "coverage": 0.818
+    },
+    {
+     "level": 120,
+     "halfWidth": 0.053116591586483776,
+     "coverage": 0.7995
+    }
+   ],
+   "measured": 40,
+   "scenario": 30
+  }
+ },
+ "applied": {
+  "quote_conversion": 40,
+  "demand_sales_months": 15,
+  "demand_true_days": 30,
+  "demand_true_sales_months": 12,
+  "stockout_days": 30,
+  "whatif_sales_months": 9,
+  "whatif_policy_days": 270,
+  "whatif_policy_days_with_purchase": 180,
+  "whatif_realloc_days": 180,
+  "drop_episodes": 5,
+  "receipts": 10,
+  "whatif_lead_receipts": 10,
+  "reorder_receipts": 30,
+  "paid_invoices": 100,
+  "term_changes": 3,
+  "journal_months": 3
+ },
+ "departures": {
+  "whatif_lead_receipts": "rule says 5; kept equal to lead_time because a target like 14 to 7 days divides by the measured mean",
+  "reorder_receipts": "criterion added after seeing results: the plan promises about 10% risk, so 90% of its dates must hold",
+  "term_changes": "rule says 2; an earlier model version said 3 and 3 still passes",
+  "journal_months": "rule says 1; synthetic expenses have no one-offs or seasons, so the scenario value 3 stays",
+  "paid_invoices": "rule says the bin starting at 101"
+ }
+}

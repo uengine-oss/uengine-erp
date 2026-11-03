@@ -1,0 +1,61 @@
+{
+ "seeds": 30,
+ "runs": 200,
+ "policyMult": 1,
+ "summary": {
+  "more_summer": {
+   "sales": {
+    "truth": 399990000,
+    "predicted": 179205000,
+    "relError": 0.5543642695668113,
+    "marginRelError": 0.5699606469105972,
+    "direction": 1,
+    "coverage": 0
+   },
+   "ledger": {
+    "truth": 399990000,
+    "predicted": 352470000,
+    "relError": 0.15448149926904828,
+    "marginRelError": 0.14405178055951962,
+    "direction": 1,
+    "coverage": 0.6333333333333333
+   }
+  },
+  "drop_std": {
+   "sales": {
+    "truth": -238930000,
+    "predicted": -396628000,
+    "relError": 0.6669971282423633,
+    "marginRelError": 1.1282588469668593,
+    "direction": 1,
+    "coverage": 0.03333333333333333
+   },
+   "ledger": {
+    "truth": -238930000,
+    "predicted": -226785000,
+    "relError": 0.12671673143966478,
+    "marginRelError": 0.2117709918445276,
+    "direction": 1,
+    "coverage": 0.8333333333333334
+   }
+  },
+  "move_honam": {
+   "sales": {
+    "truth": -10404000,
+    "predicted": -10404000,
+    "relError": 0.9066408232959527,
+    "marginRelError": 0.8667205407603056,
+    "direction": 0.6,
+    "coverage": 0.6333333333333333
+   },
+   "ledger": {
+    "truth": -10404000,
+    "predicted": -10869000,
+    "relError": 0.8868354874554067,
+    "marginRelError": 0.8715425492389697,
+    "direction": 0.6,
+    "coverage": 0.8666666666666667
+   }
+  }
+ }
+}

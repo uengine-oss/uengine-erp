@@ -14,7 +14,7 @@ let orderId
 let adminToken
 
 test.beforeAll(async ({ browser }) => {
-  await freshCompany()
+  await freshCompany({ modules: ['sales', 'accounting'] })
   await installTestTypes()
   adminToken = await tokenFor(ADMIN.email, ADMIN.password)
   await command(adminToken, 'member', null, 'create', { ...SALES, roles: ['sales'] })
@@ -38,7 +38,8 @@ const orderList = async () => { await page.goto('/#/r/test_order'); await expect
 test('카탈로그에 있는 유형이 메뉴에 나타나고, 없는 유형은 숨는다', async () => {
   await page.locator('[data-module="sales"]').click()
   await expect(page.locator('[data-screen="test_order"]')).toBeVisible()
-  await expect(page.locator('[data-screen="sales_order"]')).toHaveCount(0)
+  await expect(page.locator('[data-screen="sales_order"]')).toBeVisible()
+  await expect(page.locator('[data-screen="picking"]')).toHaveCount(0)
   await expect(page.locator('[data-screen="partner"]')).toBeVisible()
   await expect(page.locator('[data-module="purchase"]')).toHaveCount(0)
 })
