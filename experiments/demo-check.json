@@ -1,0 +1,297 @@
+{
+ "incidents": [
+  {
+   "day": "2026-06-25",
+   "attempt": 1,
+   "same_connection_after": "cannot find parent statement on pldbgapi2 call sta"
+  }
+ ],
+ "build": {
+  "steps": 19238,
+  "batches": 63,
+  "retries": 1,
+  "slowest_batch_ms": 8639,
+  "seconds": 83,
+  "events": 43480
+ },
+ "size": {
+  "db": "204 MB",
+  "events": "95 MB",
+  "records": "80 MB",
+  "bytes": "213413011"
+ },
+ "bytes_per_event": 4908,
+ "by_type": [
+  {
+   "stream_type": "sales_order",
+   "n": 14414
+  },
+  {
+   "stream_type": "picking",
+   "n": 14228
+  },
+  {
+   "stream_type": "journal_entry",
+   "n": 4405
+  },
+  {
+   "stream_type": "account_move",
+   "n": 4181
+  },
+  {
+   "stream_type": "payment",
+   "n": 2841
+  },
+  {
+   "stream_type": "purchase_order",
+   "n": 2712
+  },
+  {
+   "stream_type": "stock_rfq_watch",
+   "n": 532
+  },
+  {
+   "stream_type": "stock_adjustment",
+   "n": 36
+  },
+  {
+   "stream_type": "partner",
+   "n": 19
+  },
+  {
+   "stream_type": "account",
+   "n": 19
+  },
+  {
+   "stream_type": "product",
+   "n": 18
+  },
+  {
+   "stream_type": "reorder_rule",
+   "n": 18
+  }
+ ],
+ "counts": [
+  {
+   "type": "account_move",
+   "status": "posted",
+   "n": 1078
+  },
+  {
+   "type": "journal_entry",
+   "status": "auto",
+   "n": 4405
+  },
+  {
+   "type": "payment",
+   "status": "paid",
+   "n": 947
+  },
+  {
+   "type": "picking",
+   "status": "done",
+   "n": 2366
+  },
+  {
+   "type": "picking",
+   "status": "ready",
+   "n": 8
+  },
+  {
+   "type": "purchase_order",
+   "status": "purchase",
+   "n": 266
+  },
+  {
+   "type": "sales_order",
+   "status": "sale",
+   "n": 3287
+  }
+ ],
+ "stuck": [],
+ "verify": 0,
+ "books": {
+  "debit": 32270835500,
+  "credit": 32270835500
+ },
+ "models": [
+  "stat_sales: ready",
+  "quote_conversion: ready",
+  "demand_sales: ready",
+  "demand_true: ready",
+  "stockout_risk: ready",
+  "whatif_policy: ready",
+  "whatif_realloc: ready",
+  "whatif_drop: ready",
+  "lead_time: ready",
+  "whatif_lead: ready",
+  "reorder_plan: ready",
+  "cash_in: ready",
+  "whatif_terms: ready",
+  "pnl_outlook: ready"
+ ],
+ "load_ms": 892,
+ "demand_sales": {
+  "state": "ready",
+  "warnings": [
+   "판매가 오래 끊긴 구간은 품절로 보고 뺐습니다. 재고를 켜면 추정이 아니라 기록으로 보정합니다"
+  ],
+  "evidence": "판매 36개월",
+  "ms": 172,
+  "extra": {
+   "p10": 1374173353.6068296,
+   "p50": 1563304634.991119,
+   "p90": 1764916483.3724859
+  }
+ },
+ "demand_true": {
+  "state": "ready",
+  "warnings": [],
+  "evidence": "재고 이력 671일",
+  "ms": 201,
+  "extra": {
+   "p10": 1434704877.45756,
+   "p50": 1555378865.9692063,
+   "p90": 1666094236.6363995
+  }
+ },
+ "stockout_risk": {
+  "state": "ready",
+  "warnings": [],
+  "evidence": "재고 이력 671일",
+  "ms": 108
+ },
+ "whatif_more_dehumid": {
+  "state": "ready",
+  "verdict": "up",
+  "verdict_text": "매출 효과: 증가 (기간 매출)",
+  "delta_revenue": {
+   "p10": 72060900,
+   "p50": 95291000,
+   "p90": 122389300.00000001
+  },
+  "warnings": [],
+  "evidence": "재고 이력 671일",
+  "ms": 213
+ },
+ "summer_more": {
+  "state": "ready",
+  "verdict": "up",
+  "verdict_text": "매출 효과: 증가 (기간 매출)",
+  "delta_revenue": {
+   "p10": 231273400,
+   "p50": 295915500,
+   "p90": 361400200.00000006
+  },
+  "warnings": [],
+  "evidence": "재고 이력 516일",
+  "ms": 234
+ },
+ "summer_drop": {
+  "state": "ready",
+  "verdict": "down",
+  "verdict_text": "매출 효과: 감소 (기간 매출)",
+  "delta_revenue": {
+   "p10": -316238300,
+   "p50": -252273000,
+   "p90": -192121599.99999997
+  },
+  "warnings": [],
+  "evidence": "대체 상품 품절 사례 19건",
+  "ms": 107
+ },
+ "summer_demand": {
+  "state": "ready",
+  "warnings": [],
+  "evidence": "재고 이력 516일",
+  "ms": 75,
+  "extra": {
+   "p10": 2167681924.6048408,
+   "p50": 2329383556.352256,
+   "p90": 2547771353.539595
+  }
+ },
+ "whatif_drop_std": {
+  "state": "ready",
+  "verdict": "down",
+  "verdict_text": "매출 효과: 감소 (기간 매출)",
+  "delta_revenue": {
+   "p10": -290485800,
+   "p50": -231576000,
+   "p90": -171757300
+  },
+  "warnings": [],
+  "evidence": "대체 상품 품절 사례 24건",
+  "ms": 94
+ },
+ "whatif_realloc": {
+  "state": "ready",
+  "verdict": "indistinguishable",
+  "verdict_text": "매출 효과를 구분할 수 없음",
+  "delta_revenue": {
+   "p10": 0,
+   "p50": 0,
+   "p90": 0
+  },
+  "warnings": [],
+  "evidence": "재고 이력 671일",
+  "ms": 92
+ },
+ "whatif_lead": {
+  "state": "ready",
+  "verdict": "down",
+  "verdict_text": "품절일 변화: 감소 (품절일)",
+  "delta_revenue": {
+   "p10": 90570500,
+   "p50": 118846500,
+   "p90": 148617600
+  },
+  "warnings": [],
+  "evidence": "입고 258건",
+  "ms": 97
+ },
+ "lead_time": {
+  "state": "ready",
+  "warnings": [
+   "아직 입고되지 않은 8건도 \"그만큼은 걸렸다\"로 넣어 계산했습니다"
+  ],
+  "evidence": "입고 258건",
+  "ms": 12
+ },
+ "reorder_plan": {
+  "state": "ready",
+  "warnings": [],
+  "evidence": "입고 258건",
+  "ms": 40
+ },
+ "cash_in": {
+  "state": "ready",
+  "warnings": [],
+  "evidence": "입금 완료 청구서 791건",
+  "ms": 91,
+  "extra": {
+   "p10": 1332647382.358327,
+   "p50": 1416534305.0884385,
+   "p90": 1510057751.0101566
+  }
+ },
+ "whatif_terms": {
+  "state": "ready",
+  "verdict": "up",
+  "verdict_text": "입금 효과: 증가 (기간 입금액)",
+  "warnings": [],
+  "evidence": "결제 조건이 바뀐 거래처 5곳",
+  "ms": 80
+ },
+ "pnl": {
+  "state": "ready",
+  "warnings": [],
+  "evidence": "전표 22개월",
+  "ms": 41,
+  "extra": {
+   "p10": 1370924134.7197597,
+   "p50": 1439445089.1536386,
+   "p90": 1534689487.1195784
+  }
+ }
+}

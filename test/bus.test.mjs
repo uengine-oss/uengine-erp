@@ -148,17 +148,24 @@ test('a slow transaction is delivered in order, never skipped', async () => {
   await slow.end(); await fast.end()
 })
 
-test('cursors move past events a subscriber does not want', async () => {
+test('an idle tick writes nothing, and a cursor far behind on unwanted events catches up', async () => {
   await tick()
-  const before_ = (await sub('a.orders')).last_seq
-  const o = await order()
-  await tick()
-  await c.admin('t_order', o.id, 'confirm', {})
-  const top = await n('select max(seq)::int n from erp.events')
+  const quiet = async () => {
+    const before_ = (await c.db.query(`select n_tup_upd from pg_stat_user_tables where relname = 'subscriptions'`)).rows[0].n_tup_upd
+    const xid = (await c.db.query(`select pg_current_xact_id_if_assigned() x from erp.bus_run(1000)`)).rows[0]
+    return { before_, xid }
+  }
+  const { xid } = await quiet()
+  assert.equal(xid.x, null, 'no transaction id was needed: nothing locked or written')
+
+  const before_ = Number((await sub('a.orders')).last_seq)
+  await c.db.query(`do $f$ begin
+    perform set_config('erp.correlation_id', gen_random_uuid()::text, true);
+    for i in 1..520 loop perform erp.emit('t_b', gen_random_uuid(), 'Unrelated', '{"set":{"name":"x"}}'); end loop;
+  end $f$`)
   const end = Date.now() + 5000
-  while (Number((await sub('a.orders')).last_seq) < top && Date.now() < end) await tickOnce()
-  assert.ok((await sub('a.orders')).last_seq > before_)
-  assert.equal(Number((await sub('a.orders')).last_seq), top, 'cursor reached the newest event though the last one was not subscribed')
+  while (Number((await sub('a.orders')).last_seq) <= before_ + 500 && Date.now() < end) await tickOnce()
+  assert.ok(Number((await sub('a.orders')).last_seq) > before_ + 500, 'it moved without delivering anything')
 })
 
 test('a subscriber event carries the source correlation, cause and actor; rollback takes it along', async () => {

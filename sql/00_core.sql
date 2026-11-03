@@ -872,6 +872,8 @@ begin
   end if;
   if uid is null then uid := erp.create_auth_user(p_email, p_password, p_name); end if;
 
+  -- A company can have started earlier than its install: a demo's history, or a migration.
+  if p_company ? 'started_at' then perform set_config('erp.clock', p_company ->> 'started_at', true); end if;
   perform set_config('erp.correlation_id', gen_random_uuid()::text, true);
   perform set_config('erp.source', 'setup', true);
   perform set_config('erp.actor_name', p_name, true);

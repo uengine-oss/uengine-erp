@@ -222,7 +222,10 @@ declare
   n int := 0;
   seen int := 0;
   undone text[];
-  horizon xid8 := pg_snapshot_xmin(pg_current_snapshot());
+  -- Building a demo runs subscribers inside the batch's own transaction, where its events are already visible.
+  horizon xid8 := case when current_setting('erp.bus_inline', true) = 'on'
+                       then (pg_current_xact_id()::text::bigint + 1)::text::xid8
+                       else pg_snapshot_xmin(pg_current_snapshot()) end;
   top record;
 begin
   select * into s from erp.subscriptions where name = p_name and active for update skip locked;
@@ -273,18 +276,20 @@ begin
       update erp.subscriptions set last_txid = top.txid, last_seq = top.seq where name = p_name;
     end if;
   end if;
-  update erp.subscriptions set last_run_at = clock_timestamp() where name = p_name;
+  if n > 0 then update erp.subscriptions set last_run_at = clock_timestamp() where name = p_name; end if;
   return n;
 end $$;
 
 -- True also for events a subscriber cannot read yet because an older transaction is still open somewhere in
--- the cluster: that only delays delivery, and callers should not take it for "nothing to do".
+-- the cluster: that only delays delivery, and callers should not take it for "nothing to do". It walks the
+-- index from the cursor and stops early; a cursor far behind is moved along by the worker instead.
 create or replace function erp.bus_pending(s erp.subscriptions) returns boolean
 language sql stable as $$
-  select exists (select 1 from erp.events e
-    where (e.txid, e.seq) > (s.last_txid, s.last_seq)
-      and (s.event_types is null or e.event_type = any (s.event_types))
-      and (s.since is null or e.occurred_at >= s.since))
+  select exists (
+    select 1 from (select e.event_type, e.occurred_at from erp.events e
+                    where (e.txid, e.seq) > (s.last_txid, s.last_seq) order by e.txid, e.seq limit 2000) x
+     where (s.event_types is null or x.event_type = any (s.event_types))
+       and (s.since is null or x.occurred_at >= s.since))
 $$;
 
 -- One pass of the worker. Events a subscriber writes commit with this transaction, so a chain advances one
@@ -296,7 +301,13 @@ declare
   s erp.subscriptions;
   done int := 0;
   step int;
+  newest bigint;
 begin
+  -- Rebuilding or building a demo owns the ledger; a worker writing beside it would land in the wrong place.
+  if current_setting('erp.bus_inline', true) is distinct from 'on'
+     and exists (select 1 from erp.meta where key in ('maintenance', 'bus_paused')) then
+    return jsonb_build_object('processed', 0, 'failing', 0, 'pending', 0, 'paused', true);
+  end if;
   loop
     step := 0;
     for s in
@@ -305,6 +316,9 @@ begin
               or last_error_at < clock_timestamp() - least(3600, 5 * power(2, failures)) * interval '1 second')
        order by name
     loop
+      -- An idle tick must not lock or write anything: this runs every few seconds on a small database.
+      select max(seq) into newest from erp.events;
+      continue when not erp.bus_pending(s) and coalesce(newest, 0) - s.last_seq <= 500;
       step := step + erp.drain(s.name, p_batch);
       exit when clock_timestamp() - t0 > p_budget_ms * interval '1 millisecond';
     end loop;
