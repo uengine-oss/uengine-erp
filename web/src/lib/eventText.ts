@@ -80,6 +80,7 @@ export function sourceLabel(source: string): string {
     case 'agent': return '에이전트'
     case 'reaction': return '연쇄 반응'
     case 'rollback': return '되돌리기'
+    case 'compensation': return '보상'
     case 'setup': return '설치'
     case 'demo': return '데모 데이터'
     case 'test': return '시험'
@@ -93,9 +94,10 @@ export function sourceColor(source: string): string {
     case 'mcp':
     case 'agent': return 'violet'
     case 'reaction': return 'blue'
-    case 'rollback': return 'amber'
+    case 'rollback':
+    case 'compensation': return 'amber'
     default: return 'gray'
   }
 }
 
-export const SOURCES = ['ui', 'agent', 'mcp', 'reaction', 'rollback', 'setup', 'demo']
+export const SOURCES = ['ui', 'agent', 'mcp', 'reaction', 'rollback', 'compensation', 'setup', 'demo']

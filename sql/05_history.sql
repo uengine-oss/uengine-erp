@@ -176,13 +176,13 @@ begin
        where jsonb_typeof(f.value) = 'number' group by kind, row_ - f.key, f.key having sum((f.value #>> '{}')::numeric) <> 0);
 
     if not coalesce((doc ->> 'revertible')::boolean, true) then
-      blocked := blocked || jsonb_build_object('id', r.stream_id, 'type', r.stream_type, 'name', r.name,
+      blocked := blocked || jsonb_build_object('id', r.stream_id, 'type', r.stream_type, 'name', r.name, 'kind', 'revertible',
         'reason', case when p_kind = 'time' and r.stream_type = 'company' then '회사가 만들어지기 전 시점으로는 되돌릴 수 없습니다'
                        else format('%s은(는) 되돌릴 수 없습니다', doc ->> 'label') end);
     elsif doc ? 'revert_blocked_states' and exists (
         select 1 from erp.events e where e.stream_id = r.stream_id and e.version >= r.first_version
            and (doc -> 'revert_blocked_states') ? (e.data -> 'set' ->> 'state')) then
-      blocked := blocked || jsonb_build_object('id', r.stream_id, 'type', r.stream_type, 'name', r.name,
+      blocked := blocked || jsonb_build_object('id', r.stream_id, 'type', r.stream_type, 'name', r.name, 'kind', 'state',
         'reason', coalesce(doc ->> 'revert_blocked_reason', format('%s의 이 상태는 되돌릴 수 없습니다', doc ->> 'label')));
     end if;
 
@@ -191,7 +191,7 @@ begin
     if doc ? 'lock_fn' and (target ->> 'state') is distinct from (r.current_state ->> 'state') then
       execute format('select coalesce(%1$s($1), %1$s($2))', doc ->> 'lock_fn') into lock_msg using r.current_state, target;
       if lock_msg is not null then
-        blocked := blocked || jsonb_build_object('id', r.stream_id, 'type', r.stream_type, 'name', r.name, 'reason', lock_msg);
+        blocked := blocked || jsonb_build_object('id', r.stream_id, 'type', r.stream_type, 'name', r.name, 'kind', 'lock', 'reason', lock_msg);
       end if;
     end if;
 
@@ -217,7 +217,7 @@ begin
       from jsonb_array_elements(streams) st, jsonb_array_elements(erp.negate_effects(st -> 'effects') -> chk.kind) row_;
     if jsonb_array_length(combined) > 0 then
       execute format('select %s($1)', chk.check_fn) into messages using combined;
-      select blocked || coalesce(jsonb_agg(jsonb_build_object('type', chk.kind, 'reason', m)), '[]'::jsonb) into blocked
+      select blocked || coalesce(jsonb_agg(jsonb_build_object('type', chk.kind, 'kind', 'effect', 'reason', m)), '[]'::jsonb) into blocked
         from jsonb_array_elements_text(coalesce(messages, '[]'::jsonb)) m;
     end if;
   end loop;

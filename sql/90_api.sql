@@ -17,7 +17,7 @@ declare
   params jsonb := '{}'::jsonb;
   res jsonb;
   ver int := p_expected_version;
-  corr uuid := gen_random_uuid();
+  corr uuid := coalesce(nullif(current_setting('erp.saga_id', true), '')::uuid, gen_random_uuid());
 begin
   -- A state change is how CRUD callers express a business action: the catalog says which command means it.
   if vals ? 'state' and d ? 'transitions' then

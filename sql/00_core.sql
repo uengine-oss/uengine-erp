@@ -717,7 +717,7 @@ declare
   out_id uuid;
   roles_ text[];
   cur int;
-  corr uuid := coalesce(p_correlation_id, gen_random_uuid());
+  corr uuid := coalesce(p_correlation_id, nullif(current_setting('erp.saga_id', true), '')::uuid, gen_random_uuid());
   first_seq bigint;
   r erp.records;
   key_ text;
