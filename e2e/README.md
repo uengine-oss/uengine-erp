@@ -263,6 +263,13 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 장부는 원장에서 다시 만들 수 있고 재설치로 변하지 않는다 | `accounting.test.mjs` 2 | SQL | ✅ |
 | 회계를 언제 켜도 같은 사실이면 같은 장부가 나온다 | `growth.test.mjs` 2<br>`growth.spec.mjs` 2<br>`rebuild-gl.test.mjs` 6 | SQL, 브라우저 | ✅ |
 | 다시 만들 수 없는 것을 켜기 전에 알린다 | `accounting.test.mjs` 1<br>`growth.spec.mjs` 2<br>`bus.test.mjs` 1<br>`demo.test.mjs` 1 | SQL, 브라우저 | ◐ |
+| 자산의 실행과 처분은 이벤트에 실린 대로 전표가 된다 | `assets.test.mjs` 1 | SQL | ✅ |
+| 장부를 전기와 비교해 본다 | `books.test.mjs` 6<br>`books.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 재무제표는 양식의 칸대로 전기와 나란히 나온다 | `books.test.mjs` 2<br>`books.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 제조원가명세서를 낸다 | `books.test.mjs` 2 | SQL | ✅ |
+| 이익잉여금처분계산서는 다음 해의 처분 전표를 읽는다 | `books.test.mjs` 2<br>`books.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 결산은 단계마다 전표를 보여 주고 되돌릴 수 있으며 잠금일과 맞물린다 | `books.test.mjs` 7<br>`books.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 새 계정은 있던 회사의 잔액을 움직이지 않는다 | `books.test.mjs` 3 | SQL | ✅ |
 
 ### 10. 통계·예측·what-if (spec `erp-analytics`)
 
@@ -307,6 +314,25 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 무료 플랜의 한도를 보여 주고 원장을 내려받게 한다 | `ledger.spec.mjs` 3 | 브라우저 | ◐ |
 | 가상 회사로 시작할 수 있다 | `demo.spec.mjs` 5<br>`demo.test.mjs` 4 | SQL, 브라우저 | ✅ |
 
+### 13. 고정자산 (spec `erp-assets`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 자산을 등록하면 연도별 상각 계획이 정해진다 | `assets.test.mjs` 14<br>`books.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 세법 기준이 허용하지 않는 입력은 이유와 함께 막는다 | `assets.test.mjs` 3<br>`books.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 실행은 달까지의 금액을 잡고 전표를 먼저 보여 준다 | `assets.test.mjs` 5<br>`books.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 처분은 그 전 달까지의 상각을 함께 잡고 손익을 먼저 보여 준다 | `assets.test.mjs` 4<br>`books.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 취득 대금은 계정을 적었을 때만 전표가 된다 | `assets.test.mjs` 1 | SQL | ✅ |
+| 되돌리면 자산과 전표가 함께 돌아간다 | `assets.test.mjs` 3<br>`books.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 닫은 기간은 실행도 처분도 되돌리기도 막는다 | `assets.test.mjs` 3<br>`books.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 회계 없이도 동작하고 나중에 켠 회계는 같은 장부를 만든다 | `assets.test.mjs` 5<br>`isolation.test.mjs` 64 | SQL | ✅ |
+| 회계 역할만 다룬다 | `assets.test.mjs` 1<br>`books.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 감가상각비 전망은 세 상태로 답한다 | `assets.test.mjs` 6<br>`books.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+
+### 시험 목록에 더해진 파일
+
+`test/assets.test.mjs`, `test/books.test.mjs`, `e2e/tests/books.spec.mjs`. `books.spec.mjs` 는 모든 입력을 사람 속도(단계마다 1초)로 넣는 직렬 시험이라 하나만 따로 돌리지 않는다. 날짜에 기대는 한 시험(감가상각비 전망의 근거 부족)은 2027-01 부터 건너뛴다.
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |
@@ -318,13 +344,13 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 
 | 단계 | 파일별 시험 수 |
 |---|---|
-| SQL | `accounting.test.mjs` 27 · `api.test.mjs` 11 · `bus.test.mjs` 18 · `concurrency.test.mjs` 11 · `core.test.mjs` 18 · `demo.test.mjs` 4 · `growth.test.mjs` 11 · `history.test.mjs` 21 · `inventory.test.mjs` 63 · `invoicing.test.mjs` 51 · `isolation.test.mjs` 39 · `master.test.mjs` 45 · `models.test.mjs` 36 · `plugin.test.mjs` 8 · `pricing.test.mjs` 145 · `purchase.test.mjs` 30 · `rebuild-gl.test.mjs` 8 · `sales.test.mjs` 51 |
+| SQL | `accounting.test.mjs` 27 · `api.test.mjs` 11 · `bus.test.mjs` 18 · `concurrency.test.mjs` 11 · `core.test.mjs` 18 · `demo.test.mjs` 4 · `growth.test.mjs` 11 · `history.test.mjs` 21 · `inventory.test.mjs` 63 · `invoicing.test.mjs` 51 · `assets.test.mjs` 44 · `books.test.mjs` 23 · `isolation.test.mjs` 71 · `master.test.mjs` 45 · `models.test.mjs` 36 · `plugin.test.mjs` 8 · `pricing.test.mjs` 145 · `purchase.test.mjs` 30 · `rebuild-gl.test.mjs` 8 · `sales.test.mjs` 51 |
 | HTTP | `api.e2e.mjs` 7 · `stack.e2e.mjs` 7 |
-| 브라우저 | `demo.spec.mjs` 5 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `integration.spec.mjs` 3 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `pages.spec.mjs` 4 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `whatif.spec.mjs` 15 |
+| 브라우저 | `books.spec.mjs` 10 · `demo.spec.mjs` 5 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `integration.spec.mjs` 3 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `pages.spec.mjs` 4 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `whatif.spec.mjs` 15 |
 
-SQL 은 `node --test` 의 `tests 597`, 브라우저는 `npx playwright test --list` 의 `Total: 130 tests in 13 files` 로 세었다. HTTP 는 초기화한 스택이 있어야 돌므로 소스의 `test()` 를 세었다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 32개는 다섯 모듈의 조합마다 하나씩 생긴다.
+SQL 은 `node --test` 의 `tests 597`, 브라우저는 `npx playwright test --list` 의 `Total: 130 tests in 13 files` 로 세었다. HTTP 는 초기화한 스택이 있어야 돌므로 소스의 `test()` 를 세었다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 64개는 여섯 모듈의 조합마다 하나씩 생긴다.
 
-openspec 명세 12개의 요구사항 212개: 덮음 183 · 일부 29 · 공백 0. 시나리오 633개: 덮음 603 · 일부 12 · 공백 18.
+openspec 명세 13개의 요구사항 229개: 덮음 200 · 일부 29 · 공백 0. 시나리오 694개: 덮음 664 · 일부 12 · 공백 18.
 
 ## 남은 공백
 

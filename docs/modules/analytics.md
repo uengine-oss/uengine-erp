@@ -35,7 +35,7 @@ SQL 은 사실을 돌려주고, 계산은 브라우저에서 한다. 모든 함�
 
 `잠김`은 필요한 모듈이 한 번도 켜진 적 없을 때다. 켰다가 끈 경우는 모델마다 다르다.
 
-- 이력만 읽는 모델(`stat_sales`, `quote_conversion`, `demand_sales`, `demand_true`, `whatif_drop`, `lead_time`, `pnl_outlook`)은 쌓인 이력으로 계속 계산하고 `stale_modules` 에 그 모듈을 적는다(M8).
+- 이력만 읽는 모델(`stat_sales`, `quote_conversion`, `demand_sales`, `demand_true`, `whatif_drop`, `lead_time`, `pnl_outlook`, `depreciation_outlook`)은 쌓인 이력으로 계속 계산하고 `stale_modules` 에 그 모듈을 적는다(M8).
 - 지금 재고나 미결 청구서가 있어야 하는 모델(`stockout_risk`, `whatif_policy`, `whatif_realloc`, `whatif_lead`, `reorder_plan`, `cash_in`, `whatif_terms`)은 잠긴다.
 
 문서를 읽을 권한이 없는 사람에게 그 문서로 계산하는 모델은 `state: locked, forbidden: true` 이고 건수도 0 이다.
@@ -155,6 +155,7 @@ const panel = buildPanel(data)
 | `cash_in` | 입금 30건 | 101건 | 100건 | 오차는 어디서나 작다(1~10건 6.1%, 21~30건 5.0%, 51~100건 5.3%). 구간이 좁다: 60%, 72%, 63%. 101~300건 74%, 301건 이상 86% |
 | `whatif_terms` | 입금 30건 | 입금 + 조건이 바뀐 거래처 2곳 | 3곳 | 0곳 범위만, 범위 포함 100%. 1곳 36.9%·43%, 2곳 16.2%·77%, 3곳 24.8%·70% |
 | `pnl_outlook` | 전표 3개월 | 1개월 | 3개월 | 1개월 7.6%. 가상 비용에는 일회성과 계절이 없어 믿지 않고 3개월을 유지했다 |
+| `depreciation_outlook` | 자산 이력 12개월 | 9개월 | 12개월 | 구간 포함 3개월 53.0%, 6개월 69.5%, 9개월 73.7%, 12개월 77.1%, 36개월 79.7%. 위 30곳 측정과 별도로 회사 2000곳으로 쟀다. 지금 있는 자산의 금액은 계산이라 오차가 없다. [assets.md](assets.md) |
 
 결과를 본 뒤 정한 것: 사례 30건 미만 칸은 판정에서 뺐다(단종의 40건 이상 칸이 13건 69.2% 로 답을 막았다). `reorder_plan` 의 기준 "기한의 90% 이상이 지켜짐"은 결과를 본 뒤 정했다. 계획이 품절 위험 약 10% 를 약속하므로 그에 맞춘 것이다. 입금 모델은 첫 측정(시드 2001~)에서 구간이 너무 좁아 개발 시드로 고친 뒤 새 시드로 다시 쟀다. `whatif_terms`·`whatif_lead`·`pnl_outlook` 의 적용값은 규칙보다 보수적이다.
 
