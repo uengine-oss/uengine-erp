@@ -1,0 +1,88 @@
+# 모듈 사이의 이벤트 계약
+
+모듈이 서로 아는 것은 이 문서뿐이다. 필드를 빼거나 뜻을 바꾸면 구독자가 깨지므로 먼저 이 문서를 고친다. 더하는 것은 괜찮다.
+
+## 규칙
+
+- 사실은 이벤트의 `data` 최상위에 싣는다. `set`, `col`, `effects`, `changes` 는 그 스트림 자신을 위한 것이므로 구독자가 읽지 않는다.
+- 구독자는 `ev.stream_id` 를 원본 문서 ID 로 쓴다. 수량은 `uom_id` 단위다.
+- 구독 처리기는 `fn(ev erp.events) returns void` 다. 같은 이벤트가 두 번 와도 결과가 같아야 한다(커서와 처리 결과는 한 트랜잭션이지만, 건너뛰기·재시도·재설치가 있다).
+- 구독 처리기 안에서는 자기 모듈의 문서만 만들고 고친다(`erp.dispatch` 또는 `erp.emit`). 다른 모듈의 표를 읽지 않는다. 필요한 사실이 이벤트에 없으면 이 문서에 추가를 요청한다.
+- 처리기는 자기가 만든 문서에 `origin_type`, `origin_id`, `origin_line_id` 를 남긴다.
+- `Reverted` 는 요청한 구독자에게만 간다. 되돌려진 작업의 아직 전달되지 않은 이벤트는 커널이 건너뛴다.
+
+## 판매가 내는 것
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `SalesOrderConfirmed` | `number, partner_id, partner_name, delivery_partner_id, region, warehouse_id, shipping_policy, commitment_date, date_order, currency, amount_untaxed, amount_tax, amount_total, lines:[{line_id, product_id, variant_id, name, qty, uom_id, lead_days, unit_price, discount, subtotal, cost, type, invoice_policy}]` |
+| `SalesOrderLineAdded` | 확정 뒤 추가. `line:{...위와 같은 줄}, warehouse_id, partner_id, number` |
+| `SalesOrderLineQtyChanged` | 확정 뒤 수량 변경. `line_id, variant_id, product_id, from, to, uom_id, name, type, warehouse_id, partner_id, number` |
+| `SalesOrderCancelled` | `number, partner_id` |
+
+`warehouse_id` 는 재고 모듈이 꺼져 있으면 `null` 이고, 그때는 기본 창고를 쓴다. `region` 은 납품처의 지역이고 없으면 거래처의 지역이다.
+
+## 구매가 내는 것
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `PurchaseOrderConfirmed` | `number, partner_id, partner_name, warehouse_id, date_order, date_planned, currency, amount_untaxed, amount_tax, amount_total, lines:[{line_id, product_id, variant_id, name, qty, uom_id, unit_price, discount, subtotal, type, bill_policy, date_planned, delay_days}]` |
+| `PurchaseOrderLineAdded` | `line:{...}, warehouse_id, partner_id, number` |
+| `PurchaseOrderLineQtyChanged` | `line_id, variant_id, product_id, from, to, uom_id, name, type, warehouse_id, partner_id, number` |
+| `PurchaseOrderCancelled` | `number, partner_id` |
+
+## 재고가 내는 것
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `PickingStateChanged` | 전표 상태가 바뀔 때마다. `number, picking_type, origin_type, origin_id, state, is_return, partner_id, scheduled_date, lines:[{origin_line_id, variant_id, demand, done}]` |
+| `PickingValidated` | `number, picking_type, origin_type, origin_id, is_return, to_refund, partner_id, warehouse_id, date_done, moves:[{move_id, origin_line_id, product_id, variant_id, name, qty_done, uom_id, location_from, location_to, lot_id, unit_cost, cost_method}]` |
+| `StockAdjusted` | `variant_id, product_id, location_id, warehouse_id, lot_id, delta, unit_cost, counted_qty` |
+| `StockScrapped` | `variant_id, product_id, location_id, warehouse_id, lot_id, qty, unit_cost` |
+| `ReorderRequested` | `rule_id, variant_id, product_id, location_id, warehouse_id, qty, uom_id, vendor_id, origin` |
+
+재고 수량 변화는 전부 `data.effects.quant = [{variant_id, location_id, lot_id, qty, reserved}]` 에 실린다. 분석은 이것을 읽는다.
+
+## 청구가 내는 것
+
+줄 공통: `lines:[{line_id, origin_line_id, product_id, variant_id, name, qty, uom_id, price_unit, discount, subtotal, tax_amount, total, taxes:[{tax_id, name, amount, base}], is_downpayment, account_id}]`
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `InvoiceDrafted` | 초안이 생기거나 바뀔 때. `move_type, origin_type, origin_id, partner_id, lines` |
+| `InvoicePosted` | `move_type, number, origin_type, origin_id, partner_id, partner_name, region, date, due_date, currency, amount_untaxed, amount_tax, amount_total, reversal_of, lines` |
+| `InvoiceResetToDraft` | `move_type, number, origin_type, origin_id, partner_id, lines` |
+| `InvoiceCancelled` | 초안 또는 게시 취소. `move_type, number, origin_type, origin_id, partner_id, lines` |
+| `PaymentPosted` | `payment_type, number, partner_id, amount, date, journal, allocations:[{move_id, amount}], unallocated, writeoff_amount, writeoff_account_id` |
+| `PaymentCancelled` | `payment_type, number, partner_id, amount, date, journal, allocations` |
+| `InvoicePaymentApplied` | 청구서 스트림. `payment_id, amount, residual, payment_state, partner_id, due_date, date` |
+
+청구는 초안일 때부터 `qty` 를 알린다. 판매와 구매의 `qty_invoiced`·`qty_billed` 는 초안 시점에 움직인다.
+
+### 선금
+
+청구가 `method: percentage|fixed` 로 만든 선금 청구서는 `InvoiceDrafted` 줄에 `is_downpayment: true`, `origin_line_id: null` 을 싣고 `line_id` 를 고정한다. 판매는 이 줄을 받아 주문에 `is_downpayment` 줄을 하나 더하되, `invoice_line_id` 로 중복을 막는다. 일반 청구서를 만들 때 청구는 `erp.peek` 로 주문의 선금 줄을 읽어 음수 줄(`origin_line_id` = 주문의 선금 줄)로 차감한다.
+
+## 기초데이터가 내는 것
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `PartnerMerged` | `into`(대상 거래처) |
+| `ProductCostChanged` | `variant_id, product_id, from, to, reason`. 재고 모듈이 기초데이터 명령으로 일으킨다 |
+
+## 구독 관계
+
+발행자는 이 표를 모른다. 어느 칸이 비어도 동작해야 한다.
+
+| 구독자 | 듣는 이벤트 | 하는 일 |
+|---|---|---|
+| 재고 | `SalesOrderConfirmed`, `SalesOrderLineAdded`, `SalesOrderLineQtyChanged`, `SalesOrderCancelled` | 출고 전표 |
+| 재고 | `PurchaseOrderConfirmed`, `PurchaseOrderLineAdded`, `PurchaseOrderLineQtyChanged`, `PurchaseOrderCancelled` | 입고 전표 |
+| 판매 | `PickingStateChanged`, `PickingValidated` | 납품 상태, `qty_delivered` |
+| 판매 | `InvoiceDrafted`, `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled` | 청구 상태, `qty_invoiced` |
+| 구매 | `ReorderRequested` | 견적 요청 초안 |
+| 구매 | `PickingStateChanged`, `PickingValidated` | 입고 상태, `qty_received` |
+| 구매 | `InvoiceDrafted`, `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled` | 청구 상태, `qty_billed` |
+| 회계 | `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled`, `PaymentPosted`, `PaymentCancelled` | 분개(처음부터 다시 읽는다) |
+| 회계 | `PickingValidated`, `StockAdjusted`, `StockScrapped` | 재고 평가 분개(처음부터 다시 읽는다) |
+| 분석 | 원장 전체 | 구독하지 않고 직접 읽는다 |

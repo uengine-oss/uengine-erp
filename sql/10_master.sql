@@ -914,7 +914,7 @@ end $$;
 ------------------------------------------------------------------------------------------------
 create or replace function erp.catalog_master(p_doc jsonb, p_roles jsonb) returns void
 language sql as $$
-  select erp.catalog_put(p_doc || jsonb_build_object('module', 'master', 'write_roles', p_roles, 'commands', jsonb_build_object(
+  select erp.catalog_put(p_doc || jsonb_build_object('module', coalesce(p_doc ->> 'module', 'master'), 'write_roles', p_roles, 'commands', jsonb_build_object(
     'create', r, 'update', r, 'archive', r, 'unarchive', r, 'delete', r)))
     from (select jsonb_build_object('roles', p_roles) as r) t
 $$;
@@ -934,6 +934,7 @@ select erp.catalog_master('{
     {"name": "email", "label": "이메일", "type": "text", "list": true, "search": true},
     {"name": "website", "label": "웹사이트", "type": "text"},
     {"name": "street", "label": "주소", "type": "text", "search": true},
+    {"name": "region", "label": "지역", "type": "text", "list": true, "search": true},
     {"name": "city", "label": "도시", "type": "text", "search": true},
     {"name": "zip", "label": "우편번호", "type": "text"},
     {"name": "country", "label": "국가", "type": "text", "help": "ISO 국가 코드 (KR, US ...)"},
@@ -1099,7 +1100,7 @@ select erp.catalog_master('{
 }'::jsonb, '["accounting"]'::jsonb);
 
 select erp.catalog_master('{
-  "type": "account", "sort": 110, "label": "계정과목", "label_en": "Account",
+  "type": "account", "module": "accounting", "sort": 110, "label": "계정과목", "label_en": "Account",
   "fields": [
     {"name": "code", "label": "코드", "type": "text", "required": true, "unique": true, "list": true, "search": true},
     {"name": "name", "label": "계정명", "type": "text", "required": true, "list": true, "search": true},
@@ -1112,7 +1113,7 @@ select erp.catalog_master('{
 }'::jsonb, '["accounting"]'::jsonb);
 
 select erp.catalog_master('{
-  "type": "warehouse", "sort": 120, "label": "창고", "label_en": "Warehouse",
+  "type": "warehouse", "module": "inventory", "sort": 120, "label": "창고", "label_en": "Warehouse",
   "fields": [
     {"name": "name", "label": "창고명", "type": "text", "required": true, "list": true, "search": true},
     {"name": "code", "label": "코드", "type": "text", "required": true, "unique": true, "list": true, "search": true},
@@ -1121,7 +1122,7 @@ select erp.catalog_master('{
 }'::jsonb, '["inventory"]'::jsonb);
 
 select erp.catalog_master('{
-  "type": "location", "sort": 130, "label": "위치", "label_en": "Location",
+  "type": "location", "module": "inventory", "sort": 130, "label": "위치", "label_en": "Location",
   "fields": [
     {"name": "name", "label": "위치명", "type": "text", "required": true, "list": true, "search": true},
     {"name": "parent_id", "label": "상위 위치", "type": "ref", "ref": "location", "list": true},
@@ -1216,3 +1217,12 @@ begin
   perform erp.seed_put('warehouse', 'WH', jsonb_build_object('name', '기본 창고', 'code', 'WH', 'stock_location_id', erp.seed_id('재고')));
 end $$;
 insert into erp.default_seeds(fn, sort) values ('erp.seed_master', 10) on conflict (fn) do nothing;
+
+-- Fields that mean nothing until the module that uses them is on.
+select erp.catalog_tag_fields('product', 'purchase', array['purchase_uom_id', 'purchase_ok', 'purchase_tax_ids', 'bill_policy', 'vendors', 'description_purchase']);
+select erp.catalog_tag_fields('product', 'inventory', array['tracking', 'weight', 'volume']);
+select erp.catalog_tag_fields('product', 'invoicing', array['invoice_policy']);
+select erp.catalog_tag_fields('product_category', 'accounting', array['income_account_id', 'expense_account_id']);
+select erp.catalog_tag_fields('product_category', 'inventory', array['cost_method']);
+select erp.catalog_tag_fields('tax', 'accounting', array['account_id']);
+select erp.catalog_tag_fields('partner', 'purchase', array['vendor_payment_term_id']);

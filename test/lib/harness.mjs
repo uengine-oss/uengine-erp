@@ -93,7 +93,7 @@ export async function company(opts = {}) {
   const db = await freshDb()
   await db.query(`select erp.set_setup_code('test-code')`)
   const boot = await db.asUser(null, `select public.erp_bootstrap($1, $2, $3, $4, $5) as r`,
-    ['test-code', JSON.stringify({ name: '시험 회사', currency: opts.currency || 'KRW', decimal_places: opts.decimal_places ?? 0 }), 'admin@test.co', 'password123', '관리자'], 'anon')
+    ['test-code', JSON.stringify({ name: '시험 회사', currency: opts.currency || 'KRW', decimal_places: opts.decimal_places ?? 0, modules: opts.modules === undefined ? 'all' : opts.modules }), 'admin@test.co', 'password123', '관리자'], 'anon')
   const adminId = boot.rows[0].r.user_id
 
   async function cmd(userId, type, id, command, payload = {}, opt = {}) {
@@ -125,7 +125,19 @@ export async function company(opts = {}) {
     const { rows } = await db.query(`select id, type, state, erp.fold(id) as folded from erp.records`)
     return rows.filter((r) => JSON.stringify(sortKeys(r.state)) !== JSON.stringify(sortKeys(r.folded))).map((r) => ({ id: r.id, type: r.type }))
   }
-  return { db, adminId, cmd, admin, addMember, rec, list, events, verifyProjection, close: db.close }
+  // Runs the bus the way cron does until nothing is left; each pass is its own transaction, so chains advance.
+  // An open transaction anywhere in the cluster, such as a parallel test file's, can delay delivery for a moment.
+  async function settle(timeoutMs = 10000) {
+    const end = Date.now() + timeoutMs
+    let last
+    do {
+      last = (await db.query('select erp.bus_run(5000) r')).rows[0].r
+      if (!last.processed && !last.pending) return last
+      if (!last.processed) await new Promise((r) => setTimeout(r, 20))
+    } while (Date.now() < end)
+    throw new Error(`bus did not settle: ${JSON.stringify(last)}`)
+  }
+  return { db, adminId, cmd, admin, addMember, rec, list, events, verifyProjection, settle, close: db.close }
 }
 
 function sortKeys(v) {

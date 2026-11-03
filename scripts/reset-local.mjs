@@ -13,6 +13,8 @@ export async function resetLocal(connectionString = LOCAL_PG) {
   const c = new pg.Client({ connectionString })
   await c.connect()
   try {
+    // Cron jobs live outside the erp schema and would keep failing after it is gone.
+    await c.query(`select cron.unschedule(jobname) from cron.job where jobname like 'erp-%'`).catch(() => {})
     await c.query('begin')
     const fns = await c.query(`
       select p.oid::regprocedure::text as sig from pg_proc p join pg_namespace n on n.oid = p.pronamespace

@@ -86,7 +86,12 @@ create trigger events_immutable_trg before update or delete on erp.events
 create or replace function erp.fail(p_code text, p_message text) returns void
 language plpgsql as $$
 begin
-  raise exception '%: %', p_code, p_message using errcode = 'P0001';
+  raise exception '%: %', p_code, p_message using errcode = case
+    when p_code in ('ERP_FORBIDDEN', 'ERP_MODULE_OFF') then 'PT403'
+    when p_code in ('ERP_NOT_FOUND', 'ERP_UNKNOWN_TYPE') then 'PT404'
+    when p_code in ('ERP_CONFLICT', 'ERP_DUPLICATE', 'ERP_IN_USE') then 'PT409'
+    when p_code in ('ERP_REQUIRED', 'ERP_INVALID', 'ERP_INVALID_REF', 'ERP_UNKNOWN_FIELD') then 'PT422'
+    else 'PT400' end;
 end $$;
 
 -- Business time. Seeding demo history sets erp.clock so handlers run "in the past" through the same code.
@@ -207,6 +212,16 @@ begin
 exception when others then return null;
 end $$;
 
+-- Who an event is attributed to. A bus delivery runs on behalf of whoever caused the source event, not
+-- whoever's request happened to run the worker. Authorization never reads this: it uses the JWT only.
+create or replace function erp.event_actor() returns uuid
+language plpgsql stable as $$
+declare v text := nullif(current_setting('erp.event_actor', true), '');
+begin
+  if v is not null then return v::uuid; end if;
+  return erp.current_actor();
+end $$;
+
 -- Extension points. Modules register derived tables and cross-aggregate reactions with these
 -- tables instead of editing the kernel. Each function takes (erp.events, before jsonb, after jsonb).
 create table if not exists erp.hooks (
@@ -281,7 +296,7 @@ declare
   after_state jsonb;
   ev erp.events;
   ts timestamptz := erp.now();
-  actor uuid := erp.current_actor();
+  actor uuid := erp.event_actor();
   prev_causation text;
   depth int := coalesce(nullif(current_setting('erp.depth', true), '')::int, 0);
   h record;
@@ -434,9 +449,13 @@ declare
   k text; t text; v jsonb;
   ref_type text;
 begin
+  -- Silently dropping a field would let an app newer than this database think it saved something.
+  select key into k from jsonb_each(p_payload)
+   where key <> 'active' and not exists (select 1 from jsonb_array_elements(d -> 'fields') x where x ->> 'name' = key) limit 1;
+  if k is not null then perform erp.fail('ERP_UNKNOWN_FIELD', format('%s 에 없는 항목입니다: %s', d ->> 'label', k)); end if;
   for f in select * from jsonb_array_elements(d -> 'fields') loop
     k := f ->> 'name'; t := f ->> 'type';
-    if coalesce((f ->> 'readonly')::boolean, false) then continue; end if;
+    if coalesce((f ->> 'readonly')::boolean, false) or not erp.module_on(f ->> 'module') then continue; end if;
     if p_payload ? k then
       v := p_payload -> k;
     elsif p_is_create and f ? 'default' then
@@ -587,18 +606,21 @@ begin
   end if;
   select value into t from jsonb_array_elements(coalesce(d -> 'transitions', '[]'::jsonb)) where value ->> 'command' = p_command limit 1;
   if t is not null then
+    if not erp.module_on(t ->> 'module') then perform erp.fail('ERP_MODULE_OFF', format('%s: 이 동작에 필요한 모듈이 꺼져 있습니다', d ->> 'label')); end if;
     return array(select jsonb_array_elements_text(coalesce(t -> 'roles', d -> 'write_roles', '[]'::jsonb)));
   end if;
   if d -> 'extra_commands' ? p_command then
+    if not erp.module_on(d -> 'extra_commands' -> p_command ->> 'module') then perform erp.fail('ERP_MODULE_OFF', format('%s: 이 동작에 필요한 모듈이 꺼져 있습니다', d ->> 'label')); end if;
     return array(select jsonb_array_elements_text(d -> 'extra_commands' -> p_command -> 'roles'));
   end if;
   perform erp.fail('ERP_COMMAND', format('%s: 지원하지 않는 명령입니다 (%s)', d ->> 'label', p_command));
 end $$;
 
+drop function if exists public.erp_command(text, uuid, text, jsonb, int, text, text, uuid);
 create or replace function public.erp_command(
   p_type text, p_id uuid, p_command text, p_payload jsonb default '{}'::jsonb,
   p_expected_version int default null, p_reason text default null, p_source text default 'ui',
-  p_correlation_id uuid default null
+  p_correlation_id uuid default null, p_idempotency_key text default null, p_app_version text default null
 ) returns jsonb
 language plpgsql security definer set search_path = erp, extensions, pg_temp as $$
 declare
@@ -608,10 +630,29 @@ declare
   corr uuid := coalesce(p_correlation_id, gen_random_uuid());
   first_seq bigint;
   r erp.records;
+  key_ text;
+  res jsonb;
+  mod_ text;
 begin
   if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '이 회사의 구성원이 아닙니다'); end if;
   if exists (select 1 from erp.meta where key = 'maintenance') then
     perform erp.fail('ERP_MAINTENANCE', '데이터를 다시 만드는 중입니다. 잠시 뒤 다시 시도하세요');
+  end if;
+  if p_app_version is not null
+     and string_to_array(p_app_version, '.')::int[] < string_to_array(erp.min_app_version(), '.')::int[] then
+    perform erp.fail('ERP_APP_OUTDATED', format('앱이 이 데이터베이스보다 오래되었습니다(앱 v%s, 최소 v%s). 새로 고침하세요', p_app_version, erp.min_app_version()));
+  end if;
+  -- A client that lost the response can resend the same key and get the first answer instead of a duplicate.
+  key_ := coalesce(p_idempotency_key, nullif(current_setting('request.headers', true), '')::json ->> 'idempotency-key');
+  if key_ is not null then
+    key_ := erp.current_actor()::text || ':' || key_;
+    perform pg_advisory_xact_lock(hashtextextended('idem:' || key_, 0));
+    select result into res from erp.idempotency where key = key_;
+    if found then return res || '{"replayed":true}'::jsonb; end if;
+  end if;
+  select module into mod_ from erp.catalog where type = p_type;
+  if not erp.module_on(mod_) then
+    perform erp.fail('ERP_MODULE_OFF', format('%s 모듈이 꺼져 있습니다', (select doc ->> 'label' from erp.modules where id = mod_)));
   end if;
   roles_ := erp.command_roles(p_type, p_command);
   if not erp.has_role(roles_) then
@@ -633,11 +674,16 @@ begin
   out_id := erp.dispatch(p_type, p_id, p_command, coalesce(p_payload, '{}'::jsonb));
 
   select * into r from erp.records where id = out_id;
-  return jsonb_build_object('id', out_id, 'type', r.type, 'version', r.version, 'name', r.name, 'status', r.status,
+  res := jsonb_build_object('id', out_id, 'type', r.type, 'version', r.version, 'name', r.name, 'status', r.status,
     'state', r.state, 'correlation_id', corr,
     'events', (select coalesce(jsonb_agg(jsonb_build_object('seq', seq, 'type', event_type, 'stream', stream_type, 'stream_id', stream_id) order by seq), '[]'::jsonb)
                  from erp.events where correlation_id = corr and seq > first_seq));
+  if key_ is not null then insert into erp.idempotency(key, result) values (key_, res); end if;
+  return res;
 end $$;
+
+-- Raised only when an installed app could corrupt data by misreading this database.
+create or replace function erp.min_app_version() returns text language sql immutable as $$ select '0.1.0' $$;
 
 ------------------------------------------------------------------------------------------------
 -- Reads that need more than the views give: history, time travel, integrity
@@ -650,12 +696,6 @@ begin
     perform erp.fail('ERP_FORBIDDEN', '이 레코드를 볼 권한이 없습니다');
   end if;
 end $$;
-
-create or replace function public.erp_catalog() returns jsonb
-language sql stable security definer set search_path = erp, pg_temp as $$
-  select case when erp.is_member() then
-    (select coalesce(jsonb_agg(doc order by sort, type), '[]'::jsonb) from erp.catalog) else '[]'::jsonb end
-$$;
 
 -- Side-effect-free computation for form screens (prices, taxes, totals) so the browser holds no business rules.
 -- Modules provide erp.preview_<type>(payload jsonb) returns jsonb.
@@ -795,6 +835,7 @@ language sql stable security definer set search_path = erp, pg_temp as $$
   select jsonb_build_object(
     'installed', true,
     'version', (select value #>> '{}' from erp.meta where key = 'schema_version'),
+    'min_app_version', erp.min_app_version(),
     'initialized', exists (select 1 from erp.members),
     'company_name', case when erp.is_member() then (select state ->> 'name' from erp.records where id = erp.company_id()) end,
     'demo', coalesce((select (value #>> '{}')::boolean from erp.meta where key = 'demo'), false))
@@ -834,6 +875,7 @@ begin
   perform erp.emit('member', rec_id, 'MemberAdded', jsonb_build_object('set',
     jsonb_build_object('user_id', uid, 'email', lower(p_email), 'name', p_name, 'roles', array_to_json(array['admin'])::jsonb, 'active', true)));
   perform erp.seed_defaults();
+  perform erp.modules_bootstrap(p_company -> 'modules');
   delete from erp.meta where key = 'setup_code_sha256';
   return jsonb_build_object('user_id', uid, 'email', lower(p_email));
 end $$;
