@@ -91,11 +91,15 @@ export async function freshDb() {
 // Installs a company with one admin and returns helpers bound to users.
 export async function company(opts = {}) {
   const db = await freshDb()
+  // A connection left open keeps the test process alive, so a company that fails to start must not leave one.
+  let boot
+  try {
   // A company with a past: modules turned on at bootstrap only hear what comes after this moment.
   if (opts.clock) await db.query(`select set_config('erp.clock', $1, false)`, [opts.clock])
   await db.query(`select erp.set_setup_code('test-code')`)
-  const boot = await db.asUser(null, `select public.erp_bootstrap($1, $2, $3, $4, $5) as r`,
+  boot = await db.asUser(null, `select public.erp_bootstrap($1, $2, $3, $4, $5) as r`,
     ['test-code', JSON.stringify({ name: '시험 회사', currency: opts.currency || 'KRW', decimal_places: opts.decimal_places ?? 0, modules: opts.modules === undefined ? 'all' : opts.modules }), 'admin@test.co', 'password123', '관리자'], 'anon')
+  } catch (e) { await db.close().catch(() => {}); throw e }
   const adminId = boot.rows[0].r.user_id
 
   async function cmd(userId, type, id, command, payload = {}, opt = {}) {

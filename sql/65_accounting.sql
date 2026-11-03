@@ -459,7 +459,7 @@ begin
     value_ := -erp.money(erp.num(d -> 'qty') * erp.num(d -> 'unit_cost'));
     label_ := '재고 폐기';
   end if;
-  perform erp.books_entry(ev, erp.seed_id('gl:' || ev.seq), erp.books_date(null, ev), label_, null, jsonb_build_array(
+  perform erp.books_entry(ev, erp.seed_id('gl:' || ev.seq), erp.books_date(d ->> 'accounting_date', ev), label_, null, jsonb_build_array(
     erp.books_row(erp.seed_id('상품')::text, null, label_, value_),
     erp.books_row(erp.seed_id('재고자산감모손실')::text, null, label_, -value_)));
 end $$;

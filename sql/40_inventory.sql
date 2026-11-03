@@ -682,6 +682,7 @@ declare
   cost_ numeric; receipt boolean; variants uuid[]; new_id uuid; moved_id text; on_hand numeric; done_at timestamptz := erp.now();
   bo jsonb; demand_ numeric;
 begin
+  perform erp.lock_check(erp.today(), '{}', '입출고');
   if s ->> 'state' = 'done' then perform erp.fail('ERP_INVALID', '이미 완료된 전표입니다'); end if;
   if s ->> 'state' = 'cancelled' then perform erp.fail('ERP_INVALID', '취소된 전표는 처리할 수 없습니다'); end if;
   if s ->> 'state' = 'draft' then s := erp.picking_open(p_id, true); end if;
@@ -1377,7 +1378,7 @@ create or replace function erp.stock_adjust_facts(s jsonb, p_delta numeric, p_co
 language sql stable as $$
   select jsonb_build_object('variant_id', s -> 'variant_id', 'product_id', s -> 'product_id', 'location_id', s -> 'location_id', 'warehouse_id', s -> 'warehouse_id',
     'lot_id', s -> 'lot_id', 'delta', p_delta, 'unit_cost', erp.num(v -> 'standard_price'), 'counted_qty', p_counted, 'number', s -> 'number',
-    'reason', s -> 'reason', 'location_virtual', s -> 'location_virtual')
+    'reason', s -> 'reason', 'location_virtual', s -> 'location_virtual', 'accounting_date', s -> 'accounting_date')
 $$;
 
 create or replace function erp.stock_adjust_apply(p_id uuid, p jsonb) returns void
@@ -1404,6 +1405,8 @@ begin
     perform erp.fail('ERP_SERIAL', '일련번호 하나의 수량은 0 또는 1 입니다');
   end if;
   delta := counted - cur;
+  -- Stock value books as of this date, so a closed period must refuse it just as it refuses a dated invoice.
+  perform erp.lock_check(coalesce((s ->> 'accounting_date')::date, erp.today()), '{}', '재고 조정');
   perform erp.emit('stock_adjustment', p_id, 'StockAdjusted', erp.stock_adjust_facts(s, delta, counted, v) || jsonb_build_object(
     'set', jsonb_build_object('state', 'applied', 'difference', delta, 'theoretical_qty', cur, 'applied_at', erp.now(),
                               'applied_by', (select name from erp.members where user_id = erp.current_actor())),
@@ -1480,6 +1483,7 @@ begin
       vid := (s ->> 'variant_id')::uuid;
       perform erp.quants_lock(array[vid]);
       v := erp.stock_variant(vid);
+      perform erp.lock_check(coalesce((s ->> 'accounting_date')::date, erp.today()), '{}', '재고 조정 되돌리기');
       -- Goes out as an adjustment the other way: whoever follows stock value or levels hears it like any other.
       perform erp.emit('stock_adjustment', p_id, 'StockAdjusted', erp.stock_adjust_facts(s, -erp.num(s -> 'difference'), null, v) || jsonb_build_object(
         'reverts', p_id,
@@ -1535,6 +1539,7 @@ begin
     need := need - x;
   end loop;
   if need > 0 then fx := fx || erp.stock_row(vid, loc, lot, -need, 0); end if;
+  perform erp.lock_check(erp.today(), '{}', '폐기');
   perform erp.emit('scrap', p_id, 'StockScrapped', jsonb_build_object(
     'set', jsonb_build_object('state', 'done', 'date_done', erp.now(), 'unit_cost', erp.num(v -> 'standard_price')),
     'effects', jsonb_build_object('quant', fx),

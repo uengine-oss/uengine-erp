@@ -113,7 +113,13 @@ function downloadTemplate() {
   saveBlob(csvBlob(targetColumns.value.map((c) => c.label), []), `${template.value.label}_양식.csv`)
 }
 
-const toNumber = (s: unknown) => Number(String(s ?? '').replace(/[,\s원₩]/g, '')) || 0
+// null means the cell has something in it that is not a number.
+const toNumber = (s: unknown): number | null => {
+  const text = String(s ?? '').replace(/[,\s원₩]/g, '')
+  if (text === '') return 0
+  const n = Number(text)
+  return Number.isFinite(n) ? n : null
+}
 /** Banks print money in and out as two columns and give no id, so both are worked out from the row as it stands. */
 function rowsToSend(): State[] {
   const inCol = Object.keys(columns).find((h) => columns[h] === IN)
@@ -122,7 +128,10 @@ function rowsToSend(): State[] {
   return (sheet.value?.rows ?? []).map((r) => {
     const row: State = { ...r }
     if (inCol || outCol) {
-      row.amount = toNumber(inCol ? r[inCol] : 0) - toNumber(outCol ? r[outCol] : 0)
+      const money = toNumber(inCol ? r[inCol] : 0)
+      const spent = toNumber(outCol ? r[outCol] : 0)
+      // A cell that does not parse has to come back as an error on its row, not become a line with no money in it.
+      row.amount = money === null ? String(r[inCol!]) : spent === null ? String(r[outCol!]) : money - spent
       if (inCol) delete row[inCol]
       if (outCol) delete row[outCol]
     }

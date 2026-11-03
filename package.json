@@ -7,7 +7,7 @@
   "license": "MIT",
   "scripts": {
     "build:sql": "node scripts/build-sql.mjs",
-    "test": "node scripts/build-sql.mjs && node --test --test-concurrency=4 test/*.test.mjs",
+    "test": "node scripts/build-sql.mjs && node --test --test-force-exit --test-concurrency=4 test/*.test.mjs",
     "db:install": "node scripts/build-sql.mjs && node scripts/install-local.mjs",
     "web:dev": "npm --prefix web run dev",
     "web:build": "npm --prefix web run build",
