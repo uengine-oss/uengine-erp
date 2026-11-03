@@ -87,6 +87,7 @@ create or replace function erp.fail(p_code text, p_message text) returns void
 language plpgsql as $$
 begin
   raise exception '%: %', p_code, p_message using errcode = case
+    when p_code = 'ERP_AUTH' then 'PT401'
     when p_code in ('ERP_FORBIDDEN', 'ERP_MODULE_OFF') then 'PT403'
     when p_code in ('ERP_NOT_FOUND', 'ERP_UNKNOWN_TYPE') then 'PT404'
     when p_code in ('ERP_CONFLICT', 'ERP_DUPLICATE', 'ERP_IN_USE') then 'PT409'
@@ -455,7 +456,11 @@ begin
   if k is not null then perform erp.fail('ERP_UNKNOWN_FIELD', format('%s 에 없는 항목입니다: %s', d ->> 'label', k)); end if;
   for f in select * from jsonb_array_elements(d -> 'fields') loop
     k := f ->> 'name'; t := f ->> 'type';
-    if coalesce((f ->> 'readonly')::boolean, false) or not erp.module_on(f ->> 'module') then continue; end if;
+    if coalesce((f ->> 'readonly')::boolean, false) then continue; end if;
+    if not erp.module_on(f ->> 'module') then
+      if p_payload ? k then perform erp.fail('ERP_MODULE_OFF', format('%s 항목에 필요한 모듈이 꺼져 있습니다', f ->> 'label')); end if;
+      continue;
+    end if;
     if p_payload ? k then
       v := p_payload -> k;
     elsif p_is_create and f ? 'default' then

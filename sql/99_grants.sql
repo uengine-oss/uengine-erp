@@ -8,7 +8,7 @@ begin
      where n.nspname = 'public' and p.proname like 'erp\_%'
   loop
     execute format('revoke all on function %s from public, anon', f.sig);
-    if f.proname in ('erp_status', 'erp_bootstrap') or f.proname like 'erp\_portal\_%' then
+    if f.proname in ('erp_status', 'erp_bootstrap', 'erp_mcp') or f.proname like 'erp\_portal\_%' then
       execute format('grant execute on function %s to anon, authenticated', f.sig);
     else
       execute format('grant execute on function %s to authenticated', f.sig);
@@ -27,5 +27,7 @@ begin
             where n.nspname = 'public' and c.relname like 'erp\_%' and c.relkind in ('v', 'm', 'r') loop
     execute format('revoke all on %s from public, anon, authenticated', f.sig);
     execute format('grant select on %s to authenticated', f.sig);
+    -- Generated resources take writes through their trigger, which only issues commands.
+    if f.proname like 'erp\_api\_%' then execute format('grant insert, update, delete on %s to authenticated', f.sig); end if;
   end loop;
 end $$;

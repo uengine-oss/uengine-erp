@@ -91,6 +91,16 @@ begin
   end loop;
 end $$;
 
+-- A plugin's uninstall. Its events stay in the ledger as what happened; only its live parts go.
+create or replace function erp.module_remove(p_id text) returns void
+language plpgsql as $$
+begin
+  delete from erp.subscriptions where module = p_id;
+  delete from erp.catalog where module = p_id;
+  delete from erp.hooks where fn like p_id || '.%';
+  delete from erp.modules where id = p_id;
+end $$;
+
 -- Everything older than this is settled: no open transaction can still add an event below it.
 create or replace function erp.bus_horizon(out txid xid8, out seq bigint)
 language sql stable as $$
@@ -123,7 +133,9 @@ begin
         elsif first_time and s.replay then
           update erp.subscriptions set last_txid = '0', last_seq = 0, since = null where name = s.name;
         elsif first_time or p_p ->> 'resume' = 'skip' then
-          update erp.subscriptions set last_txid = coalesce(h.txid, '0'), last_seq = coalesce(h.seq, 0), since = null where name = s.name;
+          -- The horizon can lag behind while any transaction in the cluster is open, so it alone would
+          -- also deliver what happened just before this module was turned on.
+          update erp.subscriptions set last_txid = coalesce(h.txid, '0'), last_seq = coalesce(h.seq, 0), since = erp.now() where name = s.name;
         end if;
       end loop;
       perform erp.emit('module', stream, 'ModuleEnabled', jsonb_build_object('set', jsonb_build_object(
