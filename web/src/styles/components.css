@@ -214,3 +214,22 @@ input[type='checkbox'], input[type='radio'] { width: 14px; height: 14px; margin:
 .hint { color: var(--text-3); font-size: 12px; }
 .sqlbox { width: 100%; height: 120px; font-family: var(--mono); font-size: 11px; white-space: pre; resize: vertical; padding: 6px 8px; background: var(--ink-50); border: 1px solid var(--line); border-radius: var(--radius); color: var(--text-2); }
 details > summary { cursor: pointer; color: var(--text-2); }
+
+/* Phone width. Tables keep their columns and scroll sideways inside the page; everything else stacks. */
+@media (max-width: 720px) {
+  .page-head, .toolbar { flex-wrap: wrap; }
+  .search { width: 100%; }
+  .banner { flex-wrap: wrap; }
+  .banner > .grow { flex-basis: calc(100% - 30px); }
+  .field-grid { grid-template-columns: minmax(0, 1fr); }
+  .kv { grid-template-columns: 96px minmax(0, 1fr); }
+  .tbl td { max-width: 220px; }
+  .dlg-overlay { padding-top: 16px; }
+  .dlg { max-height: calc(100vh - 32px); }
+  .split { display: block; height: auto; min-height: 100%; }
+  .split-side { display: none; }
+  .split-main { padding: 20px 16px; }
+  .form-row-2 { grid-template-columns: minmax(0, 1fr); }
+  .toasts { left: 16px; }
+  .toast { max-width: none; }
+}

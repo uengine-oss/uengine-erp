@@ -5,6 +5,7 @@ import './styles/tokens.css'
 import './styles/base.css'
 import './styles/components.css'
 import './styles/print.css'
+import './styles/dark.css'
 
 // GitHub Pages cannot send frame-ancestors, and a meta tag cannot set it, so refusing to run inside
 // another site's frame is the only protection against clickjacking here.

@@ -7,6 +7,7 @@ const PATHS: Record<string, string> = {
   sales: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6',
   purchase: 'M3 4h2.5l2.2 11h10.1l2-8H6.5M9.5 20h.01M17 20h.01',
   inventory: 'M3.5 8L12 3.5 20.5 8v8L12 20.5 3.5 16zM3.5 8L12 12.5 20.5 8M12 12.5v8',
+  invoicing: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9.5 8l1.2 5 1.3-3.5 1.3 3.5 1.2-5M9 10.5h6',
   accounting: 'M5 3h14v18H5zM8.5 7h7M8.5 11h7M8.5 15h3',
   master: 'M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
   analytics: 'M4 20h16M7 20v-7M12 20V5M17 20v-10',
@@ -34,6 +35,8 @@ const PATHS: Record<string, string> = {
   logout: 'M15 4h5v16h-5M10 8l-4 4 4 4M6 12h9',
   trash: 'M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13M10 11v5M14 11v5',
   shield: 'M12 3l7.5 3v6c0 4.5-3.2 7.6-7.5 9-4.3-1.4-7.5-4.5-7.5-9V6z',
+  menu: 'M4 7h16M4 12h16M4 17h16',
+  undo: 'M4 9h10a6 6 0 0 1 0 12h-3M4 9l4-4M4 9l4 4',
   link: 'M10 14a4 4 0 0 0 6 .4l3-3a4 4 0 0 0-5.7-5.7l-1.3 1.3M14 10a4 4 0 0 0-6-.4l-3 3a4 4 0 0 0 5.7 5.7l1.3-1.3',
 }
 </script>

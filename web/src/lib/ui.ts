@@ -1,5 +1,5 @@
 // Small app-wide services: toasts, modal questions, clipboard and file downloads.
-import { reactive, shallowRef } from 'vue'
+import { reactive, ref, shallowRef } from 'vue'
 import type { Field, State } from './types'
 
 export const toasts = reactive<{ id: number; text: string; kind: 'ok' | 'error' }[]>([])
@@ -26,6 +26,8 @@ export interface AskOptions {
   values?: State
   /** Asks for a free-text reason, which is written to the ledger with the event. */
   reason?: boolean
+  /** The dialog will not confirm until a reason is written. */
+  reasonRequired?: boolean
   wide?: boolean
 }
 export interface AskResult { values: State; reason: string }
@@ -36,6 +38,9 @@ export function ask(options: AskOptions): Promise<AskResult | null> {
     dialog.value = { ...options, resolve }
   })
 }
+
+/** The side menu on a phone-width screen, where it slides over the page instead of sitting beside it. */
+export const navOpen = ref(false)
 
 export async function copyText(text: string): Promise<boolean> {
   try {

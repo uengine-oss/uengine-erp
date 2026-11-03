@@ -3,7 +3,10 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRouter } from 'vue-router'
 import { db } from '../lib/conn'
 import { ApiError, messageOf, rpc, toApiError } from '../lib/api'
-import { catalogOf, loadCompany, session } from '../lib/session'
+import { onDataChanged, sendCommand } from '../lib/commands'
+import { timeView, writeBlock } from '../lib/mode'
+import { openRollback } from '../lib/rollback'
+import { catalogOf, isAdmin, loadCompany, session } from '../lib/session'
 import {
   canCommand, collectRefIds, deepEqual, emptyDraft, formFields, isDangerous, isDerived, isLongText, newId,
   visibleExtraCommands, visibleTransitions,
@@ -47,7 +50,10 @@ const events = ref<ErpEvent[]>([])
 const eventsLoading = ref(false)
 const eventsError = ref('')
 
-const asOf = ref<{ version: number; at: string; state: State } | null>(null)
+// `company`: the date picked at the top of the app rather than this document's own slider.
+const asOf = ref<{ version: number; at: string; state: State; company?: boolean } | null>(null)
+const absentAtTime = ref(false)
+const timeError = ref('')
 
 function readHistoryPref() {
   try { return localStorage.getItem('erp.history') !== 'off' } catch { return true }
@@ -142,6 +148,8 @@ async function loadRecord() {
   remoteStale.value = false
   invalidField.value = ''
   asOf.value = null
+  absentAtTime.value = false
+  timeError.value = ''
   notFound.value = false
   if (isNew.value) {
     record.value = null
@@ -159,9 +167,19 @@ async function loadRecord() {
     const { data, error, status: http } = await db().from('erp_records').select('*').eq('id', props.id!).eq('type', props.type).maybeSingle()
     if (my !== loadSeq) return
     if (error) throw toApiError(error, http)
-    if (!data) { notFound.value = true; return }
+    if (!data) {
+      // Gone now, but it may have existed on the date being looked at.
+      record.value = null
+      if (timeView.at) {
+        await applyCompanyTime()
+        if (my !== loadSeq || asOf.value || absentAtTime.value || timeError.value) return
+      }
+      notFound.value = true
+      return
+    }
     adoptRecord(data as ErpRecord)
-    void loadStream()
+    if (timeView.at) await applyCompanyTime()
+    else void loadStream()
   } catch (e) {
     if (my !== loadSeq) return
     if ((e as ApiError).code === 'INVALID') notFound.value = true
@@ -280,7 +298,7 @@ async function save(): Promise<boolean> {
   busy.value = true
   try {
     if (isNew.value) {
-      const res = await rpc<CommandResult>('erp_command', { p_type: props.type, p_id: null, p_command: 'create', p_payload: createPayload(), p_source: 'ui' })
+      const res = await sendCommand({ type: props.type, command: 'create', payload: createPayload() })
       adoptResult(res)
       newBaselinePayload.value = createPayload()
       toast('저장했습니다.')
@@ -290,10 +308,7 @@ async function save(): Promise<boolean> {
     }
     const payload = updatePayload()
     if (!Object.keys(payload).length) return true
-    const res = await rpc<CommandResult>('erp_command', {
-      p_type: props.type, p_id: props.id, p_command: 'update', p_payload: payload,
-      p_expected_version: record.value?.version ?? null, p_source: 'ui',
-    })
+    const res = await sendCommand({ type: props.type, id: props.id, command: 'update', payload, expectedVersion: record.value?.version ?? null })
     adoptResult(res)
     remoteStale.value = false
     remoteNotice.value = ''
@@ -348,10 +363,7 @@ async function runCommand(command: string, label: string, def: Pick<CommandDef, 
   busy.value = true
   formError.value = ''
   try {
-    const res = await rpc<CommandResult>('erp_command', {
-      p_type: props.type, p_id: props.id, p_command: command, p_payload: payload,
-      p_expected_version: record.value?.version ?? null, p_reason: reason, p_source: 'ui',
-    })
+    const res = await sendCommand({ type: props.type, id: props.id, command, payload, expectedVersion: record.value?.version ?? null, reason })
     adoptResult(res)
     toast(`${label} 완료`)
     void loadStream()
@@ -403,12 +415,17 @@ let asOfTimer: ReturnType<typeof setTimeout> | undefined
 function selectVersion(version: number | null) {
   clearTimeout(asOfTimer)
   const my = ++asOfSeq
-  if (version === null) { asOf.value = null; return }
+  if (version === null) {
+    if (timeView.at) void applyCompanyTime()
+    else asOf.value = null
+    return
+  }
   asOfTimer = setTimeout(async () => {
     const ev = events.value.find((x) => x.version === version)
     if (!ev || !props.id) return
     try {
-      const state = await rpc<State>('erp_as_of', { p_id: props.id, p_at: ev.occurred_at })
+      // By version, not time: events of one transaction share a timestamp.
+      const state = await rpc<State>('erp_at_version', { p_id: props.id, p_version: version })
       if (my !== asOfSeq) return
       await resolveNames(state)
       if (my === asOfSeq) asOf.value = { version, at: ev.occurred_at, state }
@@ -418,6 +435,93 @@ function selectVersion(version: number | null) {
   }, 120)
 }
 
+/* The date picked at the top of the app */
+async function applyCompanyTime() {
+  const at = timeView.at
+  if (!at || !props.id) return
+  const my = ++asOfSeq
+  absentAtTime.value = false
+  timeError.value = ''
+  try {
+    await loadStream()
+    const state = await rpc<State>('erp_as_of', { p_id: props.id, p_at: at })
+    if (my !== asOfSeq) return
+    if (!state || !Object.keys(state).length || state.deleted) {
+      asOf.value = null
+      absentAtTime.value = true
+      return
+    }
+    await resolveNames(state)
+    if (my !== asOfSeq) return
+    const cutoff = Date.parse(at)
+    const seen = events.value.filter((e) => Date.parse(e.occurred_at) <= cutoff)
+    asOf.value = { version: seen[seen.length - 1]?.version ?? 0, at, state, company: true }
+  } catch (e) {
+    if (my !== asOfSeq) return
+    // Falling back to the current document here would pass off today's values as that date's.
+    asOf.value = null
+    if ((e as ApiError).code === 'ERP_FORBIDDEN') notFound.value = true
+    else timeError.value = messageOf(e)
+  }
+}
+
+watch(() => timeView.at, (at) => {
+  if (isNew.value) return
+  if (at) {
+    // Anything being typed stays in the draft, under the past, for when the date is cleared.
+    if (record.value) void applyCompanyTime()
+    else void loadRecord()
+    return
+  }
+  asOfSeq++
+  asOf.value = null
+  absentAtTime.value = false
+  timeError.value = ''
+  if (!record.value) void loadRecord()
+})
+
+/* Rollback */
+const canRollback = computed(() => isAdmin() && !writeBlock.value && doc.value?.revertible !== false)
+
+async function rollbackWork(ev: ErpEvent) {
+  await openRollback('correlation', { correlation_id: ev.correlation_id }, '이 작업 되돌리기', `${fmtDateTime(ev.occurred_at)} ${ev.actor_name ?? '시스템'}의 작업과 그로 이어진 일을 되돌립니다.`)
+}
+async function rollbackVersion(ev: ErpEvent) {
+  await openRollback('record', { id: props.id, version: ev.version }, '이 버전으로 되돌리기', `이 문서를 v${ev.version} (${fmtDateTime(ev.occurred_at)}) 의 모습으로 되돌립니다.`)
+}
+async function rollbackToShown() {
+  const shown = asOf.value
+  if (!shown) return
+  const ev = events.value.find((x) => x.version === shown.version)
+  if (ev) await rollbackVersion(ev)
+}
+
+/* Work other modules did after a command, and rollbacks: realtime may be off, so this reads for itself. */
+async function rereadAfterChange() {
+  if (!props.id || !record.value || busy.value) return
+  const { data, error } = await db().from('erp_records').select('*').eq('id', props.id).eq('type', props.type).maybeSingle()
+  const current = record.value
+  if (error || !current) return
+  void loadStream()
+  if (!data) {
+    if (timeView.at) return
+    asOf.value = null
+    notFound.value = true
+    return
+  }
+  const fresh = data as ErpRecord
+  // A slower read can come back after a later save has already moved this screen on.
+  if (fresh.version <= current.version) return
+  if (dirty.value) {
+    remoteStale.value = true
+    remoteNotice.value = '다른 모듈이 이 문서를 변경했습니다. 지금 저장하면 충돌합니다. 새로 고치면 입력 중인 내용은 사라집니다.'
+    return
+  }
+  if (!timeView.at) asOf.value = null
+  adoptRecord(fresh)
+}
+onDataChanged(() => { void rereadAfterChange() })
+
 /* Live changes from other people */
 onLedgerEvent((ev) => {
   if (ev.stream_id !== props.id || !record.value) return
@@ -425,7 +529,7 @@ onLedgerEvent((ev) => {
   // This tab's own command: its response is on the way and will update the screen.
   if (busy.value && ev.actor_id === session.me?.user_id) return
   void loadStream()
-  const who = ev.source === 'reaction' ? '연쇄 반응' : `${ev.actor_name ?? '다른 사용자'} 님`
+  const who = ev.source === 'rollback' ? '되돌리기' : ev.source === 'reaction' || ev.source.startsWith('bus:') ? '연쇄 반응' : `${ev.actor_name ?? '다른 사용자'} 님`
   if (dirty.value) {
     remoteStale.value = true
     remoteNotice.value = `${who}이 이 문서를 변경했습니다. 지금 저장하면 충돌합니다. 새로 고치면 입력 중인 내용은 사라집니다.`
@@ -480,13 +584,24 @@ const isCompanyForm = computed(() => props.id === COMPANY_ID)
 
 <template>
   <div v-if="!doc" class="page">
-    <div class="page-body"><EmptyState title="설치되지 않은 화면입니다" text="이 유형은 아직 이 회사의 데이터베이스에 없습니다." /></div>
+    <div class="page-body"><EmptyState title="설치되지 않은 화면입니다" text="이 유형이 아직 데이터베이스에 없거나, 이 유형을 쓰는 모듈이 꺼져 있습니다. 데이터와 이력은 남아 있으니 모듈을 켜면 다시 보입니다." /></div>
   </div>
   <div v-else-if="notFound" class="page">
     <div class="page-body">
       <EmptyState title="이 문서를 찾을 수 없습니다" text="삭제되었거나, 이 문서를 볼 권한이 없습니다.">
         <router-link class="btn" :to="backTo">{{ doc.label }} 목록으로</router-link>
       </EmptyState>
+    </div>
+  </div>
+  <div v-else-if="timeError || absentAtTime || (isNew && timeView.at)" class="page">
+    <div class="page-body">
+      <EmptyState v-if="timeError" title="그 시점의 모습을 읽지 못했습니다" :text="timeError">
+        <button type="button" class="btn" data-testid="time-retry" @click="applyCompanyTime">다시 시도</button>
+      </EmptyState>
+      <EmptyState v-else-if="absentAtTime" title="이 시점에는 없던 문서입니다" :text="`${timeView.date} 뒤에 만들어졌습니다.`">
+        <router-link v-if="!isCompanyForm" class="btn" :to="backTo">{{ doc.label }} 목록으로</router-link>
+      </EmptyState>
+      <EmptyState v-else title="과거 시점에서는 새로 만들 수 없습니다" :text="`${timeView.date} 시점을 보고 있습니다. 현재로 돌아간 뒤 만드세요.`" />
     </div>
   </div>
   <div v-else class="page form-page" data-testid="meta-form">
@@ -528,9 +643,10 @@ const isCompanyForm = computed(() => props.id === COMPANY_ID)
       </div>
     </header>
 
-    <div v-if="timeTraveling" class="banner banner-time banner-flush no-print" data-testid="time-banner">
+    <div v-if="timeTraveling && !asOf?.company" class="banner banner-time banner-flush no-print" data-testid="time-banner">
       <Icon name="history" />
       <span class="grow">{{ fmtDateTime(asOf?.at) }} 시점의 모습입니다 (v{{ asOf?.version }} / v{{ record?.version }}). 읽기 전용입니다.</span>
+      <button v-if="isAdmin() && !writeBlock && doc.revertible !== false" type="button" class="btn btn-sm btn-danger" data-testid="time-rollback-version" @click="rollbackToShown">이 버전으로 되돌리기</button>
       <button type="button" class="btn btn-sm" data-testid="time-exit" @click="selectVersion(null)">현재로 돌아가기</button>
     </div>
     <div v-if="conflict" class="banner banner-warn banner-flush no-print" role="alert" data-testid="conflict">
@@ -576,8 +692,8 @@ const isCompanyForm = computed(() => props.id === COMPANY_ID)
           </dl>
         </form>
       </div>
-      <HistoryPanel v-if="!isNew && showHistory" :doc="doc" :events="events" :version="asOf?.version ?? null" :loading="eventsLoading" :error="eventsError"
-                    @select="selectVersion" @retry="loadStream" />
+      <HistoryPanel v-if="!isNew && showHistory" :doc="doc" :events="events" :version="asOf?.version ?? null" :loading="eventsLoading" :error="eventsError" :can-rollback="canRollback"
+                    @select="selectVersion" @retry="loadStream" @rollback-work="rollbackWork" @rollback-version="rollbackVersion" />
     </div>
   </div>
 </template>
@@ -599,6 +715,13 @@ const isCompanyForm = computed(() => props.id === COMPANY_ID)
 .totals dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 .totals .grand { padding-top: 4px; border-top: 1px solid var(--line-strong); font-size: 14px; font-weight: 650; color: var(--text); }
 .print-head { padding-bottom: 10px; font-weight: 650; }
+@media (max-width: 720px) {
+  .form-title-row { flex-wrap: wrap; padding-bottom: 4px; }
+  .form-actions { flex-wrap: wrap; }
+  .form-layout { flex-direction: column; overflow: auto; }
+  .form-main { flex: none; overflow: visible; }
+  .pipeline { max-width: 100%; overflow-x: auto; }
+}
 @media print {
   .form-head { border: 0; }
   .form-title-row { padding: 0 0 8px; }

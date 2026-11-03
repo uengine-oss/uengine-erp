@@ -14,6 +14,8 @@ export interface NavScreen {
   label?: string
   /** A fixed route instead of a type's list. */
   route?: string
+  /** Shown only to admins. The database refuses everyone else regardless. */
+  adminOnly?: boolean
   /** Another route prefix that counts as this screen in the menu. */
   also?: string
   list?: Loader
@@ -50,22 +52,26 @@ export const NAV: NavModule[] = [
     ],
   },
   {
-    key: 'purchase', label: '구매', icon: 'purchase',
-    screens: [{ type: 'purchase_order', sections: true }, { type: 'reorder_rule' }],
+    key: 'inventory', label: '재고', icon: 'inventory',
+    screens: [{ type: 'picking' }, { type: 'stock_adjustment' }, { type: 'scrap' }, { type: 'lot' }, { type: 'reorder_rule' }, { type: 'warehouse' }, { type: 'location' }],
   },
   {
-    key: 'inventory', label: '재고', icon: 'inventory',
-    screens: [{ type: 'picking' }, { type: 'stock_adjustment' }, { type: 'scrap' }, { type: 'lot' }],
+    key: 'purchase', label: '구매', icon: 'purchase',
+    screens: [{ type: 'purchase_order', sections: true }],
+  },
+  {
+    key: 'invoicing', label: '청구', icon: 'invoicing',
+    screens: [{ type: 'account_move', sections: true }, { type: 'payment' }],
   },
   {
     key: 'accounting', label: '회계', icon: 'accounting',
-    screens: [{ type: 'account_move', sections: true }, { type: 'payment' }],
+    screens: [{ type: 'journal_entry', sections: true }, { type: 'account' }],
   },
   {
     key: 'master', label: '기초데이터', icon: 'master',
     screens: [
-      { type: 'uom' }, { type: 'product_category' }, { type: 'tag' }, { type: 'account' }, { type: 'tax' },
-      { type: 'fiscal_position' }, { type: 'payment_term' }, { type: 'attribute' }, { type: 'warehouse' }, { type: 'location' },
+      { type: 'uom' }, { type: 'product_category' }, { type: 'tag' }, { type: 'tax' },
+      { type: 'fiscal_position' }, { type: 'payment_term' }, { type: 'attribute' },
     ],
   },
   { key: 'analytics', label: '분석', icon: 'analytics', route: '/analytics' },
@@ -78,14 +84,20 @@ export const NAV: NavModule[] = [
       { label: '사용량', route: '/settings/usage' },
       { label: '백업', route: '/settings/backup' },
       { label: '접속·보안', route: '/settings/access' },
+      { label: '모듈', route: '/settings/modules', adminOnly: true },
+      { label: '이벤트 버스', route: '/settings/bus', adminOnly: true },
     ],
   },
 ]
+
+/** A menu group's name, for screens that talk about modules. */
+export const navLabel = (key: string): string | undefined => NAV.find((m) => m.key === key)?.label
 
 /** Types with their own screens in settings; they never appear as generic menu entries. */
 const SETTINGS_TYPES: NavScreen[] = [
   { type: 'member', lockedAfterCreate: ['email'], route: '/settings/members' },
   { type: 'company', route: '/settings/company' },
+  { type: 'module', route: '/settings/modules' },
 ]
 
 export function screenFor(type: string): NavScreen | undefined {
@@ -104,9 +116,10 @@ export interface ResolvedModule { key: string; label: string; icon: string; to: 
  * The menu for this installation. The catalog answers only "is this type installed", because a screen
  * cannot render without its metadata. It does not answer "may this user read it": erp_catalog is not
  * filtered by role, so read_roles are enforced by row security and lists show their own empty state.
- * Types a module adds that are not listed above still appear, under the module the catalog names.
+ * Types a module adds that are not listed above still appear, under the module the catalog names. A module
+ * that is off takes its types out of the catalog, and a group with nothing left to show leaves the menu.
  */
-export function resolveNav(catalog: CatalogDoc[]): ResolvedModule[] {
+export function resolveNav(catalog: CatalogDoc[], admin = false): ResolvedModule[] {
   const docs = new Map(catalog.map((c) => [c.type, c]))
   const listed = new Set(NAV.flatMap((m) => m.screens ?? []).map((s) => s.type))
   SETTINGS_TYPES.forEach((s) => listed.add(s.type))
@@ -119,6 +132,7 @@ export function resolveNav(catalog: CatalogDoc[]): ResolvedModule[] {
     }
     const screens: ResolvedScreen[] = []
     for (const s of m.screens ?? []) {
+      if (s.adminOnly && !admin) continue
       if (s.route) screens.push({ key: s.route, label: s.label ?? s.route, to: s.route, also: s.also })
       else if (s.type && docs.has(s.type) && !docs.get(s.type)!.hidden) {
         screens.push({ key: s.type, label: s.label ?? docs.get(s.type)!.label, to: `/r/${s.type}` })
@@ -131,5 +145,18 @@ export function resolveNav(catalog: CatalogDoc[]): ResolvedModule[] {
     }
     if (screens.length) out.push({ key: m.key, label: m.label, icon: m.icon, to: screens[0].to, screens })
   }
+  // A plugin's module has no entry above. Its types go with the module id until a label is known.
+  const known = new Set(NAV.map((m) => m.key))
+  const extras = new Map<string, ResolvedScreen[]>()
+  for (const doc of catalog) {
+    if (known.has(doc.module) || doc.module === 'settings' || doc.hidden || listed.has(doc.type)) continue
+    const list = extras.get(doc.module) ?? []
+    list.push({ key: doc.type, label: doc.label, to: `/r/${doc.type}` })
+    extras.set(doc.module, list)
+  }
+  const at = out.findIndex((m) => m.key === 'analytics')
+  out.splice(at < 0 ? out.length : at, 0, ...[...extras].map(([key, screens]) => ({
+    key, label: screens[0].label, icon: 'master', to: screens[0].to, screens,
+  })))
   return out
 }

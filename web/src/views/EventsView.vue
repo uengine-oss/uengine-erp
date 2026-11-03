@@ -3,6 +3,9 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { db } from '../lib/conn'
 import { messageOf, rpc, toApiError } from '../lib/api'
+import { onDataChanged } from '../lib/commands'
+import { timeView, writeBlock } from '../lib/mode'
+import { openRollback } from '../lib/rollback'
 import { catalogOf, isAdmin, session } from '../lib/session'
 import { eventLabel, sourceColor, sourceLabel, SOURCES } from '../lib/eventText'
 import { fmtDateTime } from '../lib/format'
@@ -54,6 +57,7 @@ async function load() {
     if (actor) q = q.ilike('actor_name', `%${actor}%`)
     if (dateFrom.value) q = q.gte('occurred_at', new Date(`${dateFrom.value}T00:00:00`).toISOString())
     if (dateTo.value) q = q.lte('occurred_at', new Date(`${dateTo.value}T23:59:59.999`).toISOString())
+    if (timeView.at) q = q.lte('occurred_at', timeView.at)
     const from = (page.value - 1) * PAGE_SIZE
     const { data, error: err, count, status } = await q.order('seq', { ascending: false }).range(from, from + PAGE_SIZE - 1)
     if (my !== seq) return
@@ -64,12 +68,15 @@ async function load() {
     rows.value = list
     total.value = count ?? 0
   } catch (e) {
-    if (my === seq) error.value = messageOf(e)
+    if (my !== seq) return
+    error.value = messageOf(e)
+    if (timeView.at) { rows.value = []; total.value = 0 }
   } finally {
     if (my === seq) loading.value = false
   }
 }
-watch(() => route.query, load, { immediate: true, deep: true })
+watch(() => [route.query, timeView.at], load, { immediate: true, deep: true })
+onDataChanged(() => { void load() })
 
 let textTimer: ReturnType<typeof setTimeout> | undefined
 watch([eventText, actorText], ([e, a]) => {
@@ -117,7 +124,22 @@ async function selectEvent(ev: ErpEvent) {
 }
 const selectedJson = computed(() => (selected.value ? JSON.stringify(selected.value.data, null, 2) : ''))
 function recordRoute(ev: ErpEvent) {
+  if (ev.stream_type === 'module') return { path: '/settings/modules' }
   return ev.stream_type === 'company' ? { path: '/settings/company' } : { name: 'record', params: { type: ev.stream_type, id: ev.stream_id } }
+}
+
+/* Rollback, starting from the event in front of the admin */
+const canRollback = computed(() => isAdmin() && !writeBlock.value)
+const canRollbackDoc = computed(() => canRollback.value && !!selected.value && catalogOf(selected.value.stream_type)?.revertible !== false)
+
+async function rollbackWork(ev: ErpEvent) {
+  if (await openRollback('correlation', { correlation_id: ev.correlation_id }, '이 작업 되돌리기', `이벤트 #${ev.seq}: ${fmtDateTime(ev.occurred_at)} ${ev.actor_name ?? '시스템'}의 작업과 그로 이어진 일을 되돌립니다.`)) selected.value = null
+}
+async function rollbackVersion(ev: ErpEvent) {
+  if (await openRollback('record', { id: ev.stream_id, version: ev.version }, '이 버전으로 되돌리기', `${typeLabel(ev.stream_type)} ${streamName(ev)} 을(를) v${ev.version} 의 모습으로 되돌립니다.`)) selected.value = null
+}
+async function rollbackTime(ev: ErpEvent) {
+  if (await openRollback('time', { at: ev.occurred_at }, '이 시점으로 되돌리기', `${fmtDateTime(ev.occurred_at)} 뒤에 일어난 일을 회사 전체에서 되돌립니다.`)) selected.value = null
 }
 
 /* Integrity check, in batches because the API cuts statements at 8 seconds */
@@ -244,6 +266,13 @@ async function verify() {
             <template v-if="selected.reason"><dt>사유</dt><dd>{{ selected.reason }}</dd></template>
             <dt>상관 ID</dt><dd class="mono" style="font-size: 11px" data-testid="event-correlation">{{ selected.correlation_id }}</dd>
           </dl>
+          <div v-if="canRollback" class="ev-rollback" data-testid="event-rollback">
+            <template v-if="canRollbackDoc">
+              <button type="button" class="btn btn-sm" data-testid="rollback-work" @click="rollbackWork(selected)"><Icon name="undo" :size="12" />이 작업 되돌리기</button>
+              <button type="button" class="btn btn-sm" data-testid="rollback-version" @click="rollbackVersion(selected)">이 버전으로 되돌리기</button>
+            </template>
+            <button type="button" class="btn btn-sm btn-danger" data-testid="rollback-time" @click="rollbackTime(selected)">이 시점으로 되돌리기</button>
+          </div>
           <h3 class="ev-h">인과 사슬 <span class="muted small" style="font-weight: 450">{{ chain.length }}건</span></h3>
           <p v-if="chainError" class="err-text small">{{ chainError }}</p>
           <ChainTree v-else :events="chain" :selected="selected.seq" @select="selectEvent" />
@@ -271,5 +300,9 @@ async function verify() {
 .ev-detail-head { display: flex; align-items: flex-start; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
 .ev-detail-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 8px 12px 16px; }
 .ev-h { margin: 14px 0 4px; }
+.ev-rollback { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
 .ev-json { margin: 0; padding: 8px 10px; background: var(--ink-50); border: 1px solid var(--line); border-radius: var(--radius); font-family: var(--mono); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+@media (max-width: 720px) {
+  .ev-detail { position: fixed; inset: 0; z-index: 700; width: auto; border-left: 0; }
+}
 </style>

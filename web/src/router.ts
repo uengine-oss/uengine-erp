@@ -12,6 +12,8 @@ import RecordListRoute from './views/RecordListRoute.vue'
 import RecordFormRoute from './views/RecordFormRoute.vue'
 import EventsView from './views/EventsView.vue'
 import SettingsView from './views/SettingsView.vue'
+import ModulesView from './views/ModulesView.vue'
+import BusView from './views/BusView.vue'
 import NotFoundView from './views/NotFoundView.vue'
 
 export const router = createRouter({
@@ -33,6 +35,8 @@ export const router = createRouter({
         { path: 'events', name: 'events', component: EventsView, meta: { title: '이벤트 원장' } },
         { path: 'analytics', name: 'analytics', component: () => import('./screens/AnalyticsScreen.vue'), meta: { title: '분석' } },
         { path: 'settings', redirect: '/settings/company' },
+        { path: 'settings/modules', name: 'modules', component: ModulesView, meta: { title: '모듈' } },
+        { path: 'settings/bus', name: 'bus', component: BusView, meta: { title: '이벤트 버스' } },
         { path: 'settings/:tab', name: 'settings', component: SettingsView, props: true, meta: { title: '설정' } },
         { path: ':rest(.*)*', name: 'notfound', component: NotFoundView, meta: { title: '찾을 수 없음' } },
       ],

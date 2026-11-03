@@ -1,18 +1,19 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { conn, sqlEditorUrl } from '../lib/conn'
-import { compareVersions } from '../lib/format'
 import { APP_VERSION, installSql } from '../lib/install'
+import { appOutdated, dbOutdated as needed } from '../lib/mode'
 import { isAdmin, refreshStatus, session } from '../lib/session'
 import { copyText, toast } from '../lib/ui'
 import Icon from './Icon.vue'
 
-const needed = computed(() => session.status?.version != null && compareVersions(session.status.version, APP_VERSION) < 0)
 const checking = ref(false)
 
 // Loaded ahead of the click: browsers can refuse the clipboard if a click waits on a download first.
 const sql = ref('')
 watch(needed, async (v) => { if (v && !sql.value) sql.value = await installSql() }, { immediate: true })
+
+const reload = () => window.location.reload()
 
 async function copySql() {
   const ok = await copyText(sql.value || await installSql())
@@ -28,10 +29,15 @@ async function recheck() {
 </script>
 
 <template>
-  <div v-if="needed" class="banner banner-warn banner-flush no-print" data-testid="upgrade-banner">
+  <div v-if="appOutdated" class="banner banner-error banner-flush no-print" role="alert" data-testid="app-outdated-banner">
+    <Icon name="alert" />
+    <span class="grow">앱이 이 데이터베이스보다 오래되었습니다(앱 v{{ APP_VERSION }}, 최소 v{{ session.status?.min_app_version }}). 새로 고칠 때까지 저장할 수 없습니다.</span>
+    <button type="button" class="btn btn-sm" data-testid="app-reload" @click="reload"><Icon name="refresh" :size="12" />새로 고침</button>
+  </div>
+  <div v-else-if="needed" class="banner banner-warn banner-flush no-print" data-testid="upgrade-banner">
     <Icon name="alert" />
     <span class="grow">
-      데이터베이스가 이전 버전입니다(v{{ session.status?.version }} → 앱 v{{ APP_VERSION }}).
+      데이터베이스가 이전 버전입니다(v{{ session.status?.version }} → 앱 v{{ APP_VERSION }}). 업그레이드할 때까지 저장할 수 없습니다.
       <template v-if="isAdmin()">같은 설치 SQL 을 다시 실행하면 업그레이드되며 데이터는 그대로 보존됩니다.</template>
       <template v-else>관리자에게 업그레이드를 요청하세요.</template>
     </span>

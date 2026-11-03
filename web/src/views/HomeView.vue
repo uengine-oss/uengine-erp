@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { db } from '../lib/conn'
 import { messageOf, rpc, toApiError } from '../lib/api'
+import { onDataChanged } from '../lib/commands'
+import { timeView } from '../lib/mode'
 import { catalogOf, session } from '../lib/session'
 import { eventLabel, sourceColor, sourceLabel } from '../lib/eventText'
 import { fmtBytes, fmtDateTime } from '../lib/format'
@@ -19,7 +21,9 @@ const loading = ref(true)
 
 async function load() {
   try {
-    const { data, error: err, status } = await db().from('erp_events').select('*').order('seq', { ascending: false }).limit(12)
+    let q = db().from('erp_events').select('*')
+    if (timeView.at) q = q.lte('occurred_at', timeView.at)
+    const { data, error: err, status } = await q.order('seq', { ascending: false }).limit(12)
     if (err) throw toApiError(err, status)
     const list = (data ?? []) as ErpEvent[]
     await ensureNames(list.map((e) => e.stream_id))
@@ -33,6 +37,8 @@ async function load() {
   }
 }
 onMounted(load)
+watch(() => timeView.at, load)
+onDataChanged(() => { void load() })
 
 let timer: ReturnType<typeof setTimeout> | undefined
 onLedgerEvent((ev) => {
@@ -118,4 +124,8 @@ const openingHint = computed(() => shortcuts.value.length === 0)
 .home-links a { display: flex; align-items: center; gap: 8px; padding: 5px 12px; color: var(--ink-800); }
 .home-links a:hover { background: var(--navy-50); text-decoration: none; }
 .ev-name { max-width: 220px; }
+@media (max-width: 720px) {
+  .home-grid { grid-template-columns: minmax(0, 1fr); }
+  .home-panel { overflow-x: auto; }
+}
 </style>

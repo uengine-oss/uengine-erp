@@ -59,6 +59,8 @@ export interface CatalogDoc {
   extra_commands?: Record<string, CommandDef>
   write_roles?: string[]
   read_roles?: string[]
+  /** false: the kernel refuses to roll this type back, so screens do not offer it. */
+  revertible?: boolean
 }
 
 export type State = Record<string, any>
@@ -104,6 +106,8 @@ export interface Me {
 export interface ErpStatus {
   installed: boolean
   version: string | null
+  /** The oldest app this database still accepts writes from. */
+  min_app_version?: string | null
   initialized: boolean
   company_name: string | null
   demo: boolean
@@ -128,5 +132,75 @@ export interface Usage {
   events_bytes: number
   records_bytes: number
 }
+
+/** One row of erp_modules(): the module's own document plus its current state. */
+export interface ModuleDoc {
+  id: string
+  label: string
+  label_en?: string
+  description?: string
+  sort?: number
+  /** Asked when the module is turned on for the first time, drawn like catalog fields. */
+  options?: Field[]
+  /** Said out loud before turning on: what the past cannot give back (scenario M6). */
+  not_rebuilt?: string
+  enabled: boolean
+  enabled_at: string | null
+  options_set: State
+  stalled: number
+}
+
+export interface SkippedEvent { seq: number; event: string; error: string | null; reason: string; at: string }
+
+/** One row of erp_bus_status(). */
+export interface BusSubscription {
+  name: string
+  module: string
+  active: boolean
+  processed: number
+  failures: number
+  last_error: string | null
+  last_error_seq: number | null
+  last_error_at: string | null
+  last_error_event: string | null
+  last_run_at: string | null
+  last_seq: number
+  pending: boolean
+  skipped: SkippedEvent[]
+}
+
+export interface BusTick { processed: number; failing: number; pending: number }
+
+/** A forecast or what-if from erp_models(), reduced to what a module card needs. */
+export interface ModelInfo { id: string; label: string; modules: string[] }
+
+export type RollbackKind = 'correlation' | 'record' | 'time'
+
+export interface RollbackStream {
+  id: string
+  type: string
+  label: string | null
+  name: string | null
+  from_version: number
+  to_version: number
+  events: number
+  from_status: string | null
+  to_status: string | null
+  removes: boolean
+  effects: Record<string, unknown[]>
+}
+
+/** What erp_rollback_preview returns. The hash goes back with the apply, so nothing runs on a stale plan. */
+export interface RollbackPlan {
+  kind: RollbackKind
+  streams: RollbackStream[]
+  cascade: { correlation_id: string; at: string; actor: string | null; events: number; first_event: string }[]
+  blocked: { id?: string; type?: string; name?: string | null; reason: string }[]
+  warnings: { id: string; name: string | null; event: string; message: string }[]
+  nothing_to_do: boolean
+  hash: string
+}
+
+export interface RollbackResult { correlation_id: string; streams: number; cascade: number }
 
 export const COMPANY_ID = '00000000-0000-0000-0000-000000000001'

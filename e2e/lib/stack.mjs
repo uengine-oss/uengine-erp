@@ -55,13 +55,22 @@ export async function wipe() {
   await waitFor(async () => (await rest('erp_status')).status === 404, 'PostgREST to drop erp_status')
 }
 
-/** Installs and creates the company without the browser, for specs that test what comes after setup. */
-export async function freshCompany() {
+/**
+ * Installs and creates the company without the browser, for specs that test what comes after setup.
+ * `since` backdates the company, for specs that look at or go back to a date while it already existed.
+ */
+export async function freshCompany({ since } = {}) {
   await wipe()
   await sql(installScript())
   await sql(`select erp.set_setup_code('test-setup-code')`)
   await waitForInstalled()
-  const r = await rest('erp_bootstrap', { p_setup_code: 'test-setup-code', p_company: { name: COMPANY, currency: 'KRW', decimal_places: 0, timezone: 'Asia/Seoul' }, p_email: ADMIN.email, p_password: ADMIN.password, p_name: ADMIN.name })
+  const company = { name: COMPANY, currency: 'KRW', decimal_places: 0, timezone: 'Asia/Seoul' }
+  if (since) {
+    await sql(`with c as materialized (select set_config('erp.clock', $1, true)) select public.erp_bootstrap('test-setup-code', $2::jsonb, $3, $4, $5) from c`,
+      [since, JSON.stringify(company), ADMIN.email, ADMIN.password, ADMIN.name])
+    return
+  }
+  const r = await rest('erp_bootstrap', { p_setup_code: 'test-setup-code', p_company: company, p_email: ADMIN.email, p_password: ADMIN.password, p_name: ADMIN.name })
   if (r.status !== 200) throw new Error(`bootstrap failed: ${await r.text()}`)
 }
 

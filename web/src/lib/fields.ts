@@ -1,5 +1,6 @@
 // Turns catalog metadata into what screens need. Display only: no business rule lives here.
 import { hasRole } from './session'
+import { writeBlock } from './mode'
 import { fmtDate, fmtDateTime, fmtInteger, fmtMoney, fmtNumber } from './format'
 import { refLabel } from './refs'
 import type { CatalogDoc, CommandDef, Field, StateDef, State, Transition } from './types'
@@ -83,7 +84,10 @@ export function collectRefIds(fields: Field[], state: State | null | undefined, 
   }
 }
 
+// Every write control on a metadata screen asks one of the three functions below, so a read-only mode
+// (a past date, an app or database of the wrong version) needs no check on each screen.
 export function canCommand(doc: CatalogDoc, command: string): boolean {
+  if (writeBlock.value) return false
   const def = doc.commands?.[command]
   if (!def) return false
   return hasRole(def.roles ?? doc.write_roles)
@@ -96,6 +100,7 @@ export function isDangerous(command: string, def?: { danger?: boolean; confirm?:
 }
 
 export function visibleTransitions(doc: CatalogDoc, status: string | null | undefined): Transition[] {
+  if (writeBlock.value) return []
   return (doc.transitions ?? []).filter((t) => {
     const fromOk = !t.from || t.from.length === 0 || t.from.includes(status ?? '')
     return fromOk && hasRole(t.roles ?? doc.write_roles)
@@ -103,6 +108,7 @@ export function visibleTransitions(doc: CatalogDoc, status: string | null | unde
 }
 
 export function visibleExtraCommands(doc: CatalogDoc): (CommandDef & { command: string; label: string })[] {
+  if (writeBlock.value) return []
   return Object.entries(doc.extra_commands ?? {})
     .filter(([, def]) => hasRole(def.roles ?? doc.write_roles))
     .map(([command, def]) => ({ ...def, command, label: def.label ?? command }))

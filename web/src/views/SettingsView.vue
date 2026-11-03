@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router'
 import { conn, db, inviteLink, projectRef } from '../lib/conn'
 import { messageOf, rpc, toApiError, type ApiError } from '../lib/api'
 import { exportLedger } from '../lib/backup'
+import { sendCommand } from '../lib/commands'
+import { timeView, writeBlock } from '../lib/mode'
 import { APP_VERSION } from '../lib/install'
 import { catalogOf, disconnect, isAdmin, session } from '../lib/session'
 import { displayValue } from '../lib/fields'
@@ -28,16 +30,23 @@ const members = ref<ErpRecord[]>([])
 const membersLoading = ref(false)
 const membersError = ref('')
 const adminUser = computed(() => isAdmin())
+const canManageMembers = computed(() => adminUser.value && !writeBlock.value)
 
 async function loadMembers() {
   membersLoading.value = true
   membersError.value = ''
   try {
+    if (timeView.at) {
+      const past = await rpc<{ rows: ErpRecord[] }>('erp_records_at', { p_type: 'member', p_at: timeView.at, p_limit: 500, p_offset: 0 })
+      members.value = past.rows
+      return
+    }
     const { data, error, status } = await db().from('erp_records').select('*').eq('type', 'member').order('active', { ascending: false }).order('name')
     if (error) throw toApiError(error, status)
     members.value = (data ?? []) as ErpRecord[]
   } catch (e) {
     membersError.value = messageOf(e)
+    if (timeView.at) members.value = []
   } finally {
     membersLoading.value = false
   }
@@ -58,7 +67,7 @@ async function addMember() {
     if (!answer) return
     values = answer.values
     try {
-      await rpc('erp_command', { p_type: 'member', p_id: null, p_command: 'create', p_payload: values, p_source: 'ui' })
+      await sendCommand({ type: 'member', command: 'create', payload: values })
       toast(`${values.name} 님을 추가했습니다.`)
       await loadMembers()
       return
@@ -80,7 +89,7 @@ async function setActive(m: ErpRecord, active: boolean) {
   })
   if (!answer) return
   try {
-    await rpc('erp_command', { p_type: 'member', p_id: m.id, p_command: command, p_reason: answer.reason || null, p_expected_version: m.version, p_source: 'ui' })
+    await sendCommand({ type: 'member', id: m.id, command, reason: answer.reason || null, expectedVersion: m.version })
     toast(`${m.state.name} 님을 ${label}했습니다.`)
     await loadMembers()
   } catch (e) {
@@ -171,6 +180,7 @@ async function changePassword() {
   }
 }
 
+watch(() => timeView.at, () => { if (props.tab === 'members') void loadMembers() })
 watch(() => props.tab, (tab) => {
   if (tab === 'members') void loadMembers()
   if (tab === 'usage') void loadUsage()
@@ -185,7 +195,7 @@ onBeforeUnmount(() => clearTimeout(memberTimer))
     <div class="page-head">
       <h1>{{ title }}<span v-if="tab === 'members'" class="page-count">{{ members.length }}명</span></h1>
       <div class="grow"></div>
-      <button v-if="tab === 'members' && adminUser" type="button" class="btn btn-primary" data-testid="member-add" @click="addMember"><Icon name="plus" :size="13" />직원 추가</button>
+      <button v-if="tab === 'members' && canManageMembers" type="button" class="btn btn-primary" data-testid="member-add" @click="addMember"><Icon name="plus" :size="13" />직원 추가</button>
     </div>
 
     <!-- Members -->
@@ -193,7 +203,7 @@ onBeforeUnmount(() => clearTimeout(memberTimer))
       <div v-if="membersError" class="banner banner-error banner-flush" role="alert"><Icon name="alert" /><span class="grow">{{ membersError }}</span><button type="button" class="btn btn-sm" @click="loadMembers">다시 시도</button></div>
       <table v-if="members.length" class="tbl" data-testid="members-table">
         <thead>
-          <tr><th>이름</th><th>이메일</th><th>역할</th><th style="width: 90px">상태</th><th v-if="adminUser" style="width: 110px"></th></tr>
+          <tr><th>이름</th><th>이메일</th><th>역할</th><th style="width: 90px">상태</th><th v-if="canManageMembers" style="width: 110px"></th></tr>
         </thead>
         <tbody>
           <tr v-for="m in members" :key="m.id" class="clickable" :class="{ 'is-archived': !m.active }" data-testid="member-row" :data-email="m.state.email" tabindex="0"
@@ -202,7 +212,7 @@ onBeforeUnmount(() => clearTimeout(memberTimer))
             <td>{{ m.state.email }}</td>
             <td><FieldValue v-if="rolesField" :field="rolesField" :value="m.state.roles" /></td>
             <td><span class="pill" :class="m.active ? 'pill-green' : 'pill-gray'">{{ m.active ? '활성' : '비활성' }}</span></td>
-            <td v-if="adminUser" class="num">
+            <td v-if="canManageMembers" class="num">
               <template v-if="m.state.user_id !== session.me?.user_id">
                 <button v-if="m.active" type="button" class="btn btn-sm" data-testid="member-deactivate" @click.stop="setActive(m, false)">비활성화</button>
                 <button v-else type="button" class="btn btn-sm" data-testid="member-activate" @click.stop="setActive(m, true)">다시 활성화</button>

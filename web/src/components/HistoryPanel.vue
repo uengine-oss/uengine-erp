@@ -7,8 +7,8 @@ import { ensureNames } from '../lib/refs'
 import { eventLabel, sourceColor, sourceLabel } from '../lib/eventText'
 import Icon from './Icon.vue'
 
-const props = defineProps<{ doc: CatalogDoc; events: ErpEvent[]; version: number | null; loading?: boolean; error?: string }>()
-const emit = defineEmits<{ select: [version: number | null]; retry: [] }>()
+const props = defineProps<{ doc: CatalogDoc; events: ErpEvent[]; version: number | null; loading?: boolean; error?: string; canRollback?: boolean }>()
+const emit = defineEmits<{ select: [version: number | null]; retry: []; rollbackWork: [ev: ErpEvent]; rollbackVersion: [ev: ErpEvent] }>()
 
 const META_FIELDS: Record<string, Field> = {
   active: { name: 'active', label: '사용 여부', type: 'boolean' },
@@ -146,6 +146,10 @@ function pick(index: number) {
             </li>
           </ul>
           <button v-if="hidden && !expanded.has(ev.seq)" type="button" class="btn btn-ghost btn-sm" @click="expanded.add(ev.seq)">외 {{ hidden }}건 더 보기</button>
+          <div v-if="canRollback" class="timeline-actions">
+            <button type="button" class="btn btn-ghost btn-sm" data-testid="history-rollback-work" @click="$emit('rollbackWork', ev)"><Icon name="undo" :size="12" />이 작업 되돌리기</button>
+            <button v-if="ev.version < max" type="button" class="btn btn-ghost btn-sm" data-testid="history-rollback-version" @click="$emit('rollbackVersion', ev)">이 버전으로 되돌리기</button>
+          </div>
         </li>
       </ol>
     </div>
@@ -174,4 +178,9 @@ function pick(index: number) {
 .change-label { color: var(--text-3); margin-right: 5px; }
 .change-from { color: var(--text-3); text-decoration: line-through; }
 .change-to { color: var(--text); font-weight: 500; }
+.timeline-actions { display: flex; flex-wrap: wrap; gap: 2px; margin: 4px 0 0 -7px; }
+@media (max-width: 720px) {
+  .history { width: 100%; border-left: 0; border-top: 1px solid var(--line); }
+  .history-body { overflow: visible; }
+}
 </style>

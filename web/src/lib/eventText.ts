@@ -17,6 +17,7 @@ const EXACT: Record<string, string> = {
   PurchaseOrderConfirmed: '구매 확정', PurchaseOrderLineQtyChanged: '구매 수량 변경', PurchaseOrderCancelled: '구매 취소',
   PurchaseOrderReceived: '입고 반영', PurchaseOrderBilled: '구매 청구 반영',
   InvoiceCreated: '청구서 생성', InvoiceUpdated: '청구서 변경', InvoiceResetToDraft: '청구서 초안으로', InvoiceCancelled: '청구서 취소',
+  ModuleEnabled: '모듈 켬', ModuleDisabled: '모듈 끔', SubscriptionEventSkipped: '이벤트 건너뜀',
   InvoicePosted: '청구서 게시', InvoicePaymentApplied: '결제 반영',
   PaymentPosted: '결제 게시', PaymentCancelled: '결제 취소', PaymentAllocated: '결제 배분',
 }
@@ -24,7 +25,7 @@ const EXACT: Record<string, string> = {
 // Modules name row events <Type><Column>Added/Changed/Removed/Reordered, so endings cover new ones too.
 const SUFFIX: [RegExp, string][] = [
   [/Created$/, '생성'], [/Updated$/, '변경'], [/Unarchived$/, '보관 해제'], [/Archived$/, '보관'], [/Deleted$/, '삭제'],
-  [/Confirmed$/, '확정'], [/Cancelled$/, '취소'], [/Added$/, '줄 추가'], [/Changed$/, '줄 변경'],
+  [/Confirmed$/, '확정'], [/Sent$/, '발송'], [/Posted$/, '게시'], [/Cancelled$/, '취소'], [/Added$/, '줄 추가'], [/Changed$/, '줄 변경'],
   [/Removed$/, '줄 삭제'], [/Reordered$/, '순서 변경'],
 ]
 
@@ -38,11 +39,13 @@ export function eventLabel(eventType: string, typeLabel?: string): string {
 }
 
 export function sourceLabel(source: string): string {
+  if (source.startsWith('bus:')) return '다른 모듈'
   switch (source) {
     case 'ui': return '사람'
     case 'mcp':
     case 'agent': return '에이전트'
     case 'reaction': return '연쇄 반응'
+    case 'rollback': return '되돌리기'
     case 'setup': return '설치'
     case 'demo': return '데모 데이터'
     case 'test': return '시험'
@@ -51,12 +54,14 @@ export function sourceLabel(source: string): string {
 }
 
 export function sourceColor(source: string): string {
+  if (source.startsWith('bus:')) return 'blue'
   switch (source) {
     case 'mcp':
     case 'agent': return 'violet'
     case 'reaction': return 'blue'
+    case 'rollback': return 'amber'
     default: return 'gray'
   }
 }
 
-export const SOURCES = ['ui', 'agent', 'mcp', 'reaction', 'setup', 'demo']
+export const SOURCES = ['ui', 'agent', 'mcp', 'reaction', 'rollback', 'setup', 'demo']

@@ -2,11 +2,12 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { resolveNav } from '../nav'
-import { session } from '../lib/session'
+import { isAdmin, session } from '../lib/session'
+import { navOpen } from '../lib/ui'
 import Icon from './Icon.vue'
 
 const route = useRoute()
-const modules = computed(() => resolveNav(session.catalog))
+const modules = computed(() => resolveNav(session.catalog, isAdmin()))
 
 function matches(prefix: string | undefined) {
   return !!prefix && (route.path === prefix || route.path.startsWith(`${prefix}/`))
@@ -22,20 +23,20 @@ function moduleActive(m: (typeof modules.value)[number]) {
 
 <template>
   <nav class="side" aria-label="주 메뉴">
-    <router-link to="/" class="side-brand">
+    <router-link to="/" class="side-brand" @click="navOpen = false">
       <span class="brand-mark"><svg width="14" height="14" viewBox="0 0 32 32" aria-hidden="true"><path d="M7 5v14a9 9 0 0 0 18 0V5h-5v14a4 4 0 0 1-8 0V5z" fill="#fff" /></svg></span>
       uEngine ERP
     </router-link>
     <ul class="side-list">
       <li v-for="m in modules" :key="m.key">
-        <router-link :to="m.to" class="side-module" :class="{ on: moduleActive(m) && !m.screens.length, open: moduleActive(m) && m.screens.length }" :data-module="m.key">
+        <router-link :to="m.to" class="side-module" :class="{ on: moduleActive(m) && !m.screens.length, open: moduleActive(m) && m.screens.length }" :data-module="m.key" @click="navOpen = !!m.screens.length && navOpen">
           <Icon :name="m.icon" :size="15" />
           <span>{{ m.label }}</span>
           <Icon v-if="m.screens.length" class="side-caret" :name="moduleActive(m) ? 'chevron-down' : 'chevron-right'" :size="12" />
         </router-link>
         <ul v-if="m.screens.length && moduleActive(m)" class="side-sub">
           <li v-for="s in m.screens" :key="s.key">
-            <router-link :to="s.to" class="side-screen" :class="{ on: screenActive(s) }" :data-screen="s.key">{{ s.label }}</router-link>
+            <router-link :to="s.to" class="side-screen" :class="{ on: screenActive(s) }" :data-screen="s.key" @click="navOpen = false">{{ s.label }}</router-link>
           </li>
         </ul>
       </li>

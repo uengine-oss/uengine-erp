@@ -7,6 +7,7 @@ import FieldInput from './FieldInput.vue'
 
 const values = ref<State>({})
 const reason = ref('')
+const reasonError = ref(false)
 const root = ref<HTMLElement | null>(null)
 let returnFocus: HTMLElement | null = null
 
@@ -17,6 +18,7 @@ watch(dialog, async (d) => {
   for (const f of d.fields ?? []) initial[f.name] = d.values?.[f.name] ?? emptyValue(f)
   values.value = initial
   reason.value = ''
+  reasonError.value = false
   await nextTick()
   const first = root.value?.querySelector<HTMLElement>('.dlg-body input, .dlg-body select, .dlg-body textarea')
   ;(first ?? root.value?.querySelector<HTMLElement>('.dlg-foot .btn:last-child'))?.focus()
@@ -25,6 +27,11 @@ watch(dialog, async (d) => {
 function close(confirmed: boolean) {
   const d = dialog.value
   if (!d) return
+  if (confirmed && d.reasonRequired && !reason.value.trim()) {
+    reasonError.value = true
+    root.value?.querySelector<HTMLElement>('#dlg-reason')?.focus()
+    return
+  }
   dialog.value = null
   d.resolve(confirmed ? { values: values.value, reason: reason.value.trim() } : null)
   returnFocus?.focus?.()
@@ -57,8 +64,9 @@ function onKey(e: KeyboardEvent) {
             <span v-if="f.help" class="hint">{{ f.help }}</span>
           </div>
           <div v-if="dialog.reason" class="field-stack">
-            <label for="dlg-reason">사유 <span class="muted">(선택, 이력에 남습니다)</span></label>
-            <input id="dlg-reason" v-model="reason" class="input" autocomplete="off" />
+            <label for="dlg-reason">사유<span v-if="dialog.reasonRequired" class="req">*</span> <span class="muted">({{ dialog.reasonRequired ? '필수' : '선택' }}, 이력에 남습니다)</span></label>
+            <input id="dlg-reason" v-model="reason" class="input" autocomplete="off" :class="{ 'is-invalid': reasonError }" @input="reasonError = false" />
+            <span v-if="reasonError" class="err-text small" role="alert" data-testid="dlg-reason-error">사유를 적어 주세요.</span>
           </div>
         </div>
         <div class="dlg-foot">

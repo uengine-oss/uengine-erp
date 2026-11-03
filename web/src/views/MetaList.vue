@@ -2,7 +2,9 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { db } from '../lib/conn'
-import { toApiError, messageOf } from '../lib/api'
+import { toApiError, messageOf, rpc } from '../lib/api'
+import { onDataChanged } from '../lib/commands'
+import { timeView, writeBlock } from '../lib/mode'
 import { catalogOf, hasRole } from '../lib/session'
 import { canCommand, collectRefIds, displayValue, isNumeric, listFields } from '../lib/fields'
 import { fmtDay, josa } from '../lib/format'
@@ -43,7 +45,9 @@ const error = ref('')
 const exporting = ref(false)
 let seq = 0
 
-const filtered = computed(() => !!(String(route.query.q ?? '').trim() || status.value || archived.value))
+// erp_records_at reads the ledger, so looking at a past date offers only what that read can do: state and pages.
+const atPast = computed(() => !!timeView.at)
+const filtered = computed(() => (atPast.value ? !!status.value : !!(String(route.query.q ?? '').trim() || status.value || archived.value)))
 // erp_catalog is not filtered by role, so an empty result may mean the role cannot read this type.
 const restricted = computed(() => {
   const roles = doc.value?.read_roles
@@ -73,32 +77,48 @@ function buildQuery(select: string, withCount: boolean) {
   return q
 }
 
+async function recordsAt(from: number, size: number): Promise<{ total: number; rows: ErpRecord[] }> {
+  return rpc('erp_records_at', { p_type: props.type, p_at: timeView.at, p_limit: size, p_offset: from, p_status: status.value || null })
+}
+
+async function fetchPage(from: number): Promise<{ records: ErpRecord[]; count: number }> {
+  if (atPast.value) {
+    const res = await recordsAt(from, PAGE_SIZE)
+    return { records: res.rows, count: res.total }
+  }
+  const { data, error: err, count, status: http } = await buildQuery(SELECT, true).range(from, from + PAGE_SIZE - 1)
+  if (err) throw toApiError(err, http)
+  return { records: (data ?? []) as unknown as ErpRecord[], count: count ?? 0 }
+}
+
 async function load() {
   if (!doc.value) { loading.value = false; return }
   const my = ++seq
   error.value = ''
   try {
     const from = (page.value - 1) * PAGE_SIZE
-    const { data, error: err, count, status: http } = await buildQuery(SELECT, true).range(from, from + PAGE_SIZE - 1)
+    const { records, count } = await fetchPage(from)
     if (my !== seq) return
-    if (err) throw toApiError(err, http)
-    const records = (data ?? []) as unknown as ErpRecord[]
     const ids = new Set<string>()
     for (const r of records) collectRefIds(fields.value, r.state, ids)
     await ensureNames(ids)
     if (my !== seq) return
     rows.value = records
-    total.value = count ?? 0
+    total.value = count
     // Filtering or a deletion can leave the page past the end.
     if (!records.length && page.value > 1 && total.value > 0) setQuery({ page: String(Math.ceil(total.value / PAGE_SIZE)) })
   } catch (e) {
-    if (my === seq) error.value = messageOf(e)
+    if (my !== seq) return
+    error.value = messageOf(e)
+    // Rows still on screen are from another moment; under a date banner they would read as that date's.
+    if (atPast.value) { rows.value = []; total.value = 0 }
   } finally {
     if (my === seq) loading.value = false
   }
 }
 
-watch(() => [props.type, route.query], load, { immediate: true, deep: true })
+watch(() => [props.type, route.query, timeView.at], load, { immediate: true, deep: true })
+onDataChanged(() => { void load() })
 watch(doc, (d) => { if (d) document.title = `${d.label} · uEngine ERP` }, { immediate: true })
 
 let searchTimer: ReturnType<typeof setTimeout> | undefined
@@ -124,7 +144,7 @@ function toggleSort(key: string) {
     setQuery({ sort: key, dir: 'asc', page: undefined })
   }
 }
-const canSort = (f: Field) => !!sortColumn(f)
+const canSort = (f: Field) => !atPast.value && !!sortColumn(f)
 
 const firstRow = computed(() => (total.value ? (page.value - 1) * PAGE_SIZE + 1 : 0))
 const lastRow = computed(() => Math.min(page.value * PAGE_SIZE, total.value))
@@ -144,10 +164,16 @@ async function exportCsv() {
     const all: ErpRecord[] = []
     // PostgREST caps each response, so the export pages through the same query as the screen.
     for (let from = 0; ; from += 1000) {
-      const { data, error: err, status: http } = await buildQuery(SELECT, false).range(from, from + 999)
-      if (err) throw toApiError(err, http)
-      all.push(...((data ?? []) as unknown as ErpRecord[]))
-      if ((data ?? []).length < 1000) break
+      let batch: ErpRecord[]
+      if (atPast.value) {
+        batch = (await recordsAt(from, 1000)).rows
+      } else {
+        const { data, error: err, status: http } = await buildQuery(SELECT, false).range(from, from + 999)
+        if (err) throw toApiError(err, http)
+        batch = (data ?? []) as unknown as ErpRecord[]
+      }
+      all.push(...batch)
+      if (batch.length < 1000) break
     }
     const ids = new Set<string>()
     for (const r of all) collectRefIds(fields.value, r.state, ids)
@@ -172,7 +198,7 @@ async function exportCsv() {
 <template>
   <div v-if="!doc" class="page">
     <div class="page-body">
-      <EmptyState title="설치되지 않은 화면입니다" text="이 유형은 아직 이 회사의 데이터베이스에 없습니다. 업그레이드 안내가 보이면 SQL 을 다시 실행하세요.">
+      <EmptyState title="설치되지 않은 화면입니다" text="이 유형이 아직 데이터베이스에 없거나, 이 유형을 쓰는 모듈이 꺼져 있습니다. 모듈은 관리자가 설정 > 모듈에서 켭니다. 업그레이드 안내가 보이면 SQL 을 다시 실행하세요.">
         <router-link class="btn" to="/">홈으로</router-link>
       </EmptyState>
     </div>
@@ -185,7 +211,7 @@ async function exportCsv() {
       <router-link v-if="canCreate" class="btn btn-primary" :to="{ name: 'new', params: { type } }" data-testid="new-record"><Icon name="plus" :size="13" />새로 만들기</router-link>
     </div>
     <div class="toolbar">
-      <label class="search">
+      <label v-if="!atPast" class="search">
         <Icon name="search" :size="13" />
         <span class="sr-only">검색</span>
         <input v-model="search" class="input" type="search" placeholder="검색" autocomplete="off" data-testid="list-search" />
@@ -195,7 +221,8 @@ async function exportCsv() {
         <button v-for="s in states" :key="s.value" type="button" :class="{ on: status === s.value }" :aria-pressed="status === s.value" @click="setQuery({ status: s.value, page: undefined })">{{ s.label }}</button>
       </div>
       <div class="grow"></div>
-      <label class="check small dim">
+      <span v-if="atPast" class="muted small" data-testid="past-note">과거 시점에서는 검색과 정렬을 쓸 수 없습니다.</span>
+      <label v-else class="check small dim">
         <input type="checkbox" :checked="archived" data-testid="include-archived" @change="setQuery({ archived: ($event.target as HTMLInputElement).checked ? '1' : undefined, page: undefined })" />
         보관 포함
       </label>
@@ -217,9 +244,10 @@ async function exportCsv() {
               <template v-else>{{ f.label }}</template>
             </th>
             <th v-if="states.length" :aria-sort="sortKey === 'status' ? (sortAsc ? 'ascending' : 'descending') : undefined" style="width: 100px">
-              <button type="button" class="th-sort" :class="{ on: sortKey === 'status' }" @click="toggleSort('status')">
+              <button v-if="!atPast" type="button" class="th-sort" :class="{ on: sortKey === 'status' }" @click="toggleSort('status')">
                 상태<Icon v-if="sortKey === 'status'" :name="sortAsc ? 'arrow-up' : 'arrow-down'" :size="11" />
               </button>
+              <template v-else>상태</template>
             </th>
           </tr>
         </thead>
@@ -235,10 +263,11 @@ async function exportCsv() {
         <EmptyState v-if="filtered" :title="`조건에 맞는 ${josa(doc.label, '이', '가')} 없습니다`" text="검색어나 상태 필터를 바꾸어 보세요.">
           <button type="button" class="btn" @click="clearFilters">조건 지우기</button>
         </EmptyState>
+        <EmptyState v-else-if="atPast" :title="`이 시점에는 ${josa(doc.label, '이', '가')} 없습니다`" :text="`${timeView.date} 까지 등록된 것이 없습니다. 날짜를 바꾸거나 현재로 돌아가세요.`" />
         <EmptyState v-else-if="restricted" :title="`표시할 ${josa(doc.label, '이', '가')} 없습니다`"
                     :text="`이 목록은 ${roleNames} 역할에게만 보입니다. 필요하면 관리자에게 권한을 요청하세요.`" />
         <EmptyState v-else :title="`아직 등록된 ${josa(doc.label, '이', '가')} 없습니다`"
-                    :text="canCreate ? `첫 ${josa(doc.label, '을', '를')} 만들면 이 표에 나타납니다.` : '권한이 있는 구성원이 등록하면 이 표에 나타납니다.'">
+                    :text="canCreate ? `첫 ${josa(doc.label, '을', '를')} 만들면 이 표에 나타납니다.` : writeBlock ? '' : '권한이 있는 구성원이 등록하면 이 표에 나타납니다.'">
           <router-link v-if="canCreate" class="btn btn-primary" :to="{ name: 'new', params: { type } }"><Icon name="plus" :size="13" />새로 만들기</router-link>
         </EmptyState>
       </template>
