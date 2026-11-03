@@ -307,6 +307,17 @@ language sql stable security definer set search_path = erp, pg_temp as $$
   select coalesce((select roles && (p_roles || array['admin']) from erp.members where user_id = erp.current_actor() and active), false)
 $$;
 
+-- Types with read_roles in their catalog entry are visible only to those roles (and admin).
+-- Evaluated once per query through (select ...) in the policies, so large tables stay fast.
+create or replace function erp.readable_types() returns text[]
+language sql stable security definer set search_path = erp, pg_temp as $$
+  select coalesce(array_agg(c.type), '{}') from erp.catalog c
+    join erp.members m on m.user_id = erp.current_actor() and m.active
+   where not (c.doc ? 'read_roles')
+      or 'admin' = any(m.roles)
+      or m.roles && array(select jsonb_array_elements_text(c.doc -> 'read_roles'))
+$$;
+
 alter table erp.events enable row level security;
 alter table erp.records enable row level security;
 alter table erp.members enable row level security;
@@ -316,13 +327,13 @@ alter table erp.sequences enable row level security;
 alter table erp.hooks enable row level security;
 
 drop policy if exists events_read on erp.events;
-create policy events_read on erp.events for select to authenticated using (erp.is_member());
+create policy events_read on erp.events for select to authenticated using (stream_type = any ((select erp.readable_types())::text[]));
 drop policy if exists records_read on erp.records;
-create policy records_read on erp.records for select to authenticated using (erp.is_member());
+create policy records_read on erp.records for select to authenticated using (type = any ((select erp.readable_types())::text[]));
 drop policy if exists members_read on erp.members;
-create policy members_read on erp.members for select to authenticated using (erp.is_member());
+create policy members_read on erp.members for select to authenticated using ((select erp.is_member()));
 drop policy if exists catalog_read on erp.catalog;
-create policy catalog_read on erp.catalog for select to authenticated using (erp.is_member());
+create policy catalog_read on erp.catalog for select to authenticated using ((select erp.is_member()));
 
 grant select on erp.events, erp.records, erp.members, erp.catalog to authenticated;
 
@@ -422,15 +433,18 @@ begin
   return out_;
 end $$;
 
+-- Two simultaneous creates have no row to lock yet, so the value itself is locked until commit.
 create or replace function erp.check_unique(p_type text, p_id uuid, p_values jsonb) returns void
-language plpgsql stable as $$
+language plpgsql as $$
 declare f jsonb; k text;
 begin
   for f in select * from jsonb_array_elements(erp.catalog_of(p_type) -> 'fields') where (value ->> 'unique')::boolean loop
     k := f ->> 'name';
-    if p_values ? k and jsonb_typeof(p_values -> k) <> 'null' and exists (
-         select 1 from erp.records where type = p_type and id <> p_id and not deleted and state ->> k = p_values ->> k) then
-      perform erp.fail('ERP_DUPLICATE', format('%s 값이 이미 사용 중입니다: %s', f ->> 'label', p_values ->> k));
+    if p_values ? k and jsonb_typeof(p_values -> k) <> 'null' then
+      perform pg_advisory_xact_lock(hashtextextended(p_type || ':' || k || ':' || (p_values ->> k), 0));
+      if exists (select 1 from erp.records where type = p_type and id <> p_id and not deleted and state ->> k = p_values ->> k) then
+        perform erp.fail('ERP_DUPLICATE', format('%s 값이 이미 사용 중입니다: %s', f ->> 'label', p_values ->> k));
+      end if;
     end if;
   end loop;
 end $$;
@@ -500,6 +514,11 @@ declare
   has_custom boolean;
   out_ uuid;
 begin
+  -- Handlers read state, check a rule, then emit. Without this lock two requests read the same state
+  -- and both pass the check, which oversells stock even inside a transaction.
+  if p_id is not null then
+    perform 1 from erp.records where id = p_id for update;
+  end if;
   select exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                   where n.nspname = 'erp' and p.proname = 'h_' || p_type) into has_custom;
   if has_custom then
@@ -573,6 +592,15 @@ end $$;
 ------------------------------------------------------------------------------------------------
 -- Reads that need more than the views give: history, time travel, integrity
 ------------------------------------------------------------------------------------------------
+-- Security-definer readers bypass row security, so each one checks the record's type itself.
+create or replace function erp.require_readable(p_id uuid) returns void
+language plpgsql stable as $$
+begin
+  if not exists (select 1 from erp.records r where r.id = p_id and r.type = any (erp.readable_types())) then
+    perform erp.fail('ERP_FORBIDDEN', '이 레코드를 볼 권한이 없습니다');
+  end if;
+end $$;
+
 create or replace function public.erp_catalog() returns jsonb
 language sql stable security definer set search_path = erp, pg_temp as $$
   select case when erp.is_member() then
@@ -598,7 +626,7 @@ create or replace function public.erp_stream(p_id uuid) returns jsonb
 language plpgsql stable security definer set search_path = erp, pg_temp as $$
 declare out_ jsonb;
 begin
-  if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '구성원만 볼 수 있습니다'); end if;
+  perform erp.require_readable(p_id);
   select coalesce(jsonb_agg(to_jsonb(e) order by version), '[]'::jsonb) into out_ from erp.events e where stream_id = p_id;
   return out_;
 end $$;
@@ -606,7 +634,7 @@ end $$;
 create or replace function public.erp_as_of(p_id uuid, p_at timestamptz) returns jsonb
 language plpgsql stable security definer set search_path = erp, pg_temp as $$
 begin
-  if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '구성원만 볼 수 있습니다'); end if;
+  perform erp.require_readable(p_id);
   return erp.fold(p_id, p_at);
 end $$;
 
@@ -615,7 +643,8 @@ language plpgsql stable security definer set search_path = erp, pg_temp as $$
 declare out_ jsonb;
 begin
   if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '구성원만 볼 수 있습니다'); end if;
-  select coalesce(jsonb_agg(to_jsonb(e) order by seq), '[]'::jsonb) into out_ from erp.events e where correlation_id = p_correlation_id;
+  select coalesce(jsonb_agg(to_jsonb(e) order by seq), '[]'::jsonb) into out_ from erp.events e
+   where correlation_id = p_correlation_id and stream_type = any (erp.readable_types());
   return out_;
 end $$;
 
@@ -678,6 +707,7 @@ begin
   if exists (select 1 from auth.users where lower(email) = lower(p_email)) then
     perform erp.fail('ERP_DUPLICATE', '이미 등록된 이메일입니다');
   end if;
+  perform set_config('erp.allow_user_creation', 'on', true);
   insert into auth.users(instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
                          raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
                          confirmation_token, email_change, email_change_token_new, recovery_token)
@@ -687,7 +717,27 @@ begin
   insert into auth.identities(provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
   values (uid::text, uid, jsonb_build_object('sub', uid::text, 'email', lower(p_email), 'email_verified', true, 'phone_verified', false),
           'email', now(), now(), now());
+  perform set_config('erp.allow_user_creation', '', true);
   return uid;
+end $$;
+
+-- The public key can call the sign-up endpoint, so anyone holding the project URL could register accounts.
+-- They would see nothing without a membership, but this closes the door without a dashboard setting.
+-- Sign-up stays open only until the company exists, so setup still works if direct insert is ever refused.
+create or replace function erp.guard_signup() returns trigger
+language plpgsql security definer set search_path = erp, pg_temp as $$
+begin
+  if current_setting('erp.allow_user_creation', true) = 'on' or not exists (select 1 from erp.members) then
+    return new;
+  end if;
+  raise exception 'ERP_SIGNUP_CLOSED: 계정은 회사 관리자가 만듭니다';
+end $$;
+
+do $$ begin
+  drop trigger if exists erp_guard_signup on auth.users;
+  create trigger erp_guard_signup before insert on auth.users for each row execute function erp.guard_signup();
+exception when insufficient_privilege then
+  raise notice 'erp_guard_signup not installed: turn off sign-ups in the Supabase dashboard';
 end $$;
 
 create or replace function public.erp_status() returns jsonb

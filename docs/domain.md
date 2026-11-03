@@ -28,6 +28,8 @@
 | `erp.require_state(id, type)` | 상태를 읽고 없으면 `ERP_NOT_FOUND` |
 
 규칙:
+- **동시성.** `erp.dispatch` 가 처리기 호출 전에 그 애그리거트 행을 잠근다. 처리기는 잠금 뒤 상태를 읽고 규칙을 확인하고 emit 한다. 다른 애그리거트나 파생 표의 값으로 판단할 때(재고 예약 등)는 그 행도 잠근다: `select ... for update` 또는 `update ... where qty - reserved >= n` 후 행 수 확인. 처리기와 판단 함수는 `stable` 로 선언하지 않는다(안정 함수는 호출 시점 스냅샷을 써서 잠금 뒤 최신 값을 못 본다). `erp.require_state` 처럼 읽기만 하는 도우미는 예외다.
+- **읽기 권한.** 카탈로그에 `read_roles` 가 있는 유형은 그 역할과 admin 만 읽는다. `security definer` 로 데이터를 돌려주는 공개 함수는 RLS 를 우회하므로 `erp.require_readable(id)` 나 `erp.readable_types()` 또는 `erp.has_role(...)` 로 직접 확인한다.
 - **이벤트는 사실이다.** 나중에 재생해도 결과가 같도록, 계산 결과(단가·세액·합계)를 이벤트에 그대로 싣는다. 리듀서는 다른 표를 읽지 않는다.
 - **줄 변경은 줄 이벤트로.** 화면이 줄 전체를 보내도 처리기는 차이를 계산해 `...LineAdded/Changed/Removed` 를 낸다. 이력 분석의 재료다.
 - **변화가 없으면 이벤트도 없다.**
@@ -57,7 +59,7 @@
 - 상태 전이: `update` + `{"state": "<to>"}` → 카탈로그 `transitions` 로 명령을 찾는다.
 - 다른 문서를 만드는 행위: `create` 로 표현한다(예: `account_move` create `{from_sales_order, method}`, `payment` create, 반품은 `picking` create `{return_of}`).
 
-역할: `admin sales purchase inventory accounting viewer`. 모든 구성원이 읽을 수 있고, `admin` 은 모든 쓰기가 가능하다.
+역할: `admin sales purchase inventory accounting viewer`. `admin` 은 모든 쓰기가 가능하다. 읽기 기본값은 모든 구성원이며, 회계 문서·구매 문서처럼 민감한 유형은 `read_roles` 로 좁힌다.
 
 ## 2. 기초데이터 (`sql/10_master.sql`)
 

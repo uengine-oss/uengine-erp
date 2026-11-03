@@ -139,7 +139,7 @@ test('no function in the private schema is executable by anon, or by members bey
     select p.proname, has_function_privilege('anon', p.oid, 'execute') as a, has_function_privilege('authenticated', p.oid, 'execute') as u
       from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'erp'`)
   assert.deepEqual(rows.filter((r) => r.a).map((r) => r.proname), [])
-  assert.deepEqual(rows.filter((r) => r.u).map((r) => r.proname).sort(), ['current_actor', 'has_role', 'is_member'])
+  assert.deepEqual(rows.filter((r) => r.u).map((r) => r.proname).sort(), ['current_actor', 'has_role', 'is_member', 'readable_types'])
 })
 
 test('passwords never reach the event ledger', async () => {
