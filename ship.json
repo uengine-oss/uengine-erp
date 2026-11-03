@@ -1,0 +1,10 @@
+{
+  "feature": "uengine-erp",
+  "repo": ".",
+  "plan": "docs/plan.md",
+  "scenario": "docs/scenario.md",
+  "tests": {
+    "sql": "node scripts/build-sql.mjs && node --test --test-concurrency=4 test/*.test.mjs",
+    "browser": "npm run test:e2e"
+  }
+}
