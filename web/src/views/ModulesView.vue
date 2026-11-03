@@ -16,9 +16,11 @@ const admin = computed(() => isAdmin())
 const models = ref<ModelInfo[]>([])
 const busyId = ref('')
 
+let modelsRead: Promise<void> = Promise.resolve()
 async function load() {
   await refreshBus()
-  models.value = await loadModels()
+  modelsRead = loadModels().then((list) => { models.value = list })
+  await modelsRead
 }
 onMounted(() => { if (admin.value) void load() })
 watch(admin, (v) => { if (v) void load() })
@@ -64,6 +66,8 @@ const RESUME_FIELD: Field = {
 async function enable(m: ModuleDoc) {
   const again = !!m.enabled_at
   const fields = again ? [RESUME_FIELD] : (m.options ?? [])
+  // The card shows before the models arrive, and what a module opens is the point of this question.
+  await modelsRead.catch(() => {})
   const lines = [unlockText(m), m.not_rebuilt].filter(Boolean).map((t) => String(t).replace(/\.$/, ''))
   const message = lines.length ? `${lines.join('. ')}.` : '메뉴에 이 모듈의 화면이 나타나고, 지금부터의 이벤트를 받습니다.'
   let values: State = {}
