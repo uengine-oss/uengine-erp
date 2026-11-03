@@ -44,7 +44,15 @@ export interface Transition {
   params?: Field[]
 }
 
-export interface CommandDef { hidden?: boolean; roles?: string[]; label?: string; params?: Field[]; danger?: boolean; confirm?: string }
+export interface CommandDef {
+  roles?: string[]
+  label?: string
+  params?: Field[]
+  danger?: boolean
+  confirm?: string
+  /** A screen of its own or another program sends this; it is not one of the form's menu items. */
+  api_only?: boolean
+}
 
 export interface CatalogDoc {
   type: string
@@ -63,6 +71,10 @@ export interface CatalogDoc {
   read_roles?: string[]
   /** false: the kernel refuses to roll this type back, so screens do not offer it. */
   revertible?: boolean
+  /** Only records in these states can be picked for new work. Records in other states keep their names on old documents. */
+  pick_states?: string[]
+  /** Fields held outside the ledger, in a table only some roles can read. The record itself never carries their values. */
+  private_fields?: Field[]
 }
 
 export type State = Record<string, any>

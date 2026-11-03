@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { company, rejects } from './lib/harness.mjs'
 
-const FILES = { sales: '30_sales.sql', inventory: '40_inventory.sql', purchase: '50_purchase.sql', invoicing: ['60_invoicing.sql', '62_bank.sql', '63_voucher.sql'], accounting: '65_accounting.sql', krtax: '66_krtax.sql', analytics: '70_analytics.sql' }
+const FILES = { sales: '30_sales.sql', inventory: '40_inventory.sql', purchase: '50_purchase.sql', invoicing: ['60_invoicing.sql', '62_bank.sql', '63_voucher.sql'], accounting: '65_accounting.sql', krtax: '66_krtax.sql', hr: '67_hr.sql', analytics: '70_analytics.sql' }
 const read = (f) => { try { return fs.readFileSync(new URL(`../sql/${f}`, import.meta.url), 'utf8') } catch { return null } }
 const stripComments = (s) => s.replace(/--.*$/gm, '')
 
@@ -41,7 +41,15 @@ for (const m of mods) {
 test('analysis reads the ledger, not any module table', () => {
   const a = mods.find((m) => m.id === 'analytics')
   if (!a) return
-  for (const t of ['erp.quants', 'erp.gl_lines']) assert.ok(!a.src.includes(t), t)
+  for (const t of ['erp.quants', 'erp.gl_lines', 'erp.employee_private', 'public.erp_employee_private']) assert.ok(!a.src.includes(t), t)
+})
+
+test('nobody else reads or writes the private table, and its module neither hears nor needs anyone', () => {
+  for (const m of mods) {
+    if (m.id !== 'hr') assert.ok(!/employee_private/.test(m.src.replace(/'EmployeePrivate[A-Za-z]*'/g, '')), `${m.id} mentions the private table`)
+  }
+  const hr = mods.find((m) => m.id === 'hr')
+  assert.match(hr.src, /"subscribes": \[\]/)
 })
 
 // Every combination of modules must run the work it has, with nothing stuck. 32 companies, each small.
@@ -125,6 +133,63 @@ for (const on of [...subsets, ...withTax]) {
       assert.ok(models.length >= 14)
       for (const m of models) assert.ok(['locked', 'insufficient', 'ready'].includes(m.state), JSON.stringify(m))
       if (!has('sales')) assert.equal(models.find((m) => m.id === 'demand_sales').state, 'locked')
+      if (!has('inventory')) assert.equal(models.find((m) => m.id === 'demand_true').state, 'locked')
+    } finally { await k.close() }
+  })
+}
+
+// The 32 above leave people out. These add them to some of the same companies: neither side's work touches the other.
+const HR_STREAMS = ['employee', 'employee_private', 'department']
+const counts = async (k) => Object.fromEntries((await k.db.query(`select stream_type, count(*)::int n from erp.events group by 1`)).rows.map((r) => [r.stream_type, r.n]))
+for (const on of [['hr'], ['hr', 'sales'], ['hr', 'sales', 'inventory', 'purchase'], ['hr', 'invoicing', 'accounting'], ['hr', ...ALL]]) {
+  const has = (m) => on.includes(m)
+  test(`people beside [${on.filter((m) => m !== 'hr').join(', ') || 'nothing'}]: neither side's work touches the other`, async () => {
+    const k = await company({ modules: on })
+    try {
+      const start = await counts(k)
+      const d = await k.admin('department', null, 'create', { name: '영업' })
+      const boss = await k.admin('employee', null, 'create', { name: '상사', hire_date: '2024-01-01', department_id: d.id })
+      const e = await k.admin('employee', null, 'create', { name: '직원', hire_date: '2024-02-01', department_id: d.id, manager_id: boss.id })
+      await k.admin('employee', e.id, 'set_private', { phone: '010-0000-0000' })
+      await k.admin('employee', e.id, 'update', { job_title: '사원' })
+      const gone = await k.admin('employee', null, 'create', { name: '떠난 직원', hire_date: '2024-02-01', department_id: d.id })
+      await k.admin('employee', gone.id, 'leave', { leave_date: '2024-06-30' })
+      await k.settle()
+      const afterPeople = await counts(k)
+      for (const [type, n] of Object.entries(afterPeople)) if (!HR_STREAMS.includes(type)) assert.equal(n, start[type], `people's work wrote on ${type}`)
+
+      const partner = (await k.admin('partner', null, 'create', { name: '거래처' })).id
+      const p = await k.admin('product', null, 'create', { name: '제품', list_price: 1000, standard_price: 600 })
+      const v = p.state.variants[0].id
+      if (has('inventory')) await k.admin('stock_adjustment', null, 'create', { variant_id: v, counted_qty: 20, apply: true })
+      if (has('sales')) {
+        const o = await k.admin('sales_order', null, 'create', { partner_id: partner, lines: [{ variant_id: v, qty: 3 }] })
+        await k.admin('sales_order', o.id, 'confirm', {})
+        await k.settle()
+        if (has('inventory')) { await k.admin('picking', (await picks(k, o.id))[0].id, 'validate', {}); await k.settle(); assert.equal((await k.rec(o.id)).state.delivery_status, 'full') }
+      }
+      if (has('purchase')) {
+        const po = await k.admin('purchase_order', null, 'create', { partner_id: partner, lines: [{ variant_id: v, qty: 4, price_unit: 500 }] })
+        await k.admin('purchase_order', po.id, 'confirm', {})
+      }
+      if (has('invoicing')) {
+        const inv = await k.admin('account_move', null, 'create', { partner_id: partner, invoice_date: '2026-02-01', lines: [{ name: '수기', qty: 1, price_unit: 1000 }] })
+        await k.admin('account_move', inv.id, 'post', {})
+      }
+      await k.settle()
+      const end = await counts(k)
+      for (const type of HR_STREAMS) assert.equal(end[type], afterPeople[type], `business work wrote on ${type}`)
+      if (has('accounting')) {
+        const tb = (await k.db.asUser(k.adminId, 'select public.erp_trial_balance() r')).rows[0].r
+        const sum = (f) => tb.rows.reduce((a, r) => a + Number(r[f] ?? 0), 0)
+        assert.equal(sum('debit'), sum('credit'))
+        assert.ok(!(await k.db.query(`select 1 from erp.events e, jsonb_array_elements(e.data -> 'effects' -> 'gl') g where e.stream_type = any ($1)`, [HR_STREAMS])).rows.length, 'no entry in the books came from people')
+      }
+      assert.equal((await k.settle()).failing, 0)
+      assert.deepEqual(await k.verifyProjection(), [])
+      const models = (await k.db.asUser(k.adminId, 'select public.erp_models() r')).rows[0].r
+      assert.equal(models.find((m) => m.id === 'stat_headcount').state, 'ready')
+      assert.equal(models.find((m) => m.id === 'demand_sales').state, has('sales') ? 'insufficient' : 'locked', 'a sales model answers as it did')
       if (!has('inventory')) assert.equal(models.find((m) => m.id === 'demand_true').state, 'locked')
     } finally { await k.close() }
   })

@@ -110,7 +110,7 @@ export function visibleTransitions(doc: CatalogDoc, status: string | null | unde
 export function visibleExtraCommands(doc: CatalogDoc): (CommandDef & { command: string; label: string })[] {
   if (writeBlock.value) return []
   return Object.entries(doc.extra_commands ?? {})
-    .filter(([, def]) => !def.hidden && hasRole(def.roles ?? doc.write_roles))
+    .filter(([, def]) => !def.api_only && hasRole(def.roles ?? doc.write_roles))
     .map(([command, def]) => ({ ...def, command, label: def.label ?? command }))
 }
 

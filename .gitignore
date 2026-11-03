@@ -11,3 +11,4 @@ playwright-report/
 *.log
 dist-sql/
 e2e/shots/
+.claude/worktrees/

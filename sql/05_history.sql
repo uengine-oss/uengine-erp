@@ -195,6 +195,14 @@ begin
       end if;
     end if;
 
+    -- What a module keeps outside the ledger does not come back with the stream, so the module gets a say.
+    if doc ? 'revert_check_fn' then
+      execute format('select %s($1, $2)', doc ->> 'revert_check_fn') into lock_msg using r.stream_id, target;
+      if lock_msg is not null then
+        blocked := blocked || jsonb_build_object('id', r.stream_id, 'type', r.stream_type, 'name', r.name, 'reason', lock_msg);
+      end if;
+    end if;
+
     if doc ? 'external_events' then
       warnings := warnings || coalesce((
         select jsonb_agg(jsonb_build_object('id', r.stream_id, 'name', r.name, 'event', e.event_type,

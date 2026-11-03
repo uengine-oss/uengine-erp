@@ -28,7 +28,7 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | `ERP_TEST_PG` | SQL 시험이 쓸 Postgres. 기본값은 `postgres://postgres:postgres@127.0.0.1:56322/postgres` |
 | `SETUP_CODE` | HTTP 시험이 회사를 만들 때 쓰는 설치 코드 |
 
-브라우저 시험은 한 번에 하나만 돈다(`workers: 1`). 같은 스택을 쓰는 다른 작업이 있으면 돌리지 않는다.
+브라우저 시험은 한 번에 하나만 돈다(`workers: 1`). 브라우저 시험과 `reset-local`·`install-local` 은 postgres DB 를 초기화하고 :5301 을 쓰므로, 같은 스택을 여러 작업이 함께 쓰면 `lockf /tmp/uengine-erp-e2e.lock <명령>` 으로 감싼다. SQL 시험은 임시 DB 를 쓰므로 잠금이 필요 없다.
 
 ## 테스트 카탈로그
 
@@ -329,24 +329,47 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 무료 플랜의 한도를 보여 주고 원장을 내려받게 한다 | `ledger.spec.mjs` 3 | 브라우저 | ◐ |
 | 가상 회사로 시작할 수 있다 | `demo.spec.mjs` 5<br>`demo.test.mjs` 4 | SQL, 브라우저 | ✅ |
 
+### 13. 인사 (spec `erp-hr`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 인사는 꺼진 채 시작하고 다른 모듈 없이 동작한다 | `hr.test.mjs` 1<br>`hr.spec.mjs` 1<br>`isolation.test.mjs` 7 | SQL, 브라우저 | ✅ |
+| 직원과 부서는 hr 과 관리자만 쓰고, 이름과 부서는 모든 구성원이 읽는다 | `hr.test.mjs` 1<br>`hr.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 직원은 사번으로 구별되고 잘못된 값은 저장되지 않는다 | `hr.test.mjs` 2<br>`hr.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 상사는 순환할 수 없고 퇴사자일 수 없다 | `hr.test.mjs` 2<br>`hr.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 퇴사는 삭제가 아니라 상태 변경이다 | `hr.test.mjs` 4<br>`hr.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 구성원 하나는 재직 직원 하나에만 연결된다 | `hr.test.mjs` 1 | SQL | ✅ |
+| 부서 이름은 유일하고 사람이 있는 부서는 보관할 수 없다 | `hr.test.mjs` 1<br>`hr.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 이벤트는 구독자에게 필요한 사실을 싣고 그 밖은 싣지 않는다 | `hr.test.mjs` 2<br>`hr.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 어느 날의 인원은 입퇴사일로 세고 무엇을 알던 때인지도 고른다 | `hr.test.mjs` 6<br>`hr.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 인원 통계는 세 상태로 보인다 | `hr.test.mjs` 1<br>`hr.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 되돌리기는 인원에도 반영되고 원장 밖의 값은 돌아오지 않는다 | `hr.test.mjs` 2<br>`hr.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 나중에 켜고 꺼도 이력과 인원이 남는다 | `hr.test.mjs` 2<br>`hr.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 개인정보는 원장 밖에 두고 값은 어떤 이벤트에도 들어가지 않는다 | `hr.test.mjs` 5<br>`hr.spec.mjs` 1<br>`api.e2e.mjs` 1 | SQL, HTTP, 브라우저 | ✅ |
+| 주민등록번호는 받지 않는다 | `hr.test.mjs` 1<br>`hr.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 개인정보는 지울 수 있고 지운 값은 어디에도 남지 않는다 | `hr.test.mjs` 4<br>`hr.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 시간 여행과 연동의 어떤 길로도 개인정보가 나오지 않는다 | `hr.test.mjs` 3<br>`api.e2e.mjs` 1 | SQL, HTTP | ✅ |
+| REST 와 MCP 는 카탈로그에서 저절로 나온다 | `hr.test.mjs` 3<br>`api.e2e.mjs` 1 | SQL, HTTP | ✅ |
+| 가상 회사에 직원이 더해져도 다른 수치는 그대로다 | `hr.test.mjs` 3 | SQL | ✅ |
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
-| SQL | `test/*.test.mjs` (18개) | 597 |
-| HTTP | `test/*.e2e.mjs` (2개) | 13 |
-| 브라우저 | `e2e/tests/*.spec.mjs` (13개) | 130 |
-| 합계 | 33개 | 740 |
+| SQL | `test/*.test.mjs` (28개) | 768 |
+| HTTP | `test/*.e2e.mjs` (2개) | 15 |
+| 브라우저 | `e2e/tests/*.spec.mjs` (15개) | 179 |
+| 합계 | 45개 | 962 |
 
 | 단계 | 파일별 시험 수 |
 |---|---|
-| SQL | `accounting.test.mjs` 27 · `api.test.mjs` 11 · `bus.test.mjs` 18 · `concurrency.test.mjs` 11 · `core.test.mjs` 18 · `demo.test.mjs` 4 · `growth.test.mjs` 11 · `history.test.mjs` 21 · `inventory.test.mjs` 63 · `invoicing.test.mjs` 51 · `isolation.test.mjs` 39 · `master.test.mjs` 45 · `models.test.mjs` 36 · `plugin.test.mjs` 8 · `pricing.test.mjs` 145 · `purchase.test.mjs` 30 · `rebuild-gl.test.mjs` 8 · `sales.test.mjs` 51 |
-| HTTP | `api.e2e.mjs` 7 · `stack.e2e.mjs` 7 |
-| 브라우저 | `demo.spec.mjs` 5 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `integration.spec.mjs` 3 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `pages.spec.mjs` 4 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `whatif.spec.mjs` 15 |
+| SQL | `accounting.test.mjs` 27 · `api.test.mjs` 11 · `bus.test.mjs` 18 · `concurrency.test.mjs` 11 · `core.test.mjs` 18 · `demo.test.mjs` 4 · `growth.test.mjs` 11 · `history.test.mjs` 21 · `inventory.test.mjs` 63 · `hr.test.mjs` 42 · `invoicing.test.mjs` 51 · `isolation.test.mjs` 46 · `master.test.mjs` 45 · `models.test.mjs` 36 · `plugin.test.mjs` 8 · `pricing.test.mjs` 145 · `purchase.test.mjs` 30 · `rebuild-gl.test.mjs` 8 · `sales.test.mjs` 51 |
+| HTTP | `api.e2e.mjs` 8 · `stack.e2e.mjs` 7 |
+| 브라우저 | `demo.spec.mjs` 5 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `hr.spec.mjs` 13 · `integration.spec.mjs` 3 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `pages.spec.mjs` 4 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `whatif.spec.mjs` 15 |
 
-SQL 은 `node --test` 의 `tests 597`, 브라우저는 `npx playwright test --list` 의 `Total: 130 tests in 13 files` 로 세었다. HTTP 는 초기화한 스택이 있어야 돌므로 소스의 `test()` 를 세었다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 32개는 다섯 모듈의 조합마다 하나씩 생긴다.
+위 표의 합계는 실제로 돌려 센 값이다(SQL `tests 768`, 브라우저 `179 passed`, HTTP `api.e2e.mjs` 8, `stack.e2e.mjs` 7). 파일별 표는 인사를 더하면서 바뀐 파일만 고쳤고, 그 전에 더해진 파일은 아직 빠져 있어 합이 맞지 않는다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 32개는 다섯 모듈의 조합마다 하나씩 생기고, 인사를 더한 조합 5개가 따로 있다.
 
-openspec 명세 12개의 요구사항 212개: 덮음 183 · 일부 29 · 공백 0. 시나리오 633개: 덮음 603 · 일부 12 · 공백 18.
+openspec 명세 13개의 요구사항 230개: 덮음 201 · 일부 29 · 공백 0. 시나리오 673개: 덮음 643 · 일부 12 · 공백 18.
 
 ## 남은 공백
 

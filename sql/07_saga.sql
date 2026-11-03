@@ -44,16 +44,16 @@ begin
     if not coalesce(top, false) then
       -- A subscriber made this from an event; it hears the compensation the same way.
       follow := follow || jsonb_build_object('id', s -> 'id', 'type', s -> 'type', 'label', s -> 'label', 'name', s -> 'name');
-    elsif jsonb_array_length(blocked_here) > 0 then
-      if doc ? 'compensate' then
-        comp := comp || jsonb_build_object('id', s -> 'id', 'type', s -> 'type', 'label', s -> 'label', 'name', s -> 'name', 'seq', first_,
-          'command', doc -> 'compensate' -> 'command', 'params', coalesce(doc -> 'compensate' -> 'params', '{}'::jsonb), 'action', doc -> 'compensate' -> 'label');
-        if doc -> 'compensate' ? 'warning' then
-          warn := warn || jsonb_build_object('id', s -> 'id', 'name', s -> 'name', 'message', doc -> 'compensate' ->> 'warning');
-        end if;
-      else
-        hard := hard || blocked_here;
+    -- Once anything has to be offset, everything that can be offset is, or a goods receipt would stay behind
+    -- a cancelled bill. Without anything to offset, the whole saga simply reverts.
+    elsif doc ? 'compensate' and jsonb_array_length(plan -> 'blocked') > 0 then
+      comp := comp || jsonb_build_object('id', s -> 'id', 'type', s -> 'type', 'label', s -> 'label', 'name', s -> 'name', 'seq', first_,
+        'command', doc -> 'compensate' -> 'command', 'params', coalesce(doc -> 'compensate' -> 'params', '{}'::jsonb), 'action', doc -> 'compensate' -> 'label');
+      if doc -> 'compensate' ? 'warning' then
+        warn := warn || jsonb_build_object('id', s -> 'id', 'name', s -> 'name', 'message', doc -> 'compensate' ->> 'warning');
       end if;
+    elsif jsonb_array_length(blocked_here) > 0 then
+      hard := hard || blocked_here;
     else
       keep := keep || jsonb_build_object('id', s -> 'id', 'type', s -> 'type', 'label', s -> 'label', 'name', s -> 'name');
     end if;

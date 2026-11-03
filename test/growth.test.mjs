@@ -2,6 +2,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import crypto from 'node:crypto'
 import { company, rejects } from './lib/harness.mjs'
 
 let c, sales, stockman, buyer, clerk
@@ -32,7 +33,7 @@ after(async () => { await c.db.query(`select set_config('erp.clock', '', false)`
 test('S1. a new company starts with sales alone', async () => {
   const on = (await c.db.asUser(c.adminId, 'select public.erp_modules() r')).rows[0].r
   assert.deepEqual(on.filter((m) => m.enabled).map((m) => m.id), ['sales'])
-  assert.deepEqual(on.filter((m) => !m.enabled).map((m) => m.id).sort(), ['accounting', 'inventory', 'invoicing', 'krtax', 'purchase'])
+  assert.deepEqual(on.filter((m) => !m.enabled).map((m) => m.id).sort(), ['accounting', 'hr', 'inventory', 'invoicing', 'krtax', 'purchase'])
   const t = await types()
   for (const x of ['partner', 'product', 'pricelist', 'sales_order', 'quote_template']) assert.ok(t.includes(x), x)
   for (const x of ['picking', 'warehouse', 'purchase_order', 'account_move', 'account', 'journal_entry']) assert.ok(!t.includes(x), x)
@@ -274,6 +275,62 @@ test('S9. MCP: an agent undoes its own confirmed order across modules, and what 
   assert.equal(st.pending, false)
   assert.ok(st.net.length > 0, 'the work moved reservations or stock')
   assert.deepEqual(st.net.filter((n) => Number(n.amount) !== 0), [], 'after the undo everything nets to zero')
+})
+
+test('S18. compensating a saga with a receipt in it returns the goods for real, and refuses once they have shipped', async () => {
+  const k = await company({ modules: ['sales', 'inventory', 'purchase'] })
+  try {
+    const worker = await k.addMember('입고 에이전트', ['inventory', 'purchase'])
+    const call = async (name, args) => {
+      const r = (await k.db.asUser(worker.id, 'select public.erp_mcp($1) r', [JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })])).rows[0].r
+      return { isError: r.result?.isError ?? false, text: r.result?.content?.[0]?.text, json: r.result?.isError ? null : JSON.parse(r.result.content[0].text) }
+    }
+    const vendor = (await k.admin('partner', null, 'create', { name: '공급사' })).id
+    const p = await k.admin('product', null, 'create', { name: '모터', list_price: 1000, standard_price: 500 })
+    const variant = p.state.variants[0].id
+    const onHand = async () => Number((await k.db.query(`select coalesce(sum(q.qty), 0) n from erp.quants q join erp.records l on l.id = q.location_id where q.variant_id = $1 and l.state ->> 'usage' = 'internal'`, [variant])).rows[0].n)
+    const receive = async (saga, qty) => {
+      const po = await k.admin('purchase_order', null, 'create', { partner_id: vendor, lines: [{ variant_id: variant, qty, price_unit: 500 }] })
+      await k.admin('purchase_order', po.id, 'confirm', {})
+      await k.settle()
+      const pick = (await k.db.query(`select * from erp.records where type = 'picking' and not deleted and state ->> 'origin_id' = $1`, [po.id])).rows[0]
+      const v = await call('erp_update', { type: 'picking', id: pick.id, values: { state: 'done' }, saga_id: saga })
+      assert.equal(v.isError, false, v.text)
+      await k.settle()
+      return pick
+    }
+    // A posted payment on the way in stands for what forces compensation: a document that cannot simply revert.
+    await k.db.query(`select erp.catalog_put(jsonb_set(erp.catalog_of('picking'), '{revert_blocked_states}', '["done"]'))`)
+
+    const saga = crypto.randomUUID()
+    const pick = await receive(saga, 20)
+    assert.equal(await onHand(), 20)
+    const plan = (await call('erp_read', { rollback: { correlation_id: saga } })).json
+    assert.equal(plan.mode, 'compensate')
+    assert.deepEqual(plan.compensations.map((x) => [x.type, x.command]), [['picking', 'compensate']])
+    const done = await call('erp_create', { type: 'rollback', values: { correlation_id: saga, plan_hash: plan.hash }, reason: '입고 취소' })
+    assert.equal(done.isError, false, done.text)
+    await k.settle()
+    assert.equal(await onHand(), 0, 'the goods went back')
+    const back = (await k.db.query(`select * from erp.records where type = 'picking' and state ->> 'return_of' = $1`, [pick.id])).rows[0]
+    assert.equal(back.status, 'done'); assert.equal(back.state.picking_type, 'outgoing')
+    const net = (await call('erp_read', { saga })).json.net.filter((n) => n.kind === 'quant' && Number(n.amount) !== 0)
+    assert.deepEqual(net, [], 'stock nets to zero by location')
+
+    // The goods have left through someone else's work: giving them back is impossible, so nothing happens.
+    const saga2 = crypto.randomUUID()
+    await receive(saga2, 10)
+    const so = await k.admin('sales_order', null, 'create', { partner_id: vendor, lines: [{ variant_id: variant, qty: 10 }] })
+    await k.admin('sales_order', so.id, 'confirm', {})
+    await k.settle()
+    const out = (await k.db.query(`select * from erp.records where type = 'picking' and not deleted and state ->> 'origin_id' = $1`, [so.id])).rows[0]
+    await k.admin('picking', out.id, 'validate', {})
+    await k.settle()
+    assert.equal(await onHand(), 0)
+    const blocked = (await k.db.asUser(k.adminId, 'select public.erp_saga_plan($1) r', [saga2])).rows[0].r
+    assert.equal(blocked.mode, 'blocked', JSON.stringify(blocked.hard_blocked))
+    assert.match(blocked.hard_blocked[0].reason, /음수/)
+  } finally { await k.close() }
 })
 
 test('accounting turned on last gives the same books as accounting from the start, on the real modules', async () => {

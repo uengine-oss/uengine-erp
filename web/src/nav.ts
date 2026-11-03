@@ -269,6 +269,14 @@ export const NAV: NavModule[] = [
     ],
   },
   {
+    key: 'hr', label: '인사', icon: 'hr',
+    screens: [
+      { type: 'employee', readonlyIn: ['left'], formPanel: loader('EmployeePrivatePanel'), advanced: ['department_since'] },
+      { type: 'department' },
+      { label: '인원 현황', route: '/hr/headcount', needs: 'employee' },
+    ],
+  },
+  {
     key: 'master', label: '기초데이터', icon: 'master',
     screens: [
       { type: 'uom' }, { type: 'product_category' }, { type: 'tag' }, { type: 'tax' },

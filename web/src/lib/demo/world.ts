@@ -11,6 +11,16 @@ export const rng = (seed: number): Rng => {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
 }
+// Ids are fixed by name so a later step can name a document an earlier step made.
+export const hex = (s: string) => {
+  let h = 0x811c9dc5
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) }
+  return (h >>> 0).toString(16).padStart(8, '0')
+}
+export const uuid = (s: string) => {
+  const a = hex(s), b = hex(`${s}#1`), c = hex(`${s}#2`), d = hex(`${s}#3`)
+  return `${a}-${b.slice(0, 4)}-4${b.slice(5, 8)}-8${c.slice(1, 4)}-${c.slice(4)}${d}`
+}
 const normal = (r: Rng) => Math.sqrt(-2 * Math.log(1 - r())) * Math.cos(2 * Math.PI * r())
 const poisson = (r: Rng, l: number) => {
   if (l <= 0) return 0

@@ -1000,6 +1000,20 @@ begin
       perform erp.picking_validate(p_id, p);
     when 'cancel' then
       perform erp.picking_cancel(p_id);
+    when 'compensate' then
+      -- What a saga runs to take stock work back: goods that moved come back by a real return, done at once
+      -- because the people who undo this are not at the dock. Work not yet done is simply cancelled.
+      s := erp.require_state(p_id, 'picking');
+      if s ->> 'state' = 'done' then
+        select jsonb_agg(jsonb_build_object('id', m_ ->> 'id', 'qty', erp.num(m_ -> 'done'))) into rows_
+          from jsonb_array_elements(s -> 'moves') m_ where erp.num(m_ -> 'done') > 0;
+        new_id := gen_random_uuid();
+        perform erp.picking_make_return(new_id, jsonb_build_object('return_of', p_id, 'moves', coalesce(rows_, '[]'::jsonb), 'note', p ->> 'reason'));
+        perform erp.dispatch('picking', new_id, 'validate', '{}'::jsonb);
+        return new_id;
+      elsif s ->> 'state' <> 'cancelled' then
+        perform erp.picking_cancel(p_id);
+      end if;
     when 'delete' then
       s := erp.require_state(p_id, 'picking');
       if s ->> 'state' = 'done' then
@@ -2224,6 +2238,7 @@ end $$;
 select erp.catalog_put('{
   "type": "picking", "module": "inventory", "sort": 200, "label": "입출고 전표", "label_en": "Transfer",
   "external_events": ["PickingValidated"],
+  "compensate": {"command": "compensate", "label": "반품 처리"},
   "fields": [
     {"name": "number", "label": "번호", "type": "text", "readonly": true, "list": true, "search": true},
     {"name": "picking_type", "label": "유형", "type": "enum", "required": true, "default": "internal", "list": true,
@@ -2274,7 +2289,7 @@ select erp.catalog_put('{
     {"command": "unreserve", "to": "confirmed", "from": ["ready"], "label": "예약 해제", "roles": ["inventory"]},
     {"command": "cancel", "to": "cancelled", "from": ["draft", "confirmed", "ready", "waiting"], "label": "취소", "roles": ["inventory"], "danger": true}
   ],
-  "commands": {"create": {"roles": ["inventory"]}, "update": {"roles": ["inventory"]}, "delete": {"roles": ["inventory"]}},
+  "commands": {"create": {"roles": ["inventory"]}, "update": {"roles": ["inventory"]}, "delete": {"roles": ["inventory"]}, "compensate": {"roles": ["inventory"]}},
   "write_roles": ["inventory"]
 }'::jsonb);
 
