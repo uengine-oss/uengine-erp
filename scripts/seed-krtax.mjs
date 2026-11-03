@@ -12,7 +12,8 @@ export const SEED_VOUCHERS = [
   { key: 'K-P-3', move_type: 'in_invoice', evidence_type: 'credit_card', party: 'station', amount: 70000, month: 2, day: 20, payment_way: 'card', card_kind: 'business' },
 ]
 
-// `run(type, id, command, payload)` is whatever sends a command. Running it twice adds nothing: the approval numbers are taken.
+// `run(type, id, command, payload)` is whatever sends a command. Meant to be run once for a period: a second run stops at
+// the first approval number already taken, so it adds no vouchers, though it leaves three more contacts behind.
 export async function seedKrtax(run, { year, term = 1, expenseAccountId } = {}) {
   const parties = {}
   for (const [k, name, tax_id] of [['buyer', '시연 거래처', '555-11-22222'], ['vendor', '시연 공급사', '555-33-44444'], ['station', '시연 주유소', '555-55-66666']]) {
@@ -32,7 +33,8 @@ export async function seedKrtax(run, { year, term = 1, expenseAccountId } = {}) 
     try {
       made.push((await run('account_move', null, 'create', payload)).id)
     } catch (e) {
-      if (!String(e.message).includes('ERP_DUPLICATE_VOUCHER')) throw e
+      if (String(e.message).includes('ERP_DUPLICATE_VOUCHER')) break
+      throw e
     }
   }
   return made

@@ -487,6 +487,7 @@ test('the optional seed adds what it says it adds, once, and only when someone r
     assert.deepEqual(cell(r, '53'), { amount: 50000, tax: 5000 })
     assert.equal(Number(r.totals.na), 107000); assert.equal(Number(r.totals.da), 193000)
     assert.equal(r.exceptions.missing_tax_id.length, 0)
+    assert.equal((await seedKrtax(run, { year: 2026, term: 1, expenseAccountId: expense2 })).length, 0, 'a second run adds no voucher')
   } finally { await k.close() }
 })
 

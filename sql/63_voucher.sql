@@ -10,7 +10,7 @@ language sql immutable as $$ select split_part(p_move_type, '_', 1) $$;
 
 -- A tax's cell comes from what it says about itself. A tax from before that field existed is known by its seeded name,
 -- and a rate above zero is taxable. A zero rate nobody classified stays unknown rather than guessed.
-create or replace function erp.vch_vat_class(p_tax_id text, p_amount_rate numeric default null) returns text
+create or replace function erp.vch_vat_class(p_tax_id text) returns text
 language plpgsql stable as $$
 declare s jsonb;
 begin
