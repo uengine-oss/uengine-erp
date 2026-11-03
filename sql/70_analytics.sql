@@ -569,6 +569,54 @@ begin
       from m where m.first_ <= today);
 end $$;
 
+-- What each month earned cost, from the ledger alone (M8), so this still answers once the module is off. A register that was taken back
+-- is cancelled by its reversal in the same month, and one undone before anything followed is simply not among the events.
+create or replace function public.erp_payroll_monthly(p_as_of timestamptz)
+returns table(period text, cost numeric, people numeric)
+language sql stable set search_path = public, pg_temp as $$
+  select e.data ->> 'period_month', sum((e.data ->> 'gross_total')::numeric),
+         sum((select coalesce(sum((b ->> 'people_delta')::numeric), 0) from jsonb_array_elements(e.data -> 'by_income') b))
+    from public.erp_events e
+   where e.event_type = 'PayrollPosted' and e.occurred_at <= p_as_of and not e.correlation_id = any (public.erp_undone(p_as_of))
+   group by 1
+$$;
+
+-- Labour cost ahead and what a change of headcount might do to it. From cost per head in the months on record, at most the last twelve:
+-- the middle and the 10th to 90th percentile. Employer contributions are not in the ledger, so they are not here either, and the answer says so.
+create or replace function public.erp_payroll_outlook(p_delta int default 0, p_months int default 3, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  asof timestamptz := coalesce(p_as_of, now());
+  m jsonb := (select x from jsonb_array_elements(public.erp_models(asof)) x where x ->> 'id' = 'payroll_cost');
+  rows_ jsonb;
+  heads numeric;
+  mid numeric; lo numeric; hi numeric;
+  last_period text;
+  ahead int := least(greatest(coalesce(p_months, 3), 1), 12);
+  delta int := coalesce(p_delta, 0);
+begin
+  if coalesce((m ->> 'forbidden')::boolean, false) then raise exception 'ERP_FORBIDDEN: 인사 또는 급여 권한이 필요합니다'; end if;
+  with months as (select * from public.erp_payroll_monthly(asof) where cost <> 0 order by period desc limit 12)
+  select coalesce(jsonb_agg(jsonb_build_object('period', x.period, 'cost', x.cost, 'people', x.people) order by x.period), '[]'::jsonb),
+         percentile_cont(0.5) within group (order by x.cost / nullif(x.people, 0)),
+         percentile_cont(0.1) within group (order by x.cost / nullif(x.people, 0)),
+         percentile_cont(0.9) within group (order by x.cost / nullif(x.people, 0)),
+         max(x.period)
+    into rows_, mid, lo, hi, last_period
+    from months x;
+  select x.people into heads from public.erp_payroll_monthly(asof) x where x.cost <> 0 order by x.period desc limit 1;
+  return jsonb_build_object('state', m ->> 'state', 'evidence', m -> 'evidence', 'missing_modules', m -> 'missing_modules', 'stale_modules', m -> 'stale_modules', 'months', rows_,
+    'note', '근로자 지급 합계 기준입니다. 사업주 부담 4대보험은 원장에 없어 들어 있지 않습니다.',
+    'per_head', case when mid is null then null else jsonb_build_object('mid', round(mid), 'low', round(lo), 'high', round(hi)) end,
+    'heads', heads,
+    'outlook', case when m ->> 'state' = 'ready' and last_period is not null then (
+      select jsonb_agg(jsonb_build_object('period', to_char((last_period || '-01')::date + (i || ' month')::interval, 'YYYY-MM'), 'estimate', round(mid * heads), 'low', round(lo * heads), 'high', round(hi * heads)) order by i)
+        from generate_series(1, ahead) i) end,
+    'range', case when m ->> 'state' = 'insufficient' and mid is not null then jsonb_build_object('low', round(lo * heads), 'high', round(hi * heads)) end,
+    'whatif', case when m ->> 'state' = 'ready' and mid is not null then jsonb_build_object('delta', delta, 'estimate', round(mid * delta), 'low', round(least(lo * delta, hi * delta)), 'high', round(greatest(lo * delta, hi * delta)),
+      'message', case when delta = 0 then '인원을 바꾸지 않으면 변화가 없습니다' else format('인원 %s명이면 한 달 인건비가 이 범위로 달라집니다. 사람별 급여가 아니라 한 사람당 평균으로 잰 값입니다', delta) end) end);
+end $$;
+
 -- Every model and its state. Thresholds come from experiments/whatif/results-thresholds.json and match web/src/lib/forecast/thresholds.ts.
 -- Modules on and off, and what counts as evidence, are all read from the ledger, using its indexes.
 create or replace function public.erp_models(p_as_of timestamptz default null) returns jsonb
@@ -578,7 +626,7 @@ declare
   asof timestamptz := coalesce(p_as_of, now());
   today date := ((asof at time zone tz) + interval '1 second')::date;
   spans jsonb := public.erp_module_spans(asof);
-  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계","hr":"인사"}';
+  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계","hr":"인사","payroll":"급여"}';
   readable text[] := erp.readable_types();
   m record;
   missing text[];
@@ -597,6 +645,7 @@ declare
   term_changes int;
   gl_months int; gl_first date;
   first_hire date; people_months int := 0;
+  pay_months int; pay_first date;
   span jsonb;
   a date; b date;
 begin
@@ -641,6 +690,9 @@ begin
     people_months := extract(year from age(today, first_hire))::int * 12 + extract(month from age(today, first_hire))::int;
   end if;
 
+  -- Months with a confirmed register, by the month earned. A register taken back leaves its month empty again.
+  select count(*), min((p.period || '-01')::date) into pay_months, pay_first from public.erp_payroll_monthly(asof) p where p.cost <> 0;
+
   -- The drop what-if asks for stockouts. Counted only when stock history exists, because this one walks every stock change.
   stock_out_cases := 0;
   if stock_days > 0 then
@@ -663,7 +715,9 @@ begin
       ('cash_in', 'forecast', '입금 예측', array['invoicing'], true, array['account_move']),
       ('whatif_terms', 'whatif', '결제 조건 변경', array['invoicing'], true, array['account_move']),
       ('pnl_outlook', 'forecast', '손익 전망', array['sales', 'accounting'], false, array['sales_order', 'journal_entry']),
-      ('stat_headcount', 'stat', '인원 추이·입퇴사', array['hr'], false, array['employee'])
+      ('stat_headcount', 'stat', '인원 추이·입퇴사', array['hr'], false, array['employee']),
+      ('payroll_cost', 'forecast', '인건비 전망', array['payroll'], false, array['payroll_run']),
+      ('whatif_headcount', 'whatif', '인원 증감 시 인건비', array['payroll'], false, array['payroll_run'])
     ) as t(id, kind, label, modules, needs_current, types)
   loop
     missing := '{}'; stale := '{}';
@@ -697,6 +751,7 @@ begin
         extra := jsonb_build_object('term_changes', term_changes, 'term_changes_need', 3);
       when 'pnl_outlook' then have := gl_months; need := 3; unit_ := '개월'; since_ := gl_first; msg := '전표';
       when 'stat_headcount' then have := people_months; need := 3; unit_ := '개월'; since_ := first_hire; msg := '인사 이력';
+      when 'payroll_cost', 'whatif_headcount' then have := pay_months; need := 3; unit_ := '개월'; since_ := pay_first; msg := '확정한 급여 대장';
     end case;
 
     ok := have >= need;

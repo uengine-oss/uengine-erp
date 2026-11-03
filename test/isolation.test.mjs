@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { company, rejects } from './lib/harness.mjs'
 
-const FILES = { sales: '30_sales.sql', inventory: '40_inventory.sql', purchase: '50_purchase.sql', invoicing: ['60_invoicing.sql', '62_bank.sql'], accounting: '65_accounting.sql', hr: '67_hr.sql', analytics: '70_analytics.sql' }
+const FILES = { sales: '30_sales.sql', inventory: '40_inventory.sql', purchase: '50_purchase.sql', invoicing: ['60_invoicing.sql', '62_bank.sql'], accounting: '65_accounting.sql', hr: '67_hr.sql', payroll: '67c_payroll.sql', analytics: '70_analytics.sql' }
 const read = (f) => { try { return fs.readFileSync(new URL(`../sql/${f}`, import.meta.url), 'utf8') } catch { return null } }
 const stripComments = (s) => s.replace(/--.*$/gm, '')
 
@@ -41,7 +41,7 @@ for (const m of mods) {
 test('analysis reads the ledger, not any module table', () => {
   const a = mods.find((m) => m.id === 'analytics')
   if (!a) return
-  for (const t of ['erp.quants', 'erp.gl_lines', 'erp.employee_private', 'public.erp_employee_private']) assert.ok(!a.src.includes(t), t)
+  for (const t of ['erp.quants', 'erp.gl_lines', 'erp.employee_private', 'public.erp_employee_private', 'erp.payroll_slips', 'erp.payroll_profile', 'erp.payroll_people', 'public.erp_payroll_slips', 'public.erp_payroll_profiles']) assert.ok(!a.src.includes(t), t)
 })
 
 test('nobody else reads or writes the private table, and its module neither hears nor needs anyone', () => {
@@ -50,6 +50,17 @@ test('nobody else reads or writes the private table, and its module neither hear
   }
   const hr = mods.find((m) => m.id === 'hr')
   assert.match(hr.src, /"subscribes": \[\]/)
+})
+
+test('what one person earns stays inside payroll: no other module names its tables, and it hears only events', () => {
+  for (const m of mods) {
+    if (m.id === 'payroll') continue
+    assert.ok(!/payroll_slips|payroll_profile|payroll_people|payroll_attendance/.test(m.src), `${m.id} mentions a payroll table`)
+  }
+  const p = mods.find((m) => m.id === 'payroll')
+  assert.ok(!/employee_private/.test(p.src), 'payroll does not read the private details of people')
+  assert.ok(!/gl_lines|journal_entry/.test(p.src), 'payroll does not write the books')
+  assert.match(p.src, /"requires": \["hr"\]/)
 })
 
 // Every combination of modules must run the work it has, with nothing stuck. 32 companies, each small.
@@ -113,6 +124,7 @@ for (const on of subsets) {
       // The analysis screen must answer for any company, locked or not.
       const models = (await k.db.asUser(k.adminId, 'select public.erp_models() r')).rows[0].r
       assert.ok(models.length >= 14)
+      assert.equal(models.find((m) => m.id === 'payroll_cost').state, 'locked', 'without payroll the labour model is locked')
       for (const m of models) assert.ok(['locked', 'insufficient', 'ready'].includes(m.state), JSON.stringify(m))
       if (!has('sales')) assert.equal(models.find((m) => m.id === 'demand_sales').state, 'locked')
       if (!has('inventory')) assert.equal(models.find((m) => m.id === 'demand_true').state, 'locked')
@@ -173,6 +185,58 @@ for (const on of [['hr'], ['hr', 'sales'], ['hr', 'sales', 'inventory', 'purchas
       assert.equal(models.find((m) => m.id === 'stat_headcount').state, 'ready')
       assert.equal(models.find((m) => m.id === 'demand_sales').state, has('sales') ? 'insufficient' : 'locked', 'a sales model answers as it did')
       if (!has('inventory')) assert.equal(models.find((m) => m.id === 'demand_true').state, 'locked')
+    } finally { await k.close() }
+  })
+}
+
+// Payroll beside other work. Neither side writes on the other's streams, and only accounting hears payroll.
+const PAYROLL_STREAMS = ['payroll_run', 'pay_item', 'payroll_rates', 'payroll_tax_table', 'payroll_bank_format', 'withholding_filing', 'payroll_profile', 'payroll_audit']
+for (const on of [['hr', 'payroll'], ['hr', 'payroll', 'sales'], ['hr', 'payroll', 'sales', 'inventory', 'purchase'], ['hr', 'payroll', 'invoicing', 'accounting'], ['hr', 'payroll', ...ALL]]) {
+  const has = (m) => on.includes(m)
+  test(`payroll beside [${on.filter((m) => !['hr', 'payroll'].includes(m)).join(', ') || 'only people'}]: neither side's work touches the other`, async () => {
+    const k = await company({ modules: on })
+    try {
+      const d = await k.admin('department', null, 'create', { name: '영업' })
+      const e = await k.admin('employee', null, 'create', { name: '직원', hire_date: '2024-02-01', department_id: d.id })
+      await k.settle()
+      const start = await counts(k)
+      const item = await k.admin('pay_item', null, 'create', { name: '기본급', kind: 'earning' })
+      await k.admin('payroll_profile', null, 'set', { employee_id: e.id, no_pension: true, no_health: true, no_employment: true, income_code: 'A03', pay: { [item.id]: 1000000 } })
+      const run = await k.admin('payroll_run', null, 'create', { period_month: '2026-07', pay_date: '2026-07-25' })
+      await k.admin('payroll_run', run.id, 'set_slip', { employee_id: e.id, income_tax: 1000 })
+      await k.admin('payroll_run', run.id, 'post', {})
+      await k.admin('payroll_run', run.id, 'pay', { paid_date: '2026-07-25' })
+      await k.admin('withholding_filing', null, 'create', { pay_month: '2026-07' })
+      await k.settle()
+      const afterPay = await counts(k)
+      const allowed = new Set([...PAYROLL_STREAMS, ...(has('accounting') ? ['journal_entry'] : [])])
+      for (const [type, n] of Object.entries(afterPay)) if (!allowed.has(type)) assert.equal(n, start[type], `payroll's work wrote on ${type}`)
+      if (has('accounting')) {
+        const tb = (await k.db.asUser(k.adminId, 'select public.erp_trial_balance() r')).rows[0].r
+        assert.equal(tb.rows.reduce((a, r) => a + Number(r.debit ?? 0), 0), tb.rows.reduce((a, r) => a + Number(r.credit ?? 0), 0))
+        assert.ok(tb.rows.some((r) => r.name === '급여'))
+      }
+
+      const partner = (await k.admin('partner', null, 'create', { name: '거래처' })).id
+      const p = await k.admin('product', null, 'create', { name: '제품', list_price: 1000, standard_price: 600 })
+      const v = p.state.variants[0].id
+      if (has('inventory')) await k.admin('stock_adjustment', null, 'create', { variant_id: v, counted_qty: 20, apply: true })
+      if (has('sales')) {
+        const o = await k.admin('sales_order', null, 'create', { partner_id: partner, lines: [{ variant_id: v, qty: 3 }] })
+        await k.admin('sales_order', o.id, 'confirm', {})
+      }
+      if (has('invoicing')) {
+        const inv = await k.admin('account_move', null, 'create', { partner_id: partner, invoice_date: '2026-02-01', lines: [{ name: '수기', qty: 1, price_unit: 1000 }] })
+        await k.admin('account_move', inv.id, 'post', {})
+      }
+      await k.settle()
+      const end = await counts(k)
+      for (const type of PAYROLL_STREAMS) assert.equal(end[type], afterPay[type], `business work wrote on ${type}`)
+      assert.equal((await k.settle()).failing, 0)
+      assert.deepEqual(await k.verifyProjection(), [])
+      const models = (await k.db.asUser(k.adminId, 'select public.erp_models() r')).rows[0].r
+      assert.equal(models.find((m) => m.id === 'payroll_cost').state, 'insufficient')
+      assert.equal(models.find((m) => m.id === 'demand_sales').state, has('sales') ? 'insufficient' : 'locked', 'a sales model answers as it did')
     } finally { await k.close() }
   })
 }
