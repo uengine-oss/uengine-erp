@@ -142,6 +142,53 @@ test('MCP over HTTP with a long-lived key and no login at all', async () => {
   await assert.rejects(mcpClient({ Authorization: `Bearer ${KEY}`, 'x-erp-key': k.json.key }), /401|ERP_AUTH/)
 })
 
+test('MCP over HTTP: an agent undoes its own mistake with the official SDK and a key, across modules', async () => {
+  const key = async (name, roles) => {
+    const m = await rpc('erp_command', { p_type: 'member', p_id: null, p_command: 'create', p_payload: { name, email: `${name}-${stamp}@example.com`, password: PASS, roles } })
+    assert.equal(m.status, 200, JSON.stringify(m.json))
+    const rec = m.json.id
+    return (await rpc('erp_api_key_create', { p_member_id: rec, p_label: name })).json.key
+  }
+  const agent = await mcpClient({ Authorization: `Bearer ${KEY}`, 'x-erp-key': await key('undo-agent', ['sales']) })
+  const call = async (name, args, c = agent) => JSON.parse(text(await c.callTool({ name, arguments: args })))
+  const partner = await call('erp_create', { type: 'partner', values: { name: `되돌리기 거래처 ${stamp}` } })
+  const product = await rpc('erp_command', { p_type: 'product', p_id: null, p_command: 'create', p_payload: { name: `되돌리기 제품 ${stamp}`, list_price: 1000, standard_price: 600 } })
+  assert.equal(product.status, 200, JSON.stringify(product.json))
+  const order = await call('erp_create', { type: 'sales_order', values: { partner_id: partner.id, lines: [{ variant_id: product.json.state.variants[0].id, qty: 500 }] } })
+  await call('erp_update', { type: 'sales_order', id: order.id, values: { state: 'sale' } })
+
+  // The bus runs on pg_cron; nobody is connected and the agent only waits for the picking to appear.
+  const picking = () => db.query(`select id from erp.records where type = 'picking' and not deleted and state ->> 'origin_id' = $1`, [order.id])
+  await waitFor(async () => (await picking()).rows.length === 1, 'the picking from the order event', 30000)
+
+  const hist = await call('erp_read', { id: order.id, history: true })
+  const corr = hist.at(-1).correlation_id
+  const plan = await call('erp_read', { rollback: { correlation_id: corr } })
+  assert.deepEqual(plan.blocked, [])
+  assert.ok(plan.streams.some((s) => s.type === 'picking'), 'the preview names the other module')
+
+  const stale = await agent.callTool({ name: 'erp_create', arguments: { type: 'rollback', values: { correlation_id: corr, plan_hash: 'old' }, reason: '수량 오입력' } })
+  assert.equal(stale.isError, true); assert.match(text(stale), /ERP_CONFLICT/)
+  const done = await call('erp_create', { type: 'rollback', values: { correlation_id: corr, plan_hash: plan.hash }, reason: '수량 오입력: 50을 500으로 넣음' })
+  assert.ok(done.correlation_id)
+
+  await waitFor(async () => (await picking()).rows.length === 0, 'the picking went back with the order', 30000)
+  const after_ = await call('erp_read', { type: 'sales_order', id: order.id })
+  assert.equal(after_.status, 'draft')
+  const log = await call('erp_read', { id: order.id, history: true })
+  assert.deepEqual(log.slice(0, hist.length).map((e) => e.event), hist.map((e) => e.event), 'the mistake stays in the ledger')
+  assert.equal(log.at(-1).event, 'Reverted'); assert.equal(log.at(-1).source, 'rollback')
+  assert.equal(log.at(-1).actor, 'undo-agent'); assert.match(log.at(-1).reason, /수량 오입력/)
+  console.log(JSON.stringify({ streams: plan.streams.map((s) => ({ type: s.type, from: s.from_status, to: s.to_status })), last: log.at(-1) }))
+
+  // A second agent with the same rights cannot undo the first one's work.
+  const other = await mcpClient({ Authorization: `Bearer ${KEY}`, 'x-erp-key': await key('other-agent', ['sales']) })
+  const made = await call('erp_create', { type: 'partner', values: { name: `남의 거래처 ${stamp}` } })
+  const c2 = (await call('erp_read', { id: made.id, history: true })).at(-1).correlation_id
+  const refused = await other.callTool({ name: 'erp_read', arguments: { rollback: { correlation_id: c2 } } })
+  assert.equal(refused.isError, true); assert.match(text(refused), /ERP_FORBIDDEN/)
+})
+
 test('a plugin installed on the real stack is driven by pg_cron with nobody connected', async () => {
   const cron = await db.query(`select jobname, active from cron.job where jobname = 'erp-bus'`)
   assert.equal(cron.rows.length, 1, 'the installer scheduled the worker')

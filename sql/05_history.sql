@@ -234,10 +234,27 @@ begin
     'hash', md5(streams::text || blocked::text));
 end $$;
 
+-- An admin may undo anything. An agent may undo its own MCP work, so it can correct itself without
+-- anyone's rights growing: everything in scope is its own, nobody has built on it. Work done by hand
+-- still needs an admin, whoever did it.
+create or replace function erp.may_rollback(p_kind text, p_target jsonb) returns boolean
+language plpgsql stable as $$
+declare
+  me uuid := erp.current_actor();
+  scope uuid[];
+begin
+  if erp.has_role(array['admin']) then return true; end if;
+  if p_kind <> 'correlation' or me is null then return false; end if;
+  scope := erp.rollback_closure(erp.rollback_seed(p_kind, p_target));
+  return exists (select 1 from erp.events e where e.correlation_id = any (scope) and e.source = 'mcp')
+     and not exists (select 1 from erp.events e where e.correlation_id = any (scope)
+                      and (e.actor_id is distinct from me or not (e.source = 'mcp' or e.source like 'bus:%')));
+end $$;
+
 create or replace function public.erp_rollback_preview(p_kind text, p_target jsonb) returns jsonb
 language plpgsql stable security definer set search_path = erp, pg_temp as $$
 begin
-  if not erp.has_role(array['admin']) then perform erp.fail('ERP_FORBIDDEN', '관리자만 되돌릴 수 있습니다'); end if;
+  if not erp.may_rollback(p_kind, p_target) then perform erp.fail('ERP_FORBIDDEN', '되돌릴 권한이 없습니다. 관리자이거나, 에이전트가 MCP로 직접 한 일이고 그 위에 다른 작업이 없어야 합니다'); end if;
   return erp.rollback_plan(p_kind, p_target);
 end $$;
 
@@ -252,7 +269,7 @@ declare
   set_ jsonb;
   unset_ jsonb;
 begin
-  if not erp.has_role(array['admin']) then perform erp.fail('ERP_FORBIDDEN', '관리자만 되돌릴 수 있습니다'); end if;
+  if not erp.may_rollback(p_kind, p_target) then perform erp.fail('ERP_FORBIDDEN', '되돌릴 권한이 없습니다. 관리자이거나, 에이전트가 MCP로 직접 한 일이고 그 위에 다른 작업이 없어야 합니다'); end if;
   if coalesce(p_reason, '') = '' then perform erp.fail('ERP_REQUIRED', '되돌리는 사유는 필수입니다'); end if;
 
   -- Stops other writers on these streams, then re-plans so the check and the undo see the same world.

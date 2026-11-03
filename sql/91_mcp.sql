@@ -2,6 +2,8 @@
 -- MCP without a server process: PostgREST carries the JSON-RPC, this function answers it.
 --   POST /rest/v1/rpc/erp_mcp. Four tools, whatever the company has turned on; aggregates are resources.
 --   Business actions are CRUD: a state change is an update, a document made from another is a create.
+--   Undoing is CRUD too: reading a rollback previews its scope, creating one carries it out. An agent's
+--   mistake gets corrected through the same four tools, and the ledger keeps the mistake and the correction.
 --   Agents authenticate with a member's JWT, or with a long-lived key sent as x-erp-key because a
 --   login token expires in an hour. Either way the member's roles apply and the ledger names them.
 ------------------------------------------------------------------------------------------------
@@ -75,15 +77,15 @@ language sql stable as $$
               where not coalesce((d ->> 'hidden')::boolean, false))
   select jsonb_build_object('tools', jsonb_build_array(
     jsonb_build_object('name', 'erp_read',
-      'description', 'ERP 조회. 인자 없음=유형 목록. type=목록(filter 는 필드 일치, search 는 이름 검색). type+id=한 건. type+schema=필드와 가능한 상태 변경. id+history=이벤트 이력. as_of(ISO 시각)=그 시점의 값.',
+      'description', 'ERP 조회. 인자 없음=유형 목록. type=목록(filter 는 필드 일치, search 는 이름 검색). type+id=한 건. type+schema=필드와 가능한 상태 변경. id+history=이벤트 이력과 correlation_id. as_of(ISO 시각)=그 시점의 값. rollback={correlation_id}=되돌리기 범위와 plan_hash 미리보기.',
       'inputSchema', jsonb_build_object('type', 'object', 'properties', jsonb_build_object(
         'type', jsonb_build_object('type', 'string', 'enum', t.e), 'id', '{"type":"string"}'::jsonb, 'schema', '{"type":"boolean"}'::jsonb,
         'history', '{"type":"boolean"}'::jsonb, 'filter', '{"type":"object"}'::jsonb, 'search', '{"type":"string"}'::jsonb,
-        'as_of', '{"type":"string"}'::jsonb, 'limit', '{"type":"integer"}'::jsonb, 'offset', '{"type":"integer"}'::jsonb))),
+        'as_of', '{"type":"string"}'::jsonb, 'rollback', '{"type":"object"}'::jsonb, 'limit', '{"type":"integer"}'::jsonb, 'offset', '{"type":"integer"}'::jsonb))),
     jsonb_build_object('name', 'erp_create',
-      'description', 'ERP 레코드 생성. 필드는 erp_read 의 schema 로 확인한다.',
+      'description', 'ERP 레코드 생성. 필드는 erp_read 의 schema 로 확인한다. type=rollback 은 되돌리기 실행: values={correlation_id, plan_hash, allow_cascade}, reason 필수.',
       'inputSchema', jsonb_build_object('type', 'object', 'required', '["type","values"]'::jsonb, 'properties', jsonb_build_object(
-        'type', jsonb_build_object('type', 'string', 'enum', t.e), 'values', '{"type":"object"}'::jsonb,
+        'type', jsonb_build_object('type', 'string', 'enum', t.e || '["rollback"]'::jsonb), 'values', '{"type":"object"}'::jsonb,
         'reason', '{"type":"string"}'::jsonb, 'idempotency_key', '{"type":"string"}'::jsonb))),
     jsonb_build_object('name', 'erp_update',
       'description', 'ERP 레코드 수정. 바꿀 필드만 넣는다. 확정 같은 업무 동작은 values.state 를 다음 상태로 바꾼다. 그 밖의 동작은 action 에 schema 의 extra_commands 이름을 넣는다.',
@@ -110,10 +112,13 @@ declare
   readable text[] := erp.readable_types();
   out_ jsonb;
 begin
+  if a ? 'rollback' then
+    return public.erp_rollback_preview(coalesce(a -> 'rollback' ->> 'kind', 'correlation'), (a -> 'rollback') - 'kind');
+  end if;
   if i is not null and not coalesce((a ->> 'schema')::boolean, false) then perform erp.require_readable(i); end if;
   if t is not null and not t = any (readable) then perform erp.fail('ERP_FORBIDDEN', format('%s 를 볼 권한이 없습니다', t)); end if;
   if coalesce((a ->> 'history')::boolean, false) then
-    select coalesce(jsonb_agg(jsonb_build_object('seq', seq, 'version', version, 'event', event_type, 'source', source, 'actor', actor_name, 'reason', reason, 'at', occurred_at) order by seq), '[]'::jsonb)
+    select coalesce(jsonb_agg(jsonb_build_object('seq', seq, 'version', version, 'event', event_type, 'source', source, 'actor', actor_name, 'reason', reason, 'at', occurred_at, 'correlation_id', correlation_id) order by seq), '[]'::jsonb)
       into out_ from erp.events where stream_id = i;
   elsif t is null then
     select jsonb_agg(jsonb_build_object('type', d ->> 'type', 'label', d ->> 'label', 'module', d ->> 'module'))
@@ -150,7 +155,13 @@ declare
 begin
   case p_name
     when 'erp_read' then out_ := erp.mcp_read(a);
-    when 'erp_create' then out_ := public.erp_command(t, null, 'create', coalesce(a -> 'values', '{}'::jsonb), null, a ->> 'reason', 'mcp', null, a ->> 'idempotency_key');
+    when 'erp_create' then
+      if t = 'rollback' then
+        out_ := public.erp_rollback_apply(coalesce(a -> 'values' ->> 'kind', 'correlation'), (a -> 'values') - 'kind' - 'plan_hash' - 'allow_cascade',
+          a -> 'values' ->> 'plan_hash', coalesce((a -> 'values' ->> 'allow_cascade')::boolean, false), a ->> 'reason');
+      else
+        out_ := public.erp_command(t, null, 'create', coalesce(a -> 'values', '{}'::jsonb), null, a ->> 'reason', 'mcp', null, a ->> 'idempotency_key');
+      end if;
     when 'erp_update' then
       -- Actions that are not a state change, such as recalculating prices, are named by the schema's extra_commands.
       if a ? 'action' then
@@ -216,7 +227,7 @@ begin
         res := jsonb_build_object('protocolVersion', coalesce(p ->> 'protocolVersion', '2025-06-18'),
           'capabilities', '{"tools":{},"resources":{}}'::jsonb,
           'serverInfo', jsonb_build_object('name', 'uengine-erp', 'version', (select value #>> '{}' from erp.meta where key = 'schema_version')),
-          'instructions', '이벤트 소싱 ERP 입니다. 쓰기는 모두 원장에 남습니다. 먼저 erp_read 를 인자 없이 불러 유형을 확인하고, schema 로 필드를 확인하세요.');
+          'instructions', '이벤트 소싱 ERP 입니다. 쓰기는 모두 원장에 남습니다. 먼저 erp_read 를 인자 없이 불러 유형을 확인하고, schema 로 필드를 확인하세요. 잘못한 작업은 history 의 correlation_id 로 rollback 을 읽어 범위를 확인한 뒤 erp_create(type=rollback)로 되돌리세요. 원장에는 실수와 정정이 함께 남습니다.');
       when 'ping' then res := '{}'::jsonb;
       when 'tools/list' then res := erp.mcp_tools();
       when 'tools/call' then res := erp.mcp_call(p ->> 'name', coalesce(p -> 'arguments', '{}'::jsonb));

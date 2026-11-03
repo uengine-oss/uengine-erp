@@ -288,6 +288,7 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 |---|---|---|---|
 | 유형마다 REST 자원이 카탈로그에서 생긴다 | `api.test.mjs` 6<br>`api.e2e.mjs` 3 | SQL, HTTP | ✅ |
 | MCP 는 도구 4개로 켜진 모듈의 레코드를 다룬다 | `api.e2e.mjs` 1<br>`api.test.mjs` 3<br>`growth.test.mjs` 1 | SQL, HTTP | ✅ |
+| 에이전트의 실수를 같은 MCP 도구로 되돌린다 | `api.test.mjs` 4<br>`growth.test.mjs` 1<br>`api.e2e.mjs` 1 | SQL, HTTP | ✅ |
 | 연동 키로 로그인 없이 구성원 권한으로 동작한다 | `api.test.mjs` 2<br>`api.e2e.mjs` 1<br>`integration.spec.mjs` 3 | SQL, HTTP, 브라우저 | ✅ |
 | 외부 시스템은 이벤트 피드로 원장을 차례로 읽는다 | `bus.test.mjs` 1 | SQL | ◐ |
 
@@ -318,7 +319,7 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 단계 | 파일별 시험 수 |
 |---|---|
 | SQL | `accounting.test.mjs` 27 · `api.test.mjs` 11 · `bus.test.mjs` 18 · `concurrency.test.mjs` 11 · `core.test.mjs` 18 · `demo.test.mjs` 4 · `growth.test.mjs` 11 · `history.test.mjs` 21 · `inventory.test.mjs` 63 · `invoicing.test.mjs` 51 · `isolation.test.mjs` 39 · `master.test.mjs` 45 · `models.test.mjs` 36 · `plugin.test.mjs` 8 · `pricing.test.mjs` 145 · `purchase.test.mjs` 30 · `rebuild-gl.test.mjs` 8 · `sales.test.mjs` 51 |
-| HTTP | `api.e2e.mjs` 6 · `stack.e2e.mjs` 7 |
+| HTTP | `api.e2e.mjs` 7 · `stack.e2e.mjs` 7 |
 | 브라우저 | `demo.spec.mjs` 5 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `integration.spec.mjs` 3 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `pages.spec.mjs` 4 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `whatif.spec.mjs` 15 |
 
 SQL 은 `node --test` 의 `tests 597`, 브라우저는 `npx playwright test --list` 의 `Total: 130 tests in 13 files` 로 세었다. HTTP 는 초기화한 스택이 있어야 돌므로 소스의 `test()` 를 세었다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 32개는 다섯 모듈의 조합마다 하나씩 생긴다.

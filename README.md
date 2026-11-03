@@ -28,7 +28,7 @@
 ## 연동
 
 - **REST:** 유형마다 `/rest/v1/erp_api_<유형>` 이 자동으로 생깁니다. `If-Match` 와 `Idempotency-Key` 를 지원합니다.
-- **MCP:** `/rest/v1/rpc/erp_mcp` 입니다. 별도 서버 없이 도구 4개(`erp_read`, `erp_create`, `erp_update`, `erp_delete`)로 켜져 있는 모듈의 레코드를 다룹니다.
+- **MCP:** `/rest/v1/rpc/erp_mcp` 입니다. 별도 서버 없이 도구 4개(`erp_read`, `erp_create`, `erp_update`, `erp_delete`)로 켜져 있는 모듈의 레코드를 다룹니다. 에이전트가 MCP로 한 일은 같은 도구로 범위를 확인한 뒤 되돌릴 수 있습니다.
 - **이벤트:** `erp_event_feed` 로 원장을 순서대로 읽습니다.
 
 ## 한계

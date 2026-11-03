@@ -8,6 +8,11 @@
 
 uengine-erp 첫 공개판. 스펙은 `openspec/specs/erp-*`, 흐름은 `docs/scenario.md`, 시연은 https://www.uengine.org/contents/erp.html 에 있다.
 
+**에이전트의 실수 되돌리기**
+
+- 에이전트가 MCP로 한 일을 같은 도구로 되돌린다. `erp_read` 의 `rollback` 으로 다른 모듈까지 범위를 먼저 보고, `erp_create` 의 `type: rollback` 으로 사유와 함께 실행한다. 도구는 4개 그대로다.
+- 비관리자는 자기가 MCP로 한 일이고 그 위에 다른 작업이 없을 때만 되돌린다. 그 밖에는 관리자가 하고, 이어진 작업이 있으면 동의해야 한다. 공식 SDK와 연동 키로 실제 HTTP에서 확인했다(`test/api.e2e.mjs`).
+
 **설치와 보안**
 
 - 앱을 열고 Supabase 주소와 공개 키를 넣은 뒤, 화면이 주는 설치 SQL 을 실행하면 시작할 수 있다. 같은 SQL 을 다시 실행하면 데이터를 지우지 않고 업그레이드한다.

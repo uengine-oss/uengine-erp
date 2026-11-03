@@ -247,6 +247,31 @@ test('S9. MCP: an agent confirms an order with CRUD, and sees only modules that 
   assert.equal((await pickingsOf(made.json.id)).length, 1)
 })
 
+test('S9. MCP: an agent undoes its own confirmed order across modules, and what the subscribers made goes back with it', async () => {
+  const call = async (name, args, user = sales.id) => {
+    const r = (await c.db.asUser(user, 'select public.erp_mcp($1) r', [JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })])).rows[0].r
+    assert.ok(r.result, JSON.stringify(r))
+    return { isError: r.result.isError ?? false, text: r.result.content[0].text, json: r.result.isError ? null : JSON.parse(r.result.content[0].text) }
+  }
+  const made = await call('erp_create', { type: 'sales_order', values: { partner_id: customer, lines: [{ variant_id: fan.variant, qty: 7 }] } })
+  const conf = await call('erp_update', { type: 'sales_order', id: made.json.id, values: { state: 'sale' } })
+  assert.equal(conf.isError, false, conf.text)
+  await c.settle()
+  const pick = (await pickingsOf(made.json.id))[0]
+  assert.ok(pick, 'inventory made a picking from the event')
+
+  const corr = (await call('erp_read', { id: made.json.id, history: true })).json.at(-1).correlation_id
+  const plan = (await call('erp_read', { rollback: { correlation_id: corr } })).json
+  assert.equal(plan.blocked.length, 0, JSON.stringify(plan.blocked))
+  assert.ok(plan.streams.some((s) => s.type === 'picking'), 'the preview names the other module')
+  const done = await call('erp_create', { type: 'rollback', values: { correlation_id: corr, plan_hash: plan.hash }, reason: '수량 오입력' })
+  assert.equal(done.isError, false, done.text)
+  await c.settle()
+  assert.equal((await c.rec(made.json.id)).status, 'draft')
+  assert.equal((await pickingsOf(made.json.id)).length, 0, 'the picking went back with it')
+  assert.equal((await c.events(made.json.id)).at(-1).event_type, 'Reverted')
+})
+
 test('accounting turned on last gives the same books as accounting from the start, on the real modules', async () => {
   const run = async (lateBooks) => {
     const k = await company({ modules: lateBooks ? ['sales', 'inventory', 'purchase', 'invoicing'] : ['sales', 'inventory', 'purchase', 'invoicing', 'accounting'], clock: '2026-02-01T09:00:00+09:00' })

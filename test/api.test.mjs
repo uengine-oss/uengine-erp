@@ -200,3 +200,93 @@ test('MCP keys: a key does not get more than its member, and a removed member lo
   await c.admin('member', member, 'archive', {})
   await rejects(mcp({ id: 1, method: 'tools/list' }, opt), 'ERP_FORBIDDEN')
 })
+
+// What the announcement promises: an agent's mistake made over MCP can be undone, by the agent while it is
+// only its own work, and by an admin once others have built on it. The ledger keeps both.
+const corrOf = async (id, opt) => (await call('erp_read', { id, history: true }, opt)).json.at(-1).correlation_id
+const undoOver = async (corr, reason, opt, cascade = false) => {
+  const plan = await call('erp_read', { rollback: { correlation_id: corr } }, opt)
+  if (plan.isError) return plan
+  return call('erp_create', { type: 'rollback', values: { correlation_id: corr, plan_hash: plan.json.hash, allow_cascade: cascade }, reason }, opt)
+}
+
+test('MCP rollback: an agent corrects its own mistake, and the ledger keeps the mistake and the correction', async () => {
+  const agent = await c.addMember('에이전트1', ['sales'])
+  const opt = { user: agent.id }
+  const made = await call('erp_create', { type: 't_doc', values: { name: '잘못 만든 문서', qty: 1 } }, opt)
+  await call('erp_update', { type: 't_doc', id: made.json.id, values: { qty: 500 } }, opt)
+  assert.equal((await c.rec(made.json.id)).state.qty, 500)
+
+  const corr = await corrOf(made.json.id, opt)
+  const plan = (await call('erp_read', { rollback: { correlation_id: corr } }, opt)).json
+  assert.equal(plan.streams.length, 1); assert.equal(plan.blocked.length, 0); assert.match(plan.hash, /^[0-9a-f]{32}$/)
+  assert.equal((await c.rec(made.json.id)).state.qty, 500, 'reading the preview changes nothing')
+
+  const stale = await call('erp_create', { type: 'rollback', values: { correlation_id: corr, plan_hash: 'nope' }, reason: '수량 오입력' }, opt)
+  assert.equal(stale.isError, true); assert.match(stale.text, /ERP_CONFLICT/)
+  const noReason = await call('erp_create', { type: 'rollback', values: { correlation_id: corr, plan_hash: plan.hash } }, opt)
+  assert.equal(noReason.isError, true); assert.match(noReason.text, /ERP_REQUIRED/)
+
+  const done = await call('erp_create', { type: 'rollback', values: { correlation_id: corr, plan_hash: plan.hash }, reason: '수량 오입력' }, opt)
+  assert.equal(done.isError, false, done.text)
+  assert.equal((await c.rec(made.json.id)).state.qty, 1)
+  const ev = await c.events(made.json.id)
+  assert.deepEqual(ev.map((e) => e.event_type), ['DocCreated', 'DocUpdated', 'Reverted'], 'nothing is erased')
+  assert.equal(ev.at(-1).actor_id, agent.id); assert.equal(ev.at(-1).reason, '수량 오입력'); assert.equal(ev.at(-1).source, 'rollback')
+})
+
+test('MCP rollback: an agent cannot undo what is not only its own', async () => {
+  const agent = await c.addMember('에이전트2', ['sales'])
+  const other = await c.addMember('다른 에이전트', ['sales'])
+  const opt = { user: agent.id }
+
+  const others = await call('erp_create', { type: 't_doc', values: { name: '남의 일' } }, { user: other.id })
+  const cOthers = await corrOf(others.json.id, { user: other.id })
+  const a = await undoOver(cOthers, '시도', opt)
+  assert.equal(a.isError, true); assert.match(a.text, /ERP_FORBIDDEN/)
+
+  const byHand = await agent.cmd('t_doc', null, 'create', { name: '손으로 만든 문서' })
+  const b = await undoOver((await c.events(byHand.id))[0].correlation_id, '시도', opt)
+  assert.equal(b.isError, true); assert.match(b.text, /ERP_FORBIDDEN/, 'work done by hand still needs an admin')
+
+  const built = await call('erp_create', { type: 't_doc', values: { name: '남이 이어 간 문서', qty: 1 } }, opt)
+  const corr = await corrOf(built.json.id, opt)
+  await c.admin('t_doc', built.json.id, 'update', { qty: 2 })
+  const d = await undoOver(corr, '시도', opt)
+  assert.equal(d.isError, true); assert.match(d.text, /ERP_FORBIDDEN/)
+  assert.equal((await c.rec(built.json.id)).state.qty, 2)
+
+  const viewer = await c.addMember('조회 에이전트', ['viewer'])
+  const e = await undoOver(corr, '시도', { user: viewer.id })
+  assert.equal(e.isError, true); assert.match(e.text, /ERP_FORBIDDEN/)
+  const time = await call('erp_read', { rollback: { kind: 'time', at: '2020-01-01T00:00:00Z' } }, opt)
+  assert.equal(time.isError, true, 'a whole-company rollback stays with admins'); assert.match(time.text, /ERP_FORBIDDEN/)
+})
+
+test('MCP rollback: an admin undoes an agent mistake others built on, and must accept the cascade', async () => {
+  const agent = await c.addMember('에이전트3', ['sales'])
+  const built = await call('erp_create', { type: 't_doc', values: { name: '이어 간 문서', qty: 1 } }, { user: agent.id })
+  const corr = await corrOf(built.json.id, { user: agent.id })
+  await c.admin('t_doc', built.json.id, 'update', { qty: 2 })
+  const refused = await undoOver(corr, '정리', { user: c.adminId })
+  assert.equal(refused.isError, true); assert.match(refused.text, /ERP_ROLLBACK_CASCADE/)
+  const done = await undoOver(corr, '정리', { user: c.adminId }, true)
+  assert.equal(done.isError, false, done.text)
+  assert.equal((await c.rec(built.json.id)).state.deleted, true, 'back to before it existed')
+})
+
+test('MCP rollback: a key undoes only its member\'s work, and the rollback type is on the tool list', async () => {
+  const tools = (await mcp({ id: 2, method: 'tools/list' })).result.tools
+  assert.ok(tools.find((t) => t.name === 'erp_create').inputSchema.properties.type.enum.includes('rollback'))
+  assert.ok(!tools.find((t) => t.name === 'erp_read').inputSchema.properties.type.enum.includes('rollback'), 'not a type to list')
+  assert.equal(tools.length, 4, 'still four tools')
+  const sales = await c.addMember('키 에이전트', ['sales'])
+  const member = (await c.db.query(`select id from erp.records where type = 'member' and state ->> 'user_id' = $1`, [sales.id])).rows[0].id
+  const k = (await c.db.asUser(c.adminId, 'select public.erp_api_key_create($1, $2) r', [member, '되돌리기'])).rows[0].r
+  const opt = { user: null, role: 'anon', headers: { 'x-erp-key': k.key } }
+  const made = await call('erp_create', { type: 't_doc', values: { name: '키 문서', qty: 3 } }, opt)
+  const corr = (await call('erp_read', { id: made.json.id, history: true }, opt)).json[0].correlation_id
+  const done = await undoOver(corr, '키로 정정', opt)
+  assert.equal(done.isError, false, done.text)
+  assert.equal((await c.rec(made.json.id)).state.deleted, true)
+})
