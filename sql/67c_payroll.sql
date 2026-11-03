@@ -199,6 +199,10 @@ $$;
 create or replace function erp.payroll_filing_id(p_pay_month text) returns uuid
 language sql stable as $$ select erp.seed_id('withholding_filing:' || p_pay_month) $$;
 
+-- Closing a month and confirming into it must not pass each other: the return would miss a register that then counts as filed.
+create or replace function erp.payroll_month_lock(p_pay_month text) returns void
+language sql as $$ select pg_advisory_xact_lock(hashtextextended('withholding:' || p_pay_month, 0)) $$;
+
 -- Once a pay month is filed its runs stay as filed. A correction needs the filing reopened first, which leaves a trail.
 create or replace function erp.payroll_month_filed(p_pay_month text) returns boolean
 language sql stable as $$
@@ -553,6 +557,10 @@ begin
     s := erp.require_state(p_id, 'payroll_rates');
     if erp.payroll_data_in_use(p_id) then
       perform erp.fail('ERP_IN_USE', '확정된 급여 대장이 쓴 자료는 고칠 수 없습니다. 요율이 바뀌면 시작일이 다른 새 자료를 넣으세요');
+    end if;
+    perform erp.payroll_date(p ->> 'valid_from', '시작일');
+    if p ? 'valid_from' and exists (select 1 from erp.records r where r.type = 'payroll_rates' and r.id <> p_id and not r.deleted and r.active and r.state ->> 'valid_from' = p ->> 'valid_from') then
+      perform erp.fail('ERP_DUPLICATE', format('시작일이 같은 요율 자료가 이미 있습니다: %s', p ->> 'valid_from'));
     end if;
     perform erp.payroll_rates_check(s || p);
   end if;
@@ -1110,6 +1118,7 @@ declare
 begin
   if s ->> 'state' <> 'draft' then perform erp.fail('ERP_STATE', '초안만 확정할 수 있습니다'); end if;
   perform erp.lock_check(date_, array[]::text[], coalesce(s ->> 'number', '급여 대장'));
+  perform erp.payroll_month_lock(s ->> 'pay_month');
   if erp.payroll_month_filed(s ->> 'pay_month') then
     perform erp.fail('ERP_LOCKED', format('%s 지급분의 원천세가 마감되어 있습니다. 지급일을 다른 달로 하거나 마감을 해제하세요', s ->> 'pay_month'));
   end if;
@@ -1176,6 +1185,7 @@ begin
   if s ->> 'state' not in ('posted', 'paid') then perform erp.fail('ERP_STATE', '이미 취소한 대장입니다'); end if;
   if s ->> 'reversal_of' is not null then perform erp.fail('ERP_STATE', '정정 대장은 다시 정정하지 않습니다. 새 대장을 만드세요'); end if;
   if s ->> 'reversed_by' is not null then perform erp.fail('ERP_STATE', '이미 정정한 대장입니다'); end if;
+  perform erp.payroll_month_lock(s ->> 'pay_month');
   if erp.payroll_month_filed(s ->> 'pay_month') then
     perform erp.fail('ERP_LOCKED', format('%s 지급분의 원천세가 마감되어 있습니다. 마감을 해제한 뒤 정정하고, 신고한 값이 달라지면 수정신고가 필요합니다', s ->> 'pay_month'));
   end if;
@@ -1409,7 +1419,7 @@ begin
     when 'create' then
       month_ := erp.payroll_month(p ->> 'pay_month', '지급 월');
       fid := erp.payroll_filing_id(month_);
-      perform pg_advisory_xact_lock(hashtextextended('withholding:' || month_, 0));
+      perform erp.payroll_month_lock(month_);
       select state into cur from erp.records where id = fid;
       if cur ->> 'state' = 'filed' then perform erp.fail('ERP_DUPLICATE', format('%s 지급분은 이미 마감했습니다', month_)); end if;
       if exists (select 1 from erp.records r where r.type = 'payroll_run' and not r.deleted and r.status = 'draft' and r.state ->> 'pay_month' = month_) then

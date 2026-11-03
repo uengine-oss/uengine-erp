@@ -10,6 +10,8 @@ const TYPE_LABELS: Record<string, string> = {
   stock_replenishment: '보충 요청', stock_rfq_watch: '구매 초안 수량', sales_order: '견적·주문', quote_template: '견적 양식', purchase_order: '구매 주문',
   account_move: '청구서', payment: '입금·지급', journal: '분개장', payment_method: '결제 수단', bank_statement: '은행 명세서', bank_line: '은행 거래',
   employee: '직원', employee_private: '직원 개인정보 기록', department: '부서',
+  payroll_run: '급여 대장', pay_item: '급여 항목', payroll_rates: '4대보험 요율 자료', payroll_tax_table: '간이세액표', payroll_bank_format: '은행 이체 양식',
+  withholding_filing: '원천세 마감', payroll_profile: '직원 급여 정보 기록', payroll_audit: '명세서 변경 기록',
 }
 
 /** A type's name for people, also when its module is off. A type nobody here has heard of is still a document. */
@@ -56,6 +58,10 @@ const EXACT: Record<string, string> = {
   ScrapCreated: '폐기 작성', ScrapUpdated: '폐기 변경', ScrapDeleted: '폐기 삭제', ApiKeyCreated: '연동 키 만듦', ApiKeyRevoked: '연동 키 폐기', LotCreated: '로트 생성', PartnerUpdated: '연락처 변경',
   PaymentPosted: '결제 게시', PaymentCancelled: '결제 취소', PaymentAllocated: '결제 배분',
   EmployeeHired: '입사', EmployeeChanged: '직원 정보 변경', EmployeeLeft: '퇴사', EmployeePrivateChanged: '개인정보 변경', EmployeePrivateErased: '개인정보 지움',
+  PayrollRunDrafted: '급여 대장 초안', PayrollRunChanged: '급여 대장 변경', PayrollPosted: '급여 대장 확정', PayrollPaid: '급여 지급 완료', PayrollRunReversed: '급여 대장 정정', PayrollRunCancelled: '급여 대장 초안 취소',
+  PayrollTransferExported: '이체 파일 내보냄', PayrollSlipChanged: '명세서 칸 변경', PayrollSlipAdded: '대장에 직원 넣음', PayrollSlipRemoved: '대장에서 직원 뺌', PayrollSlipErased: '명세서 지움',
+  PayrollProfileChanged: '급여 정보 변경', PayrollProfileErased: '급여 정보 지움', PayrollTaxTableCreated: '간이세액표 넣음', PayrollTaxTableDeleted: '간이세액표 삭제', PayrollRatesCreated: '요율 자료 넣음', PayrollRatesUpdated: '요율 자료 변경',
+  WithholdingFiled: '원천세 마감', WithholdingReopened: '원천세 마감 해제',
   DepartmentCreated: '부서 생성', DepartmentChanged: '부서 변경', DepartmentArchived: '부서 보관', DepartmentUnarchived: '부서 보관 해제', DepartmentDeleted: '부서 삭제',
 }
 

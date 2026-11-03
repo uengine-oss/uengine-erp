@@ -272,6 +272,21 @@ export const NAV: NavModule[] = [
     ],
   },
   {
+    key: 'payroll', label: '급여', icon: 'payroll',
+    screens: [
+      { label: '내 명세서', route: '/payroll/my', needs: 'payroll_run' },
+      { type: 'payroll_run', roles: ['hr', 'payroll'], readonlyIn: ['posted', 'paid', 'cancelled'], formPanel: loader('PayrollSheetPanel'), hideFields: ['headcount', 'gross_total', 'net_total'], lockedAfterCreate: ['kind', 'period_month'], commands: { pay: { fields: () => [{ name: 'paid_date', label: '지급 완료일', type: 'date', required: true, help: '은행에서 이체를 마친 날입니다. 앱은 돈을 옮기지 않습니다.' }] } } },
+      { label: '직원 급여 정보', route: '/payroll/profiles', needs: 'payroll_run', roles: ['hr', 'payroll'] },
+      { type: 'pay_item', roles: ['hr', 'payroll'] },
+      { type: 'payroll_rates', roles: ['hr', 'payroll'] },
+      { type: 'payroll_tax_table', label: '간이세액표', route: '/payroll/tax-tables', needs: 'payroll_run', roles: ['hr', 'payroll'] },
+      { type: 'payroll_bank_format', roles: ['hr', 'payroll'] },
+      { type: 'withholding_filing', label: '원천세', route: '/payroll/withholding', needs: 'payroll_run', roles: ['hr', 'payroll'] },
+      { label: '4대보험 자료', route: '/payroll/insurance', needs: 'payroll_run', roles: ['hr', 'payroll'] },
+      { label: '인건비 전망', route: '/payroll/outlook', needs: 'payroll_run', roles: ['hr', 'payroll'] },
+    ],
+  },
+  {
     key: 'master', label: '기초데이터', icon: 'master',
     screens: [
       { type: 'uom' }, { type: 'product_category' }, { type: 'tag' }, { type: 'tax' },

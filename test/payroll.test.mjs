@@ -5,6 +5,7 @@ import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import pg from 'pg'
 import { company, rejects } from './lib/harness.mjs'
 
 const TABLE = JSON.parse(fs.readFileSync(new URL('./fixtures/simple-tax-table-2026.json', import.meta.url), 'utf8'))
@@ -447,6 +448,7 @@ test('S17. the data in force is picked by date, the event carries which and how 
     assert.equal(money(posted.statutory.pension), 135000)
 
     await rejects(k.clerk.cmd('payroll_rates', early.id, 'update', { pension_rate_employee: 5 }), 'ERP_IN_USE')
+    await rejects(k.clerk.cmd('payroll_rates', k.rates, 'update', { valid_from: '2026-01-01' }), 'ERP_DUPLICATE')
     await k.clerk.cmd('payroll_rates', k.rates, 'update', { pension_rate_employee: 5 })
     await k.clerk.cmd('payroll_run', july, 'recalc', {})
     assert.equal(money((await k.slip(july, a)).pension), 150000, 'a draft follows data not yet used by a confirmed run')
@@ -1216,6 +1218,49 @@ test('closing a month leaves WithholdingFiled with the figures, holds its regist
     assert.equal(rep.filing.revision, 2)
     assert.deepEqual(await k.verifyProjection(), [])
   } finally { await k.close() }
+})
+
+test('closing a month and confirming into it cannot pass each other: what is filed is exactly what stands', async () => {
+  const k = await setup()
+  const clients = await Promise.all([0, 1].map(async () => {
+    const { host, port, user, password, database } = k.db.client
+    const client = new pg.Client({ host, port, user, password, database })
+    await client.connect()
+    return client
+  }))
+  const asRequest = async (client, type, id, command, payload) => {
+    await client.query('begin')
+    try {
+      await client.query('set local role authenticated')
+      await client.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: k.clerk.id, role: 'authenticated' })])
+      await client.query(`select public.erp_command($1, $2, $3, $4)`, [type, id, command, JSON.stringify(payload)])
+      await client.query('commit')
+      return true
+    } catch (e) {
+      await client.query('rollback')
+      assert.match(e.message, /ERP_/)
+      return false
+    }
+  }
+  try {
+    const a = await k.hire('경합 시험')
+    await k.profile(a, { pay: { [k.items.base]: 3000000 } })
+    for (let i = 7; i <= 12; i++) {
+      const month = `2026-${String(i).padStart(2, '0')}`
+      const first = await k.run(month, `${month}-25`)
+      await k.clerk.cmd('payroll_run', first, 'post', {})
+      const bonus = await k.run(month, `${month}-26`, { kind: 'bonus' })
+      await k.clerk.cmd('payroll_run', bonus, 'set_slip', { employee_id: a, income_tax: 1000 })
+      const [posted] = await Promise.all([
+        asRequest(clients[0], 'payroll_run', bonus, 'post', {}),
+        asRequest(clients[1], 'withholding_filing', null, 'create', { pay_month: month }),
+      ])
+      const filing = (await q(k, `select state from erp.records where type = 'withholding_filing' and state ->> 'pay_month' = $1`, [month]))[0]
+      const stands = (await call(k, k.clerk.id, 'erp_withholding_report', month)).sheets[0].total
+      if (filing && posted) assert.equal(money(filing.state.sheets[0].total.gross), money(stands.gross), 'if both went through, the filing holds the bonus')
+      if (filing && !posted) assert.equal((await k.rec(bonus)).status, 'draft', 'or the filing came first and the bonus waits')
+    }
+  } finally { await Promise.all(clients.map((x) => x.end())); await k.close() }
 })
 
 /* ---------- Insurance lists ---------- */
