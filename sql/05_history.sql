@@ -199,7 +199,7 @@ begin
     if doc ? 'revert_check_fn' then
       execute format('select %s($1, $2)', doc ->> 'revert_check_fn') into lock_msg using r.stream_id, target;
       if lock_msg is not null then
-        blocked := blocked || jsonb_build_object('id', r.stream_id, 'type', r.stream_type, 'name', r.name, 'reason', lock_msg);
+        blocked := blocked || jsonb_build_object('id', r.stream_id, 'type', r.stream_type, 'name', r.name, 'kind', 'check', 'reason', lock_msg);
       end if;
     end if;
 

@@ -35,12 +35,13 @@ declare
   mode_ text;
 begin
   -- A total's veto (stock going negative) has no stream to compensate, so it stops the whole thing.
-  select coalesce(jsonb_agg(b), '[]'::jsonb) into hard from jsonb_array_elements(plan -> 'blocked') b where not b ? 'id' or b ->> 'kind' <> 'state';
+  select coalesce(jsonb_agg(b), '[]'::jsonb) into hard from jsonb_array_elements(plan -> 'blocked') b where not b ? 'id' or b ->> 'kind' not in ('state', 'check');
   for s in select * from jsonb_array_elements(plan -> 'streams') loop
     select c.doc into doc from erp.catalog c where c.type = s ->> 'type';
     select min(e.seq), bool_or(not e.source like 'bus:%') into first_, top from erp.events e
      where e.stream_id = (s ->> 'id')::uuid and e.correlation_id = any (select jsonb_array_elements_text(plan -> 'scope')::uuid);
-    select coalesce(jsonb_agg(b), '[]'::jsonb) into blocked_here from jsonb_array_elements(plan -> 'blocked') b where b ->> 'id' = s ->> 'id' and b ->> 'kind' = 'state';
+    -- 'check': a module said what it keeps outside the ledger stands in the way. A type that can be offset is offset, the rest stops.
+    select coalesce(jsonb_agg(b), '[]'::jsonb) into blocked_here from jsonb_array_elements(plan -> 'blocked') b where b ->> 'id' = s ->> 'id' and b ->> 'kind' in ('state', 'check');
     if not coalesce(top, false) then
       -- A subscriber made this from an event; it hears the compensation the same way.
       follow := follow || jsonb_build_object('id', s -> 'id', 'type', s -> 'type', 'label', s -> 'label', 'name', s -> 'name');

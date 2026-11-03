@@ -79,7 +79,7 @@ language sql stable as $$
    where r.id = p_id and r.type = p_type and not r.deleted and erp.module_on(c.module)
 $$;
 
--- {id, label, label_en, description, sort, default_on, options:[{name,label,type}],
+-- {id, label, label_en, description, sort, default_on, requires:[module id], options:[{name,label,type}],
 --  subscribes:[{name, handler, events:[..], replay, since_option}], publishes:[{event, fields:[..]}]}
 create or replace function erp.module_put(p_doc jsonb) returns void
 language plpgsql as $$
@@ -138,6 +138,7 @@ declare
   opts jsonb;
   h record;
   first_time boolean;
+  needed text;
 begin
   select * into m from erp.modules where id = mid for update;
   if not found then perform erp.fail('ERP_NOT_FOUND', format('알 수 없는 모듈입니다: %s', mid)); end if;
@@ -147,6 +148,13 @@ begin
   case p_command
     when 'enable' then
       if m.enabled then return stream; end if;
+      -- "requires" in a module's document: some work means nothing without another module's facts.
+      select string_agg(coalesce(x.doc ->> 'label', r), ', ') into needed
+        from jsonb_array_elements_text(coalesce(m.doc -> 'requires', '[]'::jsonb)) r left join erp.modules x on x.id = r
+       where not coalesce(x.enabled, false);
+      if needed is not null then
+        perform erp.fail('ERP_MODULE_REQUIRED', format('%s 모듈을 켜려면 %s 모듈이 먼저 켜져 있어야 합니다', m.doc ->> 'label', needed));
+      end if;
       first_time := m.enabled_at is null;
       -- An empty ledger has no horizon; selecting into the record still gives it fields, all null.
       select * into h from erp.bus_horizon();
@@ -166,6 +174,10 @@ begin
         'enabled_at', erp.now(), 'options', opts)));
     when 'disable' then
       if not m.enabled then return stream; end if;
+      select string_agg(x.doc ->> 'label', ', ') into needed from erp.modules x where x.enabled and x.doc -> 'requires' ? mid;
+      if needed is not null then
+        perform erp.fail('ERP_MODULE_REQUIRED', format('%s 모듈이 켜져 있어 %s 모듈을 끌 수 없습니다. 먼저 %s 모듈을 끄세요', needed, m.doc ->> 'label', needed));
+      end if;
       perform erp.emit('module', stream, 'ModuleDisabled', jsonb_build_object('set', jsonb_build_object('state', 'off', 'disabled_at', erp.now())));
     else
       perform erp.fail('ERP_COMMAND', format('모듈: 지원하지 않는 명령입니다 (%s)', p_command));

@@ -569,6 +569,227 @@ begin
       from m where m.first_ <= today);
 end $$;
 
+------------------------------------------------------------------------------------------------
+-- Leave and attendance. Same rule as everything above: only events are read, each event states what it needs, and row
+-- security decides who gets an answer. The numbers survive the modules being switched off.
+------------------------------------------------------------------------------------------------
+-- The newest standing event of each request, each grant and each policy.
+create or replace function public.erp_leave_grants(p_as_of timestamptz)
+returns table(stream_id uuid, data jsonb)
+language sql stable set search_path = public, pg_temp as $$
+  with u as (select public.erp_undone(p_as_of) as ids)
+  select distinct on (e.stream_id) e.stream_id, e.data from public.erp_events e, u
+   where e.stream_type = 'leave_grant' and e.event_type in ('LeaveGranted', 'LeaveGrantAdjusted', 'LeaveGrantUsedBefore', 'LeaveGrantVoided')
+     and e.occurred_at <= p_as_of and not e.correlation_id = any (u.ids)
+   order by e.stream_id, e.seq desc
+$$;
+
+create or replace function public.erp_leave_requests(p_as_of timestamptz)
+returns table(stream_id uuid, event_type text, data jsonb)
+language sql stable set search_path = public, pg_temp as $$
+  with u as (select public.erp_undone(p_as_of) as ids)
+  select distinct on (e.stream_id) e.stream_id, e.event_type, e.data from public.erp_events e, u
+   where e.stream_type = 'leave_request' and e.event_type in ('LeaveRequested', 'LeaveApproved', 'LeaveRejected', 'LeaveCancelled')
+     and e.occurred_at <= p_as_of and not e.correlation_id = any (u.ids)
+   order by e.stream_id, e.seq desc
+$$;
+
+create or replace function public.erp_leave_policy_now(p_as_of timestamptz) returns jsonb
+language sql stable set search_path = public, pg_temp as $$
+  select coalesce((select e.data -> 'policy' from public.erp_events e
+                    where e.stream_type = 'leave_policy' and e.event_type in ('LeavePolicySet', 'LeavePolicyChanged') and e.occurred_at <= p_as_of
+                    order by e.seq desc limit 1),
+    '{"statutory": true, "basis": "hire_date", "fiscal_start": "01-01", "base_days": 15, "step_years": 2, "step_days": 1, "max_days": 25, "monthly_days": 1}'::jsonb)
+$$;
+
+-- Will the annual leave people hold be used before it lapses, and who is due the Article 61 notices. The pace comes from what people
+-- have actually done, so its range is as wide as the differences between them. Below the evidence line the range is simply nothing to everything.
+create or replace function public.erp_leave_outlook(p_on date default null, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  tz text := public.erp_analytics_tz();
+  asof timestamptz := coalesce(p_as_of, now());
+  on_ date := coalesce(p_on, (asof at time zone tz)::date);
+  rows_ jsonb;
+  p10 numeric; p90 numeric; paced int;
+  ready_ boolean;
+begin
+  with g as (
+    select x.stream_id as id, x.data, (x.data ->> 'days')::numeric as days_, coalesce((x.data ->> 'used_before')::numeric, 0) as before_,
+           (x.data ->> 'valid_from')::date as from_, (x.data ->> 'valid_to')::date as to_, x.data ->> 'employee_id' as emp, x.data ->> 'kind' as kind_
+      from public.erp_leave_grants(asof) x
+     where x.data ->> 'leave_type_code' = 'annual' and x.data ->> 'grant_state' = 'active' and on_ between (x.data ->> 'valid_from')::date and (x.data ->> 'valid_to')::date
+  ), q as (
+    select r.data, r.event_type, a ->> 'grant_id' as grant_id, (a ->> 'days')::numeric as days_
+      from public.erp_leave_requests(asof) r, jsonb_array_elements(r.data -> 'allocations') a
+     where r.event_type in ('LeaveRequested', 'LeaveApproved')
+  ), held as (
+    select g.id,
+      coalesce(sum(q.days_) filter (where q.event_type = 'LeaveApproved' and (q.data ->> 'date_to')::date <= on_), 0) as taken,
+      coalesce(sum(q.days_) filter (where q.event_type = 'LeaveApproved' and (q.data ->> 'date_to')::date > on_), 0) as planned,
+      coalesce(sum(q.days_) filter (where q.event_type = 'LeaveRequested'), 0) as waiting
+      from g left join q on q.grant_id = g.id::text group by g.id
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+      'grant_id', g.id, 'employee_id', g.emp, 'name', g.data -> 'employee_name', 'department_name', g.data -> 'department_name', 'kind', g.kind_,
+      'granted', g.days_, 'used_before', g.before_, 'taken', h.taken, 'planned', h.planned, 'waiting', h.waiting,
+      'remaining', g.days_ - g.before_ - h.taken - h.planned - h.waiting,
+      'valid_from', g.from_, 'valid_to', g.to_, 'days_left', g.to_ - on_, 'elapsed', on_ - g.from_ + 1,
+      'rate_per_day', case when on_ - g.from_ + 1 >= 30 then (g.before_ + h.taken) / (on_ - g.from_ + 1) end) order by g.data ->> 'department_name', g.data ->> 'employee_name'), '[]'::jsonb)
+    into rows_ from g join held h on h.id = g.id;
+
+  select percentile_cont(0.1) within group (order by (x ->> 'rate_per_day')::numeric), percentile_cont(0.9) within group (order by (x ->> 'rate_per_day')::numeric), count(*)
+    into p10, p90, paced from jsonb_array_elements(rows_) x where x ->> 'rate_per_day' is not null;
+  ready_ := coalesce(paced, 0) >= 3 and coalesce(p90, 0) > 0;
+  return (select jsonb_build_object('on', on_, 'as_of', asof, 'based_on', jsonb_build_object('people_with_pace', coalesce(paced, 0), 'p10_days_per_month', round(coalesce(p10, 0) * 30, 3), 'p90_days_per_month', round(coalesce(p90, 0) * 30, 3)),
+      'band_ready', ready_,
+      'totals', jsonb_build_object('granted', coalesce(sum(y.granted), 0), 'remaining', coalesce(sum(y.remaining), 0), 'lapse_low', coalesce(sum(y.lapse_low), 0), 'lapse_high', coalesce(sum(y.lapse_high), 0),
+                                   'promote_now', count(*) filter (where y.promote_now)),
+      'people', coalesce(jsonb_agg(y.row_ order by y.promote_now desc, y.lapse_high desc), '[]'::jsonb))
+    from (
+      select z.*, z.base || jsonb_build_object('lapse_low', z.lapse_low, 'lapse_high', z.lapse_high, 'promotion', z.promo, 'promote_now', z.promote_now) as row_ from (
+        select x as base, (x ->> 'granted')::numeric as granted, (x ->> 'remaining')::numeric as remaining,
+               case when ready_ then round(greatest((x ->> 'remaining')::numeric - coalesce((x ->> 'days_left')::numeric * p90, 0), 0), 2) else 0 end as lapse_low,
+               case when ready_ then round(greatest((x ->> 'remaining')::numeric - coalesce((x ->> 'days_left')::numeric * p10, 0), 0), 2) else (x ->> 'remaining')::numeric end as lapse_high,
+               public.erp_leave_promotion(x ->> 'kind', (x ->> 'valid_to')::date) as promo,
+               (x ->> 'remaining')::numeric > 0 and x ->> 'kind' <> 'manual'
+                 and on_ between (public.erp_leave_promotion(x ->> 'kind', (x ->> 'valid_to')::date) ->> 'notice_from')::date
+                             and (public.erp_leave_promotion(x ->> 'kind', (x ->> 'valid_to')::date) ->> 'designate_by')::date as promote_now
+          from jsonb_array_elements(rows_) x) z) y);
+end $$;
+
+-- What a change of policy would give over the coming year, person by person, reckoned from the ledger's people and the same schedule the
+-- module uses. The range comes from people leaving at the rate they have: nobody can say who, so it is a range and not a number.
+create or replace function public.erp_leave_whatif(p_policy jsonb, p_on date default null, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  tz text := public.erp_analytics_tz();
+  asof timestamptz := coalesce(p_as_of, now());
+  on_ date := coalesce(p_on, (asof at time zone tz)::date);
+  until_ date := (on_ + interval '12 months')::date;
+  cur jsonb := public.erp_leave_policy_now(asof);
+  next_ jsonb := cur || coalesce(p_policy, '{}'::jsonb);
+  rows_ jsonb;
+  cur_total numeric; next_total numeric;
+  avg_people numeric; left_people int; attr numeric;
+  low_ numeric; high_ numeric;
+begin
+  if next_ ->> 'basis' <> cur ->> 'basis' then raise exception 'ERP_INVALID: 부여 기준 전환의 일수는 계산하지 않습니다. 전환 정산 규칙을 정한 뒤에 보세요'; end if;
+  with p as (select * from public.erp_people(asof) x where x.leave_date is null or x.leave_date >= on_),
+  y as (
+    select p.stream_id, p.facts, p.hire_date,
+      (select coalesce(sum(s.days), 0) from public.erp_leave_schedule(p.hire_date, until_, cur) s where s.grant_date > on_) as cur_days,
+      (select coalesce(sum(s.days), 0) from public.erp_leave_schedule(p.hire_date, until_, next_) s where s.grant_date > on_) as next_days
+      from p
+  )
+  select coalesce(jsonb_agg(jsonb_build_object('employee_id', y.stream_id, 'name', y.facts -> 'name', 'department_name', y.facts -> 'department_name', 'hire_date', y.hire_date,
+           'current_days', y.cur_days, 'candidate_days', y.next_days, 'delta', y.next_days - y.cur_days) order by y.next_days - y.cur_days desc, y.facts ->> 'name'), '[]'::jsonb),
+         coalesce(sum(y.cur_days), 0), coalesce(sum(y.next_days), 0)
+    into rows_, cur_total, next_total from y;
+  -- People who left in the last two years over how many there were on average: the share of this year's days that may never be given.
+  select count(*) into left_people from public.erp_people(asof) x where x.leave_date between (on_ - interval '24 months')::date and on_;
+  select avg((public.erp_headcount(g::date, asof) ->> 'total')::numeric) into avg_people from generate_series((on_ - interval '24 months')::timestamp, on_::timestamp, interval '6 months') g;
+  attr := case when coalesce(avg_people, 0) > 0 then least(left_people / avg_people / 2, 1) else 0 end;
+  low_ := least((next_total - cur_total), (next_total - cur_total) * (1 - attr));
+  high_ := greatest((next_total - cur_total), (next_total - cur_total) * (1 - attr));
+  return jsonb_build_object('on', on_, 'until', until_, 'as_of', asof, 'current_policy', cur, 'candidate_policy', next_,
+    'current_days', cur_total, 'candidate_days', next_total, 'delta', next_total - cur_total, 'low', round(low_, 1), 'high', round(high_, 1),
+    'attrition_per_year', round(attr, 3), 'indistinguishable', low_ <= 0 and high_ >= 0, 'people', rows_);
+end $$;
+
+-- A day as the ledger last knew it, whichever event said so.
+create or replace function public.erp_work_days(p_from date, p_to date, p_as_of timestamptz default null)
+returns table(stream_id uuid, employee_id text, name text, department_id text, department_name text, day date, worked int, over_day int)
+language sql stable set search_path = public, pg_temp as $$
+  with u as (select public.erp_undone(coalesce(p_as_of, now())) as ids)
+  select distinct on (e.stream_id) e.stream_id, e.data ->> 'employee_id', e.data ->> 'employee_name', e.data ->> 'department_id', e.data ->> 'department_name',
+         (e.data ->> 'date')::date, (e.data ->> 'worked_minutes')::int, (e.data ->> 'overtime_minutes')::int
+    from public.erp_events e, u
+   where e.stream_type = 'attendance_day' and e.event_type in ('AttendanceCheckedIn', 'AttendanceCheckedOut', 'AttendanceEntered', 'AttendanceCorrected')
+     and e.occurred_at <= coalesce(p_as_of, now()) and not e.correlation_id = any (u.ids)
+     and e.data ->> 'date' between p_from::text and p_to::text
+   order by e.stream_id, e.seq desc
+$$;
+
+create or replace function public.erp_attendance_policy_now(p_as_of timestamptz) returns jsonb
+language sql stable set search_path = public, pg_temp as $$
+  select coalesce((select e.data -> 'policy' from public.erp_events e
+                    where e.stream_type = 'attendance_policy' and e.event_type in ('AttendancePolicySet', 'AttendancePolicyChanged') and e.occurred_at <= p_as_of
+                    order by e.seq desc limit 1),
+    '{"applies_limit": true, "daily_standard_minutes": 480, "weekly_standard_minutes": 2400, "weekly_overtime_minutes": 720, "week_start": "1"}'::jsonb)
+$$;
+
+-- Department by month: how much beyond eight hours a day, and how many weeks went over the line.
+create or replace function public.erp_overtime_trend(p_from date, p_to date, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  pol jsonb := public.erp_attendance_policy_now(coalesce(p_as_of, now()));
+  std int := (pol ->> 'weekly_standard_minutes')::int;
+  limit_ int := std + (pol ->> 'weekly_overtime_minutes')::int;
+  ws int := coalesce(pol ->> 'week_start', '1')::int;
+begin
+  if p_from is null or p_to is null or p_from > p_to or p_to - p_from > 800 then raise exception 'ERP_INVALID: 기간이 올바르지 않습니다'; end if;
+  return (
+    with d as (select * from public.erp_work_days(p_from - 7, p_to + 7, p_as_of) x where x.worked is not null),
+    w as (
+      select d.employee_id, d.day - ((extract(dow from d.day)::int - ws + 7) % 7) as week_start, sum(d.worked) as total, max(d.department_id) as department_id, max(d.department_name) as department_name
+        from d group by 1, 2
+    ), m as (
+      select to_char(d.day, 'YYYY-MM') as period, d.department_id, max(d.department_name) as department_name,
+             sum(d.worked) as worked_minutes, sum(d.over_day) as overtime_minutes, count(distinct d.employee_id) as people
+        from d where d.day between p_from and p_to group by 1, 2
+    )
+    select jsonb_build_object('from', p_from, 'to', p_to, 'limit_minutes', limit_, 'rows', coalesce(jsonb_agg(jsonb_build_object('period', m.period, 'department_id', m.department_id, 'department_name', m.department_name,
+        'worked_minutes', m.worked_minutes, 'overtime_minutes', m.overtime_minutes, 'people', m.people,
+        'weeks_over_limit', (select count(*) from w where w.department_id = m.department_id and to_char(w.week_start + 6, 'YYYY-MM') = m.period and w.total > limit_))
+        order by m.period desc, m.department_name), '[]'::jsonb)) from m);
+end $$;
+
+-- Who may pass the line this week, while the week is still running. What is left of the week is worked out from how long each person's own days have run.
+create or replace function public.erp_overtime_risk(p_on date default null, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  tz text := public.erp_analytics_tz();
+  asof timestamptz := coalesce(p_as_of, now());
+  on_ date := coalesce(p_on, (asof at time zone tz)::date);
+  pol jsonb := public.erp_attendance_policy_now(asof);
+  std int := (pol ->> 'weekly_standard_minutes')::int;
+  limit_ int := std + (pol ->> 'weekly_overtime_minutes')::int;
+  ws date := on_ - ((extract(dow from on_)::int - coalesce(pol ->> 'week_start', '1')::int + 7) % 7);
+  ahead date[] := array(select x from unnest(public.erp_workdays(on_, ws + 6)) x);
+begin
+  return (
+    with h as (select * from public.erp_work_days(ws - 56, on_, asof) x where x.worked is not null),
+    per as (
+      select h.employee_id, max(h.name) as name, max(h.department_name) as department_name,
+             sum(h.worked) filter (where h.day >= ws) as worked_now,
+             count(*) filter (where h.day < ws) as history_days,
+             percentile_cont(0.1) within group (order by h.worked) as p10,
+             percentile_cont(0.9) within group (order by h.worked) as p90,
+             count(*) filter (where h.day = on_) as today_done
+        from h group by 1
+    ), lv as (
+      select e.data ->> 'employee_id' as emp, count(*) as n from public.erp_events e, jsonb_array_elements_text(e.data -> 'dates') x
+       where e.stream_type = 'attendance_leave' and e.event_type = 'AttendanceLeaveNoted' and e.occurred_at <= asof and (x)::date = any (ahead)
+         and not exists (select 1 from public.erp_events c where c.stream_id = e.stream_id and c.seq > e.seq and c.event_type = 'AttendanceLeaveCleared' and c.occurred_at <= asof)
+         and not e.correlation_id = any (public.erp_undone(asof))
+       group by 1
+    ), y as (
+      select per.*, coalesce(per.worked_now, 0) as worked_,
+             greatest(coalesce(array_length(ahead, 1), 0) - coalesce(lv.n, 0) - per.today_done, 0) as left_days
+        from per left join lv on lv.emp = per.employee_id
+    ), z as (
+      select y.*, y.worked_ + y.left_days * coalesce(y.p10, 480) as low_, y.worked_ + y.left_days * coalesce(y.p90, 480) as high_ from y
+    )
+    select jsonb_build_object('on', on_, 'week_start', ws, 'week_end', ws + 6, 'limit_minutes', limit_, 'applies_limit', pol -> 'applies_limit',
+      'totals', jsonb_build_object('over', count(*) filter (where z.worked_ > limit_), 'risk', count(*) filter (where z.worked_ <= limit_ and z.high_ > limit_), 'people', count(*)),
+      'people', coalesce(jsonb_agg(jsonb_build_object('employee_id', z.employee_id, 'name', z.name, 'department_name', z.department_name, 'worked_minutes', z.worked_, 'remaining_days', z.left_days,
+        'projected_low', round(z.low_), 'projected_high', round(z.high_), 'history_days', z.history_days,
+        'status', case when not coalesce((pol ->> 'applies_limit')::boolean, true) then 'off' when z.worked_ > limit_ then 'over' when z.high_ > limit_ then 'risk' else 'ok' end)
+        order by z.high_ desc), '[]'::jsonb))
+    from z);
+end $$;
+
 -- Every model and its state. Thresholds come from experiments/whatif/results-thresholds.json and match web/src/lib/forecast/thresholds.ts.
 -- Modules on and off, and what counts as evidence, are all read from the ledger, using its indexes.
 create or replace function public.erp_models(p_as_of timestamptz default null) returns jsonb
@@ -578,7 +799,7 @@ declare
   asof timestamptz := coalesce(p_as_of, now());
   today date := ((asof at time zone tz) + interval '1 second')::date;
   spans jsonb := public.erp_module_spans(asof);
-  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계","hr":"인사"}';
+  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계","hr":"인사","timeoff":"휴가","attendance":"근태"}';
   readable text[] := erp.readable_types();
   m record;
   missing text[];
@@ -597,6 +818,8 @@ declare
   term_changes int;
   gl_months int; gl_first date;
   first_hire date; people_months int := 0;
+  leave_months int := 0; leave_since date; people_now int := 0;
+  work_days int := 0; work_weeks int := 0; work_since date;
   span jsonb;
   a date; b date;
 begin
@@ -640,6 +863,12 @@ begin
   if first_hire is not null and first_hire <= today then
     people_months := extract(year from age(today, first_hire))::int * 12 + extract(month from age(today, first_hire))::int;
   end if;
+  select count(*) into people_now from public.erp_people(asof) p where p.leave_date is null or p.leave_date >= today;
+  -- Months in which someone actually took annual leave: one person's week off is not a pace.
+  select count(distinct date_trunc('month', (r.data ->> 'date_from')::date)), min((r.data ->> 'date_from')::date) into leave_months, leave_since
+    from public.erp_leave_requests(asof) r where r.event_type = 'LeaveApproved' and r.data ->> 'leave_type_code' = 'annual' and (r.data ->> 'date_from')::date <= today;
+  select count(distinct (e.data ->> 'date')), count(distinct date_trunc('week', (e.data ->> 'date')::date)), min((e.data ->> 'date')::date) into work_days, work_weeks, work_since
+    from public.erp_events e where e.stream_type = 'attendance_day' and e.event_type in ('AttendanceCheckedOut', 'AttendanceEntered', 'AttendanceCorrected') and e.occurred_at <= asof;
 
   -- The drop what-if asks for stockouts. Counted only when stock history exists, because this one walks every stock change.
   stock_out_cases := 0;
@@ -663,7 +892,11 @@ begin
       ('cash_in', 'forecast', '입금 예측', array['invoicing'], true, array['account_move']),
       ('whatif_terms', 'whatif', '결제 조건 변경', array['invoicing'], true, array['account_move']),
       ('pnl_outlook', 'forecast', '손익 전망', array['sales', 'accounting'], false, array['sales_order', 'journal_entry']),
-      ('stat_headcount', 'stat', '인원 추이·입퇴사', array['hr'], false, array['employee'])
+      ('stat_headcount', 'stat', '인원 추이·입퇴사', array['hr'], false, array['employee']),
+      ('leave_burn', 'forecast', '연차 소진 전망', array['timeoff'], true, array['leave_request', 'leave_grant']),
+      ('whatif_leave_policy', 'whatif', '연차 부여 정책 변경', array['timeoff'], false, array['leave_request', 'leave_grant']),
+      ('overtime_risk', 'forecast', '주 52시간 초과 위험', array['attendance'], true, array['attendance_day']),
+      ('stat_overtime', 'stat', '부서별 초과근무 추이', array['attendance'], false, array['attendance_day'])
     ) as t(id, kind, label, modules, needs_current, types)
   loop
     missing := '{}'; stale := '{}';
@@ -697,6 +930,10 @@ begin
         extra := jsonb_build_object('term_changes', term_changes, 'term_changes_need', 3);
       when 'pnl_outlook' then have := gl_months; need := 3; unit_ := '개월'; since_ := gl_first; msg := '전표';
       when 'stat_headcount' then have := people_months; need := 3; unit_ := '개월'; since_ := first_hire; msg := '인사 이력';
+      when 'leave_burn' then have := leave_months; need := 3; unit_ := '개월'; since_ := leave_since; msg := '연차를 쓴 달';
+      when 'whatif_leave_policy' then have := people_now; need := 1; unit_ := '명'; since_ := first_hire; msg := '재직 직원';
+      when 'overtime_risk' then have := work_days; need := 20; unit_ := '일'; since_ := work_since; msg := '퇴근까지 찍힌 날';
+      when 'stat_overtime' then have := work_weeks; need := 4; unit_ := '주'; since_ := work_since; msg := '근태 기록';
     end case;
 
     ok := have >= need;
