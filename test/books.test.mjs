@@ -201,6 +201,18 @@ describe('the books of one small company', () => {
     } finally { await k.close() }
   })
 
+  test('the sales and purchase book shows the voucher a document rests on, when invoicing says', async () => {
+    const k = await company({ modules: ['invoicing', 'accounting'] })
+    try {
+      await k.db.query(`select erp.emit('account_move', gen_random_uuid(), 'InvoicePosted', $1::jsonb)`, [JSON.stringify({
+        set: { state: 'posted' }, move_type: 'out_invoice', number: 'E-1', date: '2026-06-01', partner_name: '거래처', amount_untaxed: 100, amount_tax: 10, amount_total: 110,
+        evidence: { type: 'tax_invoice', approval_no: '2026-1' }, lines: [{ name: '판매', subtotal: 100, tax_amount: 10, total: 110 }] })])
+      await k.settle()
+      const b = await read(k, 'erp_sales_purchase_book', '2026-01-01', '2026-12-31')
+      assert.deepEqual(b.rows.map((r) => [r.number, r.evidence_type, r.untaxed]), [['E-1', 'tax_invoice', 100]])
+    } finally { await k.close() }
+  })
+
   test('accounting only, and off with the module', async () => {
     const sales = await c.addMember('영업2', ['sales'])
     for (const [fn, args] of [['erp_financial_position', ['2026-12-31']], ['erp_income_statement', [null, null]], ['erp_cost_statement', [null, null]], ['erp_retained_earnings', [2026]], ['erp_day_book', [null, null]], ['erp_cash_book', [null, null, null]], ['erp_trial_summary', [null, null, false]], ['erp_sales_purchase_book', [null, null, null]], ['erp_partner_ledger', ['receivable', null, null, null]], ['erp_closing_status', [2026]]]) {

@@ -9,6 +9,7 @@ const TYPE_LABELS: Record<string, string> = {
   warehouse: '창고', location: '위치', operation_type: '작업 유형', picking: '입출고 전표', stock_adjustment: '재고 조정', scrap: '폐기', lot: '로트·일련번호', reorder_rule: '재주문 규칙',
   stock_replenishment: '보충 요청', stock_rfq_watch: '구매 초안 수량', sales_order: '견적·주문', quote_template: '견적 양식', purchase_order: '구매 주문',
   account_move: '청구서', payment: '입금·지급', journal: '분개장', payment_method: '결제 수단', bank_statement: '은행 명세서', bank_line: '은행 거래',
+  asset: '고정자산', depreciation_run: '감가상각 실행', fiscal_close: '결산',
 }
 
 /** A type's name for people, also when its module is off. A type nobody here has heard of is still a document. */
@@ -17,6 +18,8 @@ export function typeLabel(type: string): string {
 }
 const EXACT: Record<string, string> = {
   CompanyCreated: '회사 생성', CompanyUpdated: '회사 정보 변경',
+  AssetCreated: '자산 작성', AssetUpdated: '자산 변경', AssetDeleted: '자산 삭제', AssetRegistered: '자산 등록', AssetDepreciated: '감가상각 반영', AssetDisposed: '자산 처분',
+  DepreciationPosted: '감가상각 실행', FiscalYearClosed: '결산', FiscalYearReopened: '결산 취소',
   MemberAdded: '구성원 추가', MemberChanged: '구성원 변경', MemberDeactivated: '구성원 비활성화', MemberActivated: '구성원 활성화',
   QuotationCreated: '견적 생성', QuotationUpdated: '견적 변경', QuotationLineAdded: '견적 줄 추가', QuotationLineChanged: '견적 줄 변경',
   QuotationLineRemoved: '견적 줄 삭제', QuotationSent: '견적 발송', QuotationSigned: '견적 서명',

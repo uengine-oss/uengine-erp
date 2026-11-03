@@ -451,6 +451,27 @@ describe('undoing, and the closed period', () => {
     } finally { await lockCase.close() }
   })
 
+  test('a purchase inside the lock does not hold back undoing a later run, and undoing the purchase itself is refused', async () => {
+    const k = await company({ modules: ['assets', 'accounting'] })
+    try {
+      // 120,000 at 2 years from 2024-01, bought with a purchase entry. One run reaches the end of its plan, 119,000.
+      const a = await asset(k, { name: '잠긴 구입', acquisition_date: '2024-01-10', cost: 120000, life_years: 2, counter_account_id: await seed(k, '미지급금') })
+      await k.settle()
+      await k.admin('company', '00000000-0000-0000-0000-000000000001', 'update', { lock_date_all: '2025-12-31' })
+      const r = await run(k, '2026-04-30')
+      assert.equal(r.state.total, 119000)
+      await k.settle()
+      assert.equal((await k.rec(a.id)).status, 'fully')
+      const plan = await read(k, 'erp_rollback_preview', 'correlation', JSON.stringify({ correlation_id: r.correlation_id }))
+      assert.deepEqual(plan.blocked, [], 'finished to active is no reason to look at the purchase date')
+      await k.db.asUser(k.adminId, 'select public.erp_rollback_apply($1, $2, $3, $4, $5)', ['correlation', JSON.stringify({ correlation_id: r.correlation_id }), plan.hash, true, '시험'])
+      assert.equal((await k.rec(a.id)).status, 'active')
+      await k.settle()
+      const back = await read(k, 'erp_rollback_preview', 'correlation', JSON.stringify({ correlation_id: a.correlation_id }))
+      assert.ok(back.blocked.length > 0, 'the entry dated 2024 is inside the lock')
+    } finally { await k.close() }
+  })
+
   test('a company with no books still locks and undoes', async () => {
     const k = await company({ modules: ['assets'] })
     try {

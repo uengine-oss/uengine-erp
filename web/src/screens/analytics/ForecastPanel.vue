@@ -2,6 +2,7 @@
 // Forecasts: each shows its result, its 80% interval and what it rests on. The model decides whether it may answer.
 import { computed, ref, watch } from 'vue'
 import { ledger, runOnLedger, useModelRun } from '../../lib/analytics'
+import type { DepreciationOutcome } from '../../lib/forecast/assets.ts'
 import type { CashOutcome } from '../../lib/forecast/cash.ts'
 import type { DemandOutcome } from '../../lib/forecast/forecast.ts'
 import type { LeadOutcome } from '../../lib/forecast/lead.ts'
@@ -20,13 +21,14 @@ const props = defineProps<{ id: ModelId }>()
 const { result, running, seconds, error, run, clear } = useModelRun<any>(() => props.id)
 
 const days = ref(props.id === 'stockout_risk' ? 30 : props.id === 'reorder_plan' ? 60 : 92)
-const months = ref(3)
+const months = ref(props.id === 'depreciation_outlook' ? 12 : 3)
 const cover = ref(30)
 const DAYS = computed(() => (props.id === 'stockout_risk' ? [14, 30, 60] : props.id === 'reorder_plan' ? [30, 60, 92] : [30, 60, 92, 180]))
 
 function input(): object {
   switch (props.id) {
     case 'pnl_outlook': return { months: months.value }
+    case 'depreciation_outlook': return { months: months.value }
     case 'lead_time': return {}
     case 'reorder_plan': return { days: days.value, cover_days: cover.value }
     default: return { days: days.value }
@@ -38,7 +40,9 @@ runOnLedger(go)
 watch(() => timeView.at, clear)
 watch([days, months, cover], go)
 
-const hasDays = computed(() => !['lead_time', 'pnl_outlook'].includes(props.id))
+const hasDays = computed(() => !['lead_time', 'pnl_outlook', 'depreciation_outlook'].includes(props.id))
+const hasMonths = computed(() => ['pnl_outlook', 'depreciation_outlook'].includes(props.id))
+const MONTHS = computed(() => (props.id === 'depreciation_outlook' ? [6, 12, 24] : [1, 3, 6]))
 const warehouseName = (id: string | null) => ledger.meta?.warehouses.find((w) => w.id === id)?.name ?? id ?? '-'
 
 // Vendors are known here by id only.
@@ -54,6 +58,8 @@ const lead = computed(() => (props.id === 'lead_time' ? (result.value?.result as
 const reorder = computed(() => (props.id === 'reorder_plan' ? (result.value?.result as { rows: ReorderRow[] } | null) : null))
 const cash = computed(() => (props.id === 'cash_in' ? (result.value?.result as CashOutcome | null) : null))
 const pnl = computed(() => (props.id === 'pnl_outlook' ? (result.value?.result as PnlOutcome | null) : null))
+const outlook = computed(() => (props.id === 'depreciation_outlook' ? (result.value?.result as DepreciationOutcome | null) : null))
+const outlookColumns = computed(() => (outlook.value?.months ?? []).map((m) => ({ key: m.month, label: m.month.slice(2), band: m.band })))
 const cashColumns = computed(() => (cash.value?.weekly ?? []).map((b, i) => ({ key: String(i), label: `${i + 1}주`, band: b })))
 const pnlColumns = computed(() => (pnl.value?.months ?? []).map((m) => ({ key: m.month, label: m.month, band: m.profit })))
 const onTime = (v: number | null) => (v === null ? '-' : fmtPercent(v))
@@ -61,15 +67,15 @@ const onTime = (v: number | null) => (v === null ? '-' : fmtPercent(v))
 
 <template>
   <div class="panel-stack" data-testid="forecast-panel">
-    <div v-if="hasDays || id === 'pnl_outlook'" class="controls">
+    <div v-if="hasDays || hasMonths" class="controls">
       <label v-if="hasDays" class="field-inline">앞으로
         <select v-model.number="days" class="select" data-testid="forecast-days"><option v-for="d in DAYS" :key="d" :value="d">{{ d }}일</option></select>
       </label>
       <label v-if="id === 'reorder_plan'" class="field-inline">확보할 기간
         <select v-model.number="cover" class="select" data-testid="forecast-cover"><option v-for="d in [14, 30, 60]" :key="d" :value="d">{{ d }}일</option></select>
       </label>
-      <label v-if="id === 'pnl_outlook'" class="field-inline">앞으로
-        <select v-model.number="months" class="select" data-testid="forecast-months"><option v-for="m in [1, 3, 6]" :key="m" :value="m">{{ m }}개월</option></select>
+      <label v-if="hasMonths" class="field-inline">앞으로
+        <select v-model.number="months" class="select" data-testid="forecast-months"><option v-for="m in MONTHS" :key="m" :value="m">{{ m }}개월</option></select>
       </label>
     </div>
 
@@ -148,6 +154,35 @@ const onTime = (v: number | null) => (v === null ? '-' : fmtPercent(v))
           <h2>주별 입금 (막대는 80% 구간, 가로선은 중앙값)</h2>
           <ColumnChart :rows="cashColumns" :format="fmtMoneyPlain" description="주별 입금 예측의 80% 구간" />
         </section>
+      </template>
+
+      <!-- Depreciation -->
+      <template v-else-if="outlook">
+        <dl class="tiles" data-testid="outlook-totals">
+          <div><dt>앞으로 {{ outlook.months.length }}개월 감가상각비 (80% 구간)</dt><dd>{{ bandText(outlook.total, fmtMoneyPlain) }}</dd><small>새로 살 자산까지 넣은 값</small></div>
+          <div><dt>지금 있는 자산만</dt><dd data-testid="outlook-scheduled">{{ moneyWithUnit(outlook.scheduled_total) }}</dd><small>처분하지 않으면 이대로입니다</small></div>
+          <div><dt>자산 이력</dt><dd>{{ outlook.history_months }}개월</dd><small>등록 {{ outlook.assets }}건, 그중 새로 산 것 {{ outlook.purchases }}건</small></div>
+        </dl>
+        <section class="chart-box">
+          <h2>월별 감가상각비 (막대는 80% 구간, 가로선은 중앙값)</h2>
+          <ColumnChart :rows="outlookColumns" :format="fmtMoneyPlain" description="월별 감가상각비 전망의 80% 구간" />
+        </section>
+        <div class="tbl-wrap">
+          <table class="tbl" data-testid="outlook-months">
+            <thead><tr><th>월</th><th class="num">지금 있는 자산</th><th class="num">P10</th><th class="num">P50</th><th class="num">P90</th></tr></thead>
+            <tbody><tr v-for="m in outlook.months" :key="m.month" data-testid="outlook-month"><td>{{ m.month }}</td><td class="num">{{ fmtMoneyPlain(m.scheduled) }}</td><td class="num">{{ fmtMoneyPlain(m.band.p10) }}</td><td class="num">{{ fmtMoneyPlain(m.band.p50) }}</td><td class="num">{{ fmtMoneyPlain(m.band.p90) }}</td></tr></tbody>
+          </table>
+        </div>
+        <div class="tbl-wrap">
+          <p class="small dim cap">이 기간 안에 상각이 끝나는 자산입니다. 교체를 검토할 때 보세요. 언제 바꿀지는 계산하지 않습니다.</p>
+          <table class="tbl" data-testid="outlook-ending">
+            <thead><tr><th>자산</th><th>번호</th><th>상각 끝나는 달</th><th class="num">취득가액</th></tr></thead>
+            <tbody>
+              <tr v-for="a in outlook.ending" :key="a.asset_id" data-testid="outlook-ending-row"><td>{{ a.name }}</td><td>{{ a.number }}</td><td>{{ a.last_month }}</td><td class="num">{{ fmtMoneyPlain(a.cost) }}</td></tr>
+              <tr v-if="!outlook.ending.length"><td colspan="4" class="muted">이 기간 안에 상각이 끝나는 자산이 없습니다.</td></tr>
+            </tbody>
+          </table>
+        </div>
       </template>
 
       <!-- Profit -->

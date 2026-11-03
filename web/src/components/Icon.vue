@@ -9,6 +9,7 @@ const PATHS: Record<string, string> = {
   inventory: 'M3.5 8L12 3.5 20.5 8v8L12 20.5 3.5 16zM3.5 8L12 12.5 20.5 8M12 12.5v8',
   invoicing: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9.5 8l1.2 5 1.3-3.5 1.3 3.5 1.2-5M9 10.5h6',
   accounting: 'M5 3h14v18H5zM8.5 7h7M8.5 11h7M8.5 15h3',
+  assets: 'M3 21h18M5 21V10l7-5 7 5v11M10 21v-6h4v6',
   master: 'M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
   analytics: 'M4 20h16M7 20v-7M12 20V5M17 20v-10',
   events: 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01',

@@ -346,7 +346,9 @@ begin
     ), shown as (select * from docs where date between from_ and to_ and (p_kind is null or kind = p_kind))
     select jsonb_build_object('from', from_, 'to', to_, 'prior_from', pf, 'prior_to', pt,
       'rows', coalesce((select jsonb_agg(jsonb_build_object('date', s.date, 'number', s.d ->> 'number', 'kind', s.kind, 'move_type', s.d ->> 'move_type',
-          'document_id', s.document_id, 'partner_id', s.d ->> 'partner_id', 'partner_name', s.d ->> 'partner_name', 'evidence_type', s.d ->> 'evidence_type',
+          'document_id', s.document_id, 'partner_id', s.d ->> 'partner_id', 'partner_name', s.d ->> 'partner_name',
+          -- Invoicing may say what voucher a document rests on, as a whole object or a plain field.
+          'evidence_type', coalesce(s.d -> 'evidence' ->> 'type', s.d -> 'evidence' ->> 'evidence_type', s.d ->> 'evidence_type'),
           'untaxed', s.sign_ * erp.num(s.d -> 'amount_untaxed'), 'tax', s.sign_ * erp.num(s.d -> 'amount_tax'), 'total', s.sign_ * erp.num(s.d -> 'amount_total'))
           order by s.date, s.d ->> 'number') from shown s), '[]'::jsonb),
       'totals', (select jsonb_object_agg(k.kind, jsonb_build_object(

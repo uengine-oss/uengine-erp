@@ -571,7 +571,7 @@ begin
   -- By accounting date, not when the entry was recorded: books turned on late are rebuilt all at once.
   select count(distinct date_trunc('month', d)), min(d)::date into gl_months, gl_first
     from (select public.erp_biz_day(coalesce(e.data -> 'effects' -> 'gl' -> 0 ->> 'date', e.data ->> 'date'), e.occurred_at, tz) as d
-            from public.erp_events e where (e.data -> 'effects') ? 'gl' and e.occurred_at <= asof) x;
+            from public.erp_events e where (e.data -> 'effects') ? 'gl' and e.occurred_at <= asof and e.stream_type <> 'fiscal_close') x;
 
   -- How long this company has been buying assets is what says anything about the ones it has not bought yet.
   select min((e.data ->> 'acquisition_date')::date) into asset_first

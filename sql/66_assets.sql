@@ -321,17 +321,13 @@ begin
   return erp.asset_decide(p) || '{"ready": true}'::jsonb;
 end $$;
 
+-- A rollback changes an asset's state for more than one reason: a run undone can take it from finished back to active,
+-- and the purchase date has nothing to say about that. Only the disposal is dated on the asset itself. The purchase
+-- entry is held by the ledger's own check on the amounts, when there are books at all.
 create or replace function erp.asset_lock_problem(p_state jsonb) returns text
-language plpgsql stable as $$
-begin
-  if p_state ->> 'disposed_date' is not null then
-    return erp.lock_problem((p_state ->> 'disposed_date')::date, array[]::text[], coalesce(p_state ->> 'name', '자산'));
-  end if;
-  if p_state ->> 'counter_account_id' is not null and p_state ->> 'state' <> 'draft' then
-    return erp.lock_problem((p_state ->> 'acquisition_date')::date, array[]::text[], coalesce(p_state ->> 'name', '자산'));
-  end if;
-  return null;
-end $$;
+language sql stable as $$
+  select erp.lock_problem((p_state ->> 'disposed_date')::date, array[]::text[], coalesce(p_state ->> 'name', '자산'))
+$$;
 
 create or replace function erp.asset_run_lock_problem(p_state jsonb) returns text
 language sql stable as $$
