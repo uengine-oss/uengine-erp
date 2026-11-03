@@ -15,6 +15,7 @@
     "test:e2e": "npm --prefix web run build && playwright test -c e2e/playwright.config.mjs"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@playwright/test": "^1.64.1",
     "pg": "^8.13.1"
   }

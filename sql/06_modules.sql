@@ -115,13 +115,15 @@ declare
   m erp.modules;
   s erp.subscriptions;
   stream uuid;
-  opts jsonb := coalesce(p_p -> 'options', '{}'::jsonb);
+  opts jsonb;
   h record;
   first_time boolean;
 begin
   select * into m from erp.modules where id = mid for update;
   if not found then perform erp.fail('ERP_NOT_FOUND', format('알 수 없는 모듈입니다: %s', mid)); end if;
   stream := erp.module_stream(mid);
+  -- Turning a module back on without restating its options must not lose them.
+  opts := coalesce(p_p -> 'options', m.options, '{}'::jsonb);
   case p_command
     when 'enable' then
       if m.enabled then return stream; end if;

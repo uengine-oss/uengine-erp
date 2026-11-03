@@ -174,7 +174,8 @@ begin
 
     if not coalesce((doc ->> 'revertible')::boolean, true) then
       blocked := blocked || jsonb_build_object('id', r.stream_id, 'type', r.stream_type, 'name', r.name,
-        'reason', format('%s은(는) 되돌릴 수 없습니다', doc ->> 'label'));
+        'reason', case when p_kind = 'time' and r.stream_type = 'company' then '회사가 만들어지기 전 시점으로는 되돌릴 수 없습니다'
+                       else format('%s은(는) 되돌릴 수 없습니다', doc ->> 'label') end);
     elsif doc ? 'revert_blocked_states' and exists (
         select 1 from erp.events e where e.stream_id = r.stream_id and e.version >= r.first_version
            and (doc -> 'revert_blocked_states') ? (e.data -> 'set' ->> 'state')) then
