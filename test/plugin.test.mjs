@@ -65,7 +65,7 @@ test('rolling back the order takes the points along, across module lines', async
 test('a broken plugin does not stop anyone else', async () => {
   await c.db.query(`create or replace function erp_points.on_order(ev erp.events) returns void language plpgsql as $f$ begin raise exception '플러그인 고장'; end $f$`)
   const o = await confirmed(1000)
-  await c.db.query('select erp.bus_run(1000)')
+  await c.settle()
   assert.equal((await c.rec(o.id)).status, 'sale')
   const made = await c.admin('partner', null, 'create', { name: '다른 일은 계속된다' })
   assert.ok(made.id)

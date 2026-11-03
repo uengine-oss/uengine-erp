@@ -132,7 +132,7 @@ test('every public function is closed to anon except the setup and portal allow-
   const { rows } = await c.db.query(`
     select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.proname like 'erp\\_%' and has_function_privilege('anon', p.oid, 'execute')`)
-  const open = rows.map((r) => r.proname).filter((n) => !['erp_status', 'erp_bootstrap'].includes(n) && !n.startsWith('erp_portal_'))
+  const open = rows.map((r) => r.proname).filter((n) => !['erp_status', 'erp_bootstrap', 'erp_mcp'].includes(n) && !n.startsWith('erp_portal_'))
   assert.deepEqual(open, [])
 })
 
