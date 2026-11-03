@@ -79,7 +79,7 @@ language sql stable as $$
    where r.id = p_id and r.type = p_type and not r.deleted and erp.module_on(c.module)
 $$;
 
--- {id, label, label_en, description, sort, default_on, options:[{name,label,type}],
+-- {id, label, label_en, description, sort, default_on, requires:[id], options:[{name,label,type}],
 --  subscribes:[{name, handler, events:[..], replay, since_option}], publishes:[{event, fields:[..]}]}
 create or replace function erp.module_put(p_doc jsonb) returns void
 language plpgsql as $$
@@ -138,6 +138,7 @@ declare
   opts jsonb;
   h record;
   first_time boolean;
+  missing text;
 begin
   select * into m from erp.modules where id = mid for update;
   if not found then perform erp.fail('ERP_NOT_FOUND', format('알 수 없는 모듈입니다: %s', mid)); end if;
@@ -147,6 +148,13 @@ begin
   case p_command
     when 'enable' then
       if m.enabled then return stream; end if;
+      -- A module built on another one's events has nothing to read without it. Turning that one off later is allowed:
+      -- this one just hears nothing until it comes back.
+      missing := (select string_agg(coalesce(x.doc ->> 'label', r), ', ') from jsonb_array_elements_text(coalesce(m.doc -> 'requires', '[]'::jsonb)) r
+                    left join erp.modules x on x.id = r where not coalesce(x.enabled, false));
+      if missing is not null then
+        perform erp.fail('ERP_MODULE_REQUIRED', format('%s 모듈을 켜려면 %s 모듈이 먼저 켜져 있어야 합니다', m.doc ->> 'label', missing));
+      end if;
       first_time := m.enabled_at is null;
       -- An empty ledger has no horizon; selecting into the record still gives it fields, all null.
       select * into h from erp.bus_horizon();

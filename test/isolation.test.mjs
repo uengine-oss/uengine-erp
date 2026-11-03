@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { company, rejects } from './lib/harness.mjs'
 
-const FILES = { sales: '30_sales.sql', inventory: '40_inventory.sql', purchase: '50_purchase.sql', invoicing: ['60_invoicing.sql', '62_bank.sql'], accounting: '65_accounting.sql', hr: '67_hr.sql', analytics: '70_analytics.sql' }
+const FILES = { sales: '30_sales.sql', inventory: '40_inventory.sql', purchase: '50_purchase.sql', invoicing: ['60_invoicing.sql', '62_bank.sql'], accounting: '65_accounting.sql', hr: '67_hr.sql', mrp: '67g_mrp.sql', analytics: '70_analytics.sql' }
 const read = (f) => { try { return fs.readFileSync(new URL(`../sql/${f}`, import.meta.url), 'utf8') } catch { return null } }
 const stripComments = (s) => s.replace(/--.*$/gm, '')
 
@@ -50,6 +50,21 @@ test('nobody else reads or writes the private table, and its module neither hear
   }
   const hr = mods.find((m) => m.id === 'hr')
   assert.match(hr.src, /"subscribes": \[\]/)
+})
+
+test('manufacturing writes no stock document and no stock total: what it has to say is in its events', () => {
+  const mrp = mods.find((m) => m.id === 'mrp')
+  assert.ok(!/effects/.test(mrp.src), 'it states no stock effect')
+  for (const t of ['erp.quants', 'erp.gl_lines', 'erp_stock', 'erp.picking', 'erp.stock_']) assert.ok(!mrp.src.includes(t), t)
+  assert.deepEqual([...mrp.src.matchAll(/"requires":\s*\[([^\]]*)\]/g)].map((x) => x[1]), ['"inventory"'], 'the one thing it needs, it says')
+})
+
+test('stock does not know manufacturing: it hears three event names, and carries one word it does not read', () => {
+  const inv = mods.find((m) => m.id === 'inventory')
+  assert.ok(!/\bmrp\b/.test(inv.src), 'no mention of the module')
+  assert.ok(!/'make'/.test(inv.src), 'buying is the only word it knows')
+  assert.ok(!/manufacturing_order/.test(inv.src), 'nor of its document')
+  assert.deepEqual([...new Set([...inv.src.matchAll(/Manufacturing[A-Za-z]+/g)].map((x) => x[0]))].sort(), ['ManufacturingDone', 'ManufacturingPlanChanged', 'ManufacturingReversed'])
 })
 
 // Every combination of modules must run the work it has, with nothing stuck. 32 companies, each small.
@@ -176,3 +191,70 @@ for (const on of [['hr'], ['hr', 'sales'], ['hr', 'sales', 'inventory', 'purchas
     } finally { await k.close() }
   })
 }
+
+// Manufacturing needs stock and nothing else. These add it to some of the same companies, and do both kinds of work.
+for (const on of [['inventory', 'mrp'], ['inventory', 'mrp', 'sales'], ['inventory', 'mrp', 'purchase'], ['inventory', 'mrp', 'accounting'], ['inventory', 'mrp', 'invoicing', 'accounting'], ['hr', 'inventory', 'mrp', ...ALL.filter((m) => m !== 'inventory')]]) {
+  const has = (m) => on.includes(m)
+  test(`manufacturing beside [${on.filter((m) => !['mrp', 'inventory'].includes(m)).join(', ') || 'stock alone'}]: the goods move, nothing is stuck, and others see what they should`, async () => {
+    const k = await company({ modules: on })
+    try {
+      const partner = (await k.admin('partner', null, 'create', { name: '거래처' })).id
+      const f = await k.admin('product', null, 'create', { name: '완제품', list_price: 1000, standard_price: 300 })
+      const part = await k.admin('product', null, 'create', { name: '부품', standard_price: 100 })
+      const [fv, pv] = [f.state.variants[0].id, part.state.variants[0].id]
+      await k.admin('stock_adjustment', null, 'create', { variant_id: pv, counted_qty: 50, apply: true })
+      await k.admin('bom', null, 'create', { variant_id: fv, lines: [{ variant_id: pv, qty: 3 }] })
+      const mo = await k.admin('manufacturing_order', null, 'create', { variant_id: fv, qty: 5 })
+      await k.admin('manufacturing_order', mo.id, 'confirm', {})
+      await k.admin('manufacturing_order', mo.id, 'done', {})
+      await k.settle()
+      const on_hand = async (v) => Number((await k.db.query('select coalesce(sum(qty), 0) q from erp.quants where variant_id = $1', [v])).rows[0].q)
+      assert.equal(await on_hand(fv), 5); assert.equal(await on_hand(pv), 35)
+      assert.equal((await k.rec(mo.id)).state.stock_state, 'applied')
+      if (has('sales')) {
+        const o = await k.admin('sales_order', null, 'create', { partner_id: partner, lines: [{ variant_id: fv, qty: 2 }] })
+        await k.admin('sales_order', o.id, 'confirm', {})
+        await k.settle()
+        await k.admin('picking', (await picks(k, o.id))[0].id, 'validate', {})
+        await k.settle()
+        assert.equal((await k.rec(o.id)).state.delivery_status, 'full')
+        assert.equal(await on_hand(fv), 3)
+      }
+      if (has('purchase')) {
+        const po = await k.admin('purchase_order', null, 'create', { partner_id: partner, lines: [{ variant_id: pv, qty: 4, price_unit: 100 }] })
+        await k.admin('purchase_order', po.id, 'confirm', {})
+        await k.settle()
+        await k.admin('picking', (await picks(k, po.id))[0].id, 'validate', {})
+        await k.settle()
+        assert.equal(await on_hand(pv), 39)
+      }
+      if (has('accounting')) {
+        const tb = (await k.db.asUser(k.adminId, 'select public.erp_trial_balance() r')).rows[0].r
+        const sum = (f_) => tb.rows.reduce((a, r) => a + Number(r[f_] ?? 0), 0)
+        assert.equal(sum('debit'), sum('credit'))
+        assert.ok(tb.rows.some((r) => r.name === '재공품'))
+      } else {
+        assert.equal((await k.db.query(`select count(*)::int n from erp.gl_lines`)).rows[0].n, 0)
+      }
+      assert.equal((await k.settle()).failing, 0, JSON.stringify((await k.db.asUser(k.adminId, 'select public.erp_bus_status() r')).rows[0].r.filter((s) => s.failures)))
+      assert.deepEqual(await k.verifyProjection(), [])
+      const models = (await k.db.asUser(k.adminId, 'select public.erp_models() r')).rows[0].r
+      assert.equal(models.find((m) => m.id === 'mrp_lead_time').state, 'insufficient')
+      assert.equal(models.find((m) => m.id === 'demand_sales').state, has('sales') ? 'insufficient' : 'locked', 'a sales model answers as it did')
+    } finally { await k.close() }
+  })
+}
+
+test('with stock off, manufacturing cannot start; without manufacturing, stock works and the rule has no say in making', async () => {
+  const k = await company({ modules: ['inventory'] })
+  try {
+    await k.admin('module', null, 'disable', { id: 'inventory' })
+    await rejects(k.admin('module', null, 'enable', { id: 'mrp' }), 'ERP_MODULE_REQUIRED')
+    await k.admin('module', null, 'enable', { id: 'inventory' })
+    const p = await k.admin('product', null, 'create', { name: '제품', standard_price: 10 })
+    await rejects(k.admin('reorder_rule', null, 'create', { variant_id: p.state.variants[0].id, replenish_by: 'make' }), 'ERP_MODULE_OFF')
+    const r = await k.admin('reorder_rule', null, 'create', { variant_id: p.state.variants[0].id, min_qty: 1, max_qty: 2 })
+    assert.equal(r.state.replenish_by, undefined)
+    await rejects(k.admin('reorder_rule', r.id, 'replenish', {}), 'ERP_NO_VENDOR')
+  } finally { await k.close() }
+})

@@ -569,6 +569,169 @@ begin
       from m where m.first_ <= today);
 end $$;
 
+-- Orders finished and still standing, as the ledger says. Quantities are in each product's own unit. An order offset later did not
+-- happen for this purpose, and its offsetting stock moves are in the stock history either way.
+create or replace function public.erp_mrp_done_rows(p_as_of timestamptz, p_undone uuid[], p_units jsonb)
+returns table(stream_id uuid, variant_id text, name text, qty numeric, started timestamptz, finished timestamptz, components jsonb)
+language sql stable set search_path = public, pg_temp as $$
+  select e.stream_id, e.data ->> 'variant_id', e.data ->> 'name',
+         (e.data ->> 'qty_done')::numeric * coalesce((p_units -> 'uom' ->> (e.data ->> 'uom_id'))::numeric, 1) / coalesce((p_units -> 'product' ->> (e.data ->> 'product_id'))::numeric, 1),
+         coalesce(e.data ->> 'date_started', e.data ->> 'date_confirmed')::timestamptz,
+         (e.data ->> 'date_done')::timestamptz,
+         coalesce((select jsonb_agg(jsonb_build_object('variant_id', c ->> 'variant_id', 'name', c ->> 'name',
+                     'qty', coalesce((c ->> 'qty_done')::numeric, 0) * coalesce((p_units -> 'uom' ->> (c ->> 'uom_id'))::numeric, 1) / coalesce((p_units -> 'product' ->> (c ->> 'product_id'))::numeric, 1)))
+                     from jsonb_array_elements(e.data -> 'components') c), '[]'::jsonb)
+    from public.erp_events e
+   where e.event_type = 'ManufacturingDone' and e.occurred_at <= p_as_of and not e.correlation_id = any (p_undone)
+     and not exists (select 1 from public.erp_events r where r.stream_id = e.stream_id and r.seq > e.seq and r.event_type = 'ManufacturingReversed'
+                      and r.occurred_at <= p_as_of and not r.correlation_id = any (p_undone))
+$$;
+
+-- How long making took, from when work began (or was confirmed, if nobody said it began) to when it finished. Days, by product and overall.
+create or replace function public.erp_mrp_lead_times(p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare asof timestamptz := coalesce(p_as_of, now());
+begin
+  return (
+    with d as (
+      select variant_id, name, greatest(extract(epoch from finished - started) / 86400, 0)::numeric as days
+        from public.erp_mrp_done_rows(asof, public.erp_undone(asof), public.erp_unit_maps())
+    ), by_ as (
+      select variant_id, max(name) as name, count(*) as orders,
+             round(percentile_cont(0.1) within group (order by days)::numeric, 2) as p10,
+             round(percentile_cont(0.5) within group (order by days)::numeric, 2) as p50,
+             round(percentile_cont(0.9) within group (order by days)::numeric, 2) as p90
+        from d group by variant_id
+    )
+    select jsonb_build_object('as_of', asof, 'orders', (select count(*) from d),
+      'overall', (select jsonb_build_object('p10', round(percentile_cont(0.1) within group (order by days)::numeric, 2), 'p50', round(percentile_cont(0.5) within group (order by days)::numeric, 2),
+                    'p90', round(percentile_cont(0.9) within group (order by days)::numeric, 2)) from d),
+      'rows', coalesce((select jsonb_agg(to_jsonb(by_) order by by_.name) from by_), '[]'::jsonb)));
+end $$;
+
+-- For each part: what is on the shelf, what open orders have already spoken for, and how much a week has gone into making, over at
+-- most the last 26 weeks with the weeks nothing was made counted as nothing. Their spread is what the ranges below are made from.
+create or replace function public.erp_mrp_part_use(p_as_of timestamptz)
+returns table(variant_id text, name text, on_hand numeric, spoken_for numeric, week_mean numeric, week_sd numeric)
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  undone uuid[] := public.erp_undone(p_as_of);
+  units jsonb := public.erp_unit_maps();
+  locs jsonb := public.erp_location_map();
+begin
+  return query
+  with done as (select * from public.erp_mrp_done_rows(p_as_of, undone, units)),
+  parts as (select c ->> 'variant_id' as v, c ->> 'name' as nm, (c ->> 'qty')::numeric as q, d.finished from done d, jsonb_array_elements(d.components) c),
+  span as (select least(26, greatest(1, ceil(extract(epoch from p_as_of - min(finished)) / 604800)::int)) as n from done),
+  weekly as (
+    select p.v, g.w, coalesce(sum(x.q), 0) as q
+      from (select distinct v from parts) p
+     cross join span
+     cross join lateral generate_series(0, span.n - 1) g(w)
+      left join parts x on x.v = p.v and floor(extract(epoch from p_as_of - x.finished) / 604800)::int = g.w
+     group by 1, 2
+  ),
+  stats as (select v, avg(q) as mean, coalesce(stddev_samp(q), 0) as sd from weekly group by v),
+  plan as (
+    select distinct on (e.stream_id) e.data -> 'lines' as lines from public.erp_events e
+     where e.event_type = 'ManufacturingPlanChanged' and e.occurred_at <= p_as_of and not e.correlation_id = any (undone)
+     order by e.stream_id, e.seq desc
+  ),
+  claimed as (
+    select l ->> 'variant_id' as v, max(l ->> 'name') as nm, sum(-(l ->> 'qty')::numeric) as q from plan, jsonb_array_elements(plan.lines) l where (l ->> 'qty')::numeric < 0 group by 1
+  ),
+  ids as (select v, max(nm) as nm from (select v, nm from parts union all select v, nm from claimed) x group by v),
+  shelf as (
+    select r ->> 'variant_id' as v, sum((r ->> 'qty')::numeric) as q
+      from public.erp_events e, jsonb_array_elements(e.data -> 'effects' -> 'quant') r
+     where (e.data -> 'effects') ? 'quant' and e.occurred_at <= p_as_of
+       and r ->> 'variant_id' in (select v from ids)
+       and coalesce(locs -> (r ->> 'location_id') ->> 'usage', 'internal') = 'internal'
+     group by 1
+  )
+  select i.v, i.nm, coalesce(sh.q, 0), coalesce(cl.q, 0), coalesce(st.mean, 0), coalesce(st.sd, 0)
+    from ids i left join shelf sh on sh.v = i.v left join claimed cl on cl.v = i.v left join stats st on st.v = i.v;
+end $$;
+
+-- What making will use in the coming weeks: what open orders have spoken for, plus the usual weeks with an 80% range, and when today's shelf runs
+-- out at that rate. Purchases on their way are not counted, so this reads as "what we have will last until", not as a shortage forecast.
+create or replace function public.erp_mrp_materials(p_weeks int default 8, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  asof timestamptz := coalesce(p_as_of, now());
+  today date := (asof at time zone public.erp_analytics_tz())::date;
+  weeks int := coalesce(p_weeks, 8);
+begin
+  if weeks < 1 or weeks > 52 then raise exception 'ERP_INVALID: 전망 기간은 1주에서 52주까지입니다'; end if;
+  return jsonb_build_object('as_of', asof, 'weeks', weeks, 'rows', coalesce((
+    select jsonb_agg(jsonb_build_object('variant_id', u.variant_id, 'name', u.name, 'on_hand', u.on_hand, 'spoken_for', u.spoken_for, 'week_mean', round(u.week_mean, 2),
+             'expected', round(u.spoken_for + u.week_mean * weeks, 2),
+             'expected_low', round(u.spoken_for + greatest(u.week_mean * weeks - 1.28 * u.week_sd * sqrt(weeks::numeric), 0), 2),
+             'expected_high', round(u.spoken_for + u.week_mean * weeks + 1.28 * u.week_sd * sqrt(weeks::numeric), 2),
+             'left_after', round(u.on_hand - u.spoken_for - u.week_mean * weeks, 2),
+             'runs_out_on', case when u.on_hand - u.spoken_for <= 0 then today when u.week_mean > 0 then today + ceil((u.on_hand - u.spoken_for) / (u.week_mean / 7))::int end) order by u.name)
+      from public.erp_mrp_part_use(asof) u), '[]'::jsonb));
+end $$;
+
+-- Making more or less of one product, and when each part it takes would run out. How much of a part one unit takes is what orders really
+-- used, not what the bill says. The 80% range is how sure the weeks on record leave us of that product's rate: if it spans no change at all,
+-- this says the effect cannot be told. Purchases on their way are not counted. Nothing is written.
+create or replace function public.erp_mrp_whatif(p_variant_id uuid, p_factor numeric default 1.5, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  asof timestamptz := coalesce(p_as_of, now());
+  today date := (asof at time zone public.erp_analytics_tz())::date;
+  undone uuid[] := public.erp_undone(asof);
+  units jsonb := public.erp_unit_maps();
+  made numeric; mean_ numeric; sd_ numeric; low_ numeric; high_ numeric; n int; label_ text;
+  out_ jsonb;
+begin
+  if p_factor is null or p_factor < 0 or p_factor > 100 then raise exception 'ERP_INVALID: 생산량 배수는 0에서 100 사이여야 합니다'; end if;
+  with done as (select * from public.erp_mrp_done_rows(asof, undone, units)),
+  span as (select least(26, greatest(1, ceil(extract(epoch from asof - min(finished)) / 604800)::int)) as n from done),
+  weekly as (
+    select g.w, coalesce(sum(d.qty) filter (where d.variant_id = p_variant_id::text), 0) as q
+      from span cross join lateral generate_series(0, span.n - 1) g(w)
+      left join done d on floor(extract(epoch from asof - d.finished) / 604800)::int = g.w
+     group by g.w
+  )
+  select avg(q), coalesce(stddev_samp(q), 0), count(*) into mean_, sd_, n from weekly;
+  select sum(d.qty), max(d.name) into made, label_ from public.erp_mrp_done_rows(asof, undone, units) d where d.variant_id = p_variant_id::text;
+  if coalesce(made, 0) <= 0 then raise exception 'ERP_INVALID: 이 제품을 만든 기록이 없습니다'; end if;
+  low_ := greatest(mean_ - 1.28 * sd_ / sqrt(n::numeric), 0);
+  high_ := mean_ + 1.28 * sd_ / sqrt(n::numeric);
+
+  with done as (select * from public.erp_mrp_done_rows(asof, undone, units) d where d.variant_id = p_variant_id::text),
+  per as (select c ->> 'variant_id' as v, sum((c ->> 'qty')::numeric) / made as each_ from done d, jsonb_array_elements(d.components) c group by 1),
+  calc as (
+    select u.variant_id, u.name, u.on_hand, u.spoken_for, p.each_, u.week_mean,
+           greatest(u.on_hand - u.spoken_for, 0) as free_,
+           u.week_mean as use_base,
+           greatest(u.week_mean + (p_factor - 1) * mean_ * p.each_, 0) as use_new,
+           greatest(u.week_mean + (p_factor - 1) * low_ * p.each_, 0) as use_low,
+           greatest(u.week_mean + (p_factor - 1) * high_ * p.each_, 0) as use_high
+      from public.erp_mrp_part_use(asof) u join per p on p.v = u.variant_id
+  ),
+  days as (
+    select c.*,
+           case when use_base > 0 then free_ / (use_base / 7) end as d_base,
+           case when use_new > 0 then free_ / (use_new / 7) end as d_new,
+           case when use_low > 0 then free_ / (use_low / 7) end as d_low,
+           case when use_high > 0 then free_ / (use_high / 7) end as d_high
+      from calc c
+  )
+  select coalesce(jsonb_agg(jsonb_build_object('variant_id', variant_id, 'name', name, 'on_hand', on_hand, 'spoken_for', spoken_for, 'per_unit', round(each_, 4),
+           'week_use', round(use_base, 2), 'week_use_changed', round(use_new, 2),
+           'runs_out_on', case when d_base is not null then today + ceil(d_base)::int end, 'runs_out_changed', case when d_new is not null then today + ceil(d_new)::int end,
+           'effect_days', case when d_base is not null and d_new is not null then round(d_new - d_base, 1) end,
+           'effect_low', case when d_base is not null and d_low is not null and d_high is not null then round(least(d_low, d_high) - d_base, 1) end,
+           'effect_high', case when d_base is not null and d_low is not null and d_high is not null then round(greatest(d_low, d_high) - d_base, 1) end,
+           'distinguishable', d_base is not null and d_low is not null and d_high is not null and (round(least(d_low, d_high) - d_base, 1) > 0 or round(greatest(d_low, d_high) - d_base, 1) < 0)) order by name), '[]'::jsonb)
+    into out_ from days;
+  return jsonb_build_object('as_of', asof, 'variant_id', p_variant_id, 'name', label_, 'factor', p_factor, 'weeks', n,
+    'week_made', round(mean_, 2), 'week_made_low', round(low_, 2), 'week_made_high', round(high_, 2), 'week_made_changed', round(mean_ * p_factor, 2), 'parts', out_);
+end $$;
+
 -- Every model and its state. Thresholds come from experiments/whatif/results-thresholds.json and match web/src/lib/forecast/thresholds.ts.
 -- Modules on and off, and what counts as evidence, are all read from the ledger, using its indexes.
 create or replace function public.erp_models(p_as_of timestamptz default null) returns jsonb
@@ -578,7 +741,7 @@ declare
   asof timestamptz := coalesce(p_as_of, now());
   today date := ((asof at time zone tz) + interval '1 second')::date;
   spans jsonb := public.erp_module_spans(asof);
-  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계","hr":"인사"}';
+  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계","hr":"인사","mrp":"제조"}';
   readable text[] := erp.readable_types();
   m record;
   missing text[];
@@ -597,6 +760,7 @@ declare
   term_changes int;
   gl_months int; gl_first date;
   first_hire date; people_months int := 0;
+  made int := 0; first_made date;
   span jsonb;
   a date; b date;
 begin
@@ -640,6 +804,9 @@ begin
   if first_hire is not null and first_hire <= today then
     people_months := extract(year from age(today, first_hire))::int * 12 + extract(month from age(today, first_hire))::int;
   end if;
+  if spans ? 'mrp' then
+    select count(*), (min(d.finished) at time zone tz)::date into made, first_made from public.erp_mrp_done_rows(asof, public.erp_undone(asof), public.erp_unit_maps()) d;
+  end if;
 
   -- The drop what-if asks for stockouts. Counted only when stock history exists, because this one walks every stock change.
   stock_out_cases := 0;
@@ -663,7 +830,10 @@ begin
       ('cash_in', 'forecast', '입금 예측', array['invoicing'], true, array['account_move']),
       ('whatif_terms', 'whatif', '결제 조건 변경', array['invoicing'], true, array['account_move']),
       ('pnl_outlook', 'forecast', '손익 전망', array['sales', 'accounting'], false, array['sales_order', 'journal_entry']),
-      ('stat_headcount', 'stat', '인원 추이·입퇴사', array['hr'], false, array['employee'])
+      ('stat_headcount', 'stat', '인원 추이·입퇴사', array['hr'], false, array['employee']),
+      ('mrp_lead_time', 'forecast', '실측 제조 기간', array['mrp'], false, array['manufacturing_order']),
+      ('mrp_materials', 'forecast', '자재 소요 전망', array['mrp', 'inventory'], true, array['manufacturing_order', 'picking']),
+      ('whatif_production', 'whatif', '생산량 변경', array['mrp', 'inventory'], true, array['manufacturing_order', 'picking'])
     ) as t(id, kind, label, modules, needs_current, types)
   loop
     missing := '{}'; stale := '{}';
@@ -697,6 +867,7 @@ begin
         extra := jsonb_build_object('term_changes', term_changes, 'term_changes_need', 3);
       when 'pnl_outlook' then have := gl_months; need := 3; unit_ := '개월'; since_ := gl_first; msg := '전표';
       when 'stat_headcount' then have := people_months; need := 3; unit_ := '개월'; since_ := first_hire; msg := '인사 이력';
+      when 'mrp_lead_time', 'mrp_materials', 'whatif_production' then have := made; need := 10; unit_ := '건'; since_ := first_made; msg := '제조 완료';
     end case;
 
     ok := have >= need;

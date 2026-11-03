@@ -7,7 +7,7 @@ create or replace function public.erp_demo_begin() returns jsonb
 language plpgsql security definer set search_path = erp, extensions, pg_temp as $$
 begin
   if not erp.has_role(array['admin']) then perform erp.fail('ERP_FORBIDDEN', '관리자만 실행할 수 있습니다'); end if;
-  if exists (select 1 from erp.events where stream_type in ('sales_order', 'picking', 'purchase_order', 'account_move', 'employee')) then
+  if exists (select 1 from erp.events where stream_type in ('sales_order', 'picking', 'purchase_order', 'account_move', 'employee', 'manufacturing_order')) then
     perform erp.fail('ERP_INVALID', '이미 업무 데이터가 있는 회사에는 데모를 넣을 수 없습니다');
   end if;
   insert into erp.meta(key, value) values ('demo', 'true'), ('demo_open', 'true'), ('bus_paused', 'true')

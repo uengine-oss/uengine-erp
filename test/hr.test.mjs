@@ -930,7 +930,8 @@ const BEFORE = {
   short: { steps: 1664, sha256: '52c57e4c31161f78a8d03d70e037ccbf46c8099743ea8e61b4575f632f0589e5' },
 }
 const SHORT = { inventory: '2023-11-11', purchase: '2023-11-21', invoicing: '2023-12-01', accounting: '2023-12-11', end: '2024-01-10' }
-const isPeopleStep = (s) => ['employee', 'department'].includes(s.type)
+// The manufacturing story came later and marks its own steps. Leaving it out too is what "before this module" means now.
+const isPeopleStep = (s) => ['employee', 'department'].includes(s.type) || s.story === 'mrp'
   || (s.type === 'module' && s.payload?.id === 'hr') || (s.type === 'member' && s.payload?.name === '한인사')
 const hashOf = (stages, keep = () => true) => {
   const h = crypto.createHash('sha256')
@@ -943,15 +944,15 @@ test('the demo: leaving the people out gives back, step for step, the story the 
   assert.deepEqual(hashOf(SHORT), BEFORE.short, 'without the stage nothing changes at all')
   assert.deepEqual(hashOf(null, (s) => !isPeopleStep(s)), BEFORE.default, 'with it, every other step is untouched')
   const people = []
-  for (const batch of generate(1)) for (const s of batch) if (isPeopleStep(s)) people.push(s)
+  for (const batch of generate(1)) for (const s of batch) if (isPeopleStep(s) && s.story !== 'mrp') people.push(s)
   const hires = people.filter((s) => s.type === 'employee' && s.command === 'create')
   const leaves = people.filter((s) => s.command === 'leave')
   assert.equal(hires.length, 14)
   assert.equal(leaves.length, 2)
   assert.equal(hires.length - leaves.length, 12, 'twelve people work here at the end')
-  assert.deepEqual(people, (() => { const again = []; for (const b of generate(1)) for (const s of b) if (isPeopleStep(s)) again.push(s); return again })(), 'the same every time')
+  assert.deepEqual(people, (() => { const again = []; for (const b of generate(1)) for (const s of b) if (isPeopleStep(s) && s.story !== 'mrp') again.push(s); return again })(), 'the same every time')
   const other = []
-  for (const b of generate(2)) for (const s of b) if (isPeopleStep(s)) other.push(s)
+  for (const b of generate(2)) for (const s of b) if (isPeopleStep(s) && s.story !== 'mrp') other.push(s)
   assert.notDeepEqual(other.filter((s) => s.command === 'set_private').map((s) => s.payload.birth_date), people.filter((s) => s.command === 'set_private').map((s) => s.payload.birth_date), 'it has a random stream of its own')
 })
 
