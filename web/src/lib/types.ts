@@ -44,7 +44,7 @@ export interface Transition {
   params?: Field[]
 }
 
-export interface CommandDef { roles?: string[]; label?: string; params?: Field[]; danger?: boolean; confirm?: string }
+export interface CommandDef { hidden?: boolean; roles?: string[]; label?: string; params?: Field[]; danger?: boolean; confirm?: string }
 
 export interface CatalogDoc {
   type: string

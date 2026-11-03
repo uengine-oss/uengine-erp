@@ -35,6 +35,49 @@ const FIELDS: Field[] = [
 
 const canCopy = computed(() => hasRole(['accounting']) && !writeBlock.value && props.record?.status === 'draft')
 
+// Evidence often arrives after posting: the approval number comes from the tax office, and old documents have none.
+const canEvidence = computed(() => hasRole(['accounting']) && !writeBlock.value && props.record?.status === 'posted')
+const canTakeBack = computed(() => canEvidence.value && !isCredit.value && !props.record?.state.reversed_by)
+const moveField = (name: string): Field | undefined => catalogOf('account_move')?.fields.find((f) => f.name === name)
+async function writeEvidence() {
+  if (!props.record) return
+  let values: State = { evidence_type: props.record.state.evidence_type, approval_no: props.record.state.approval_no }
+  let error = ''
+  for (;;) {
+    const answer = await ask({ title: '증빙 적기', message: '게시된 문서의 금액은 그대로이고 신고서 칸만 따라갑니다.', error, values, confirmLabel: '저장',
+      fields: [moveField('evidence_type')!, moveField('approval_no')!] })
+    if (!answer) return
+    values = answer.values
+    try {
+      await sendCommand({ type: 'account_move', id: props.record.id, command: 'set_evidence', payload: { evidence_type: values.evidence_type || null, approval_no: values.approval_no || null } })
+      toast('증빙을 적었습니다.')
+      return
+    } catch (e) {
+      error = messageOf(e)
+    }
+  }
+}
+// The way back from a posted document: its payment is cancelled and its credit note posted in one command.
+async function takeBack() {
+  if (!props.record) return
+  let values: State = { amend_reason: 'input_error' }
+  let error = ''
+  for (;;) {
+    const answer = await ask({ title: '전표 취소', message: '이 문서의 입금을 취소하고 대변 메모를 게시합니다. 재고에 반영한 문서면 물건도 되돌립니다. 원래 기록은 지우지 않습니다. 수정세금계산서가 필요하면 매출은 홈택스에서 발급하고 매입은 공급자에게 요청하세요.', error, values, confirmLabel: '취소 처리', danger: true,
+      fields: [{ ...moveField('amend_reason')!, required: true }, { name: 'reason', label: '사유', type: 'text', required: true }] })
+    if (!answer) return
+    values = answer.values
+    try {
+      const res = await sendCommand({ type: 'account_move', id: props.record.id, command: 'compensate', payload: { amend_reason: values.amend_reason }, reason: String(values.reason) })
+      toast('대변 메모를 게시했습니다.')
+      await router.push({ name: 'record', params: { type: 'account_move', id: res.id } })
+      return
+    } catch (e) {
+      error = messageOf(e)
+    }
+  }
+}
+
 // Starts over from an earlier document of the same kind: its partner, terms and lines come along.
 async function copyFromPast() {
   let values: State = {}
@@ -88,6 +131,8 @@ async function pay() {
     <router-link v-if="origin" class="btn btn-sm btn-ghost" :to="{ name: 'record', params: { type: origin.type, id: origin.id } }" data-testid="invoice-origin">{{ origin.name }}</router-link>
     <button v-if="canPay" type="button" class="btn" data-testid="invoice-pay" @click="pay">{{ label }}</button>
     <button v-if="canCopy" type="button" class="btn" data-testid="invoice-copy" @click="copyFromPast">지난 문서에서</button>
+    <button v-if="canEvidence" type="button" class="btn" data-testid="invoice-evidence" @click="writeEvidence">증빙 적기</button>
+    <button v-if="canTakeBack" type="button" class="btn" data-testid="invoice-take-back" @click="takeBack">전표 취소</button>
     <router-link v-if="record" class="btn" :to="{ name: 'print', params: { type: 'account_move', id: record.id } }" data-testid="doc-print">출력</router-link>
   </span>
 </template>

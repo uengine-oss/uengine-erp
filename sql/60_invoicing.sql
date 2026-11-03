@@ -150,9 +150,9 @@ select erp.catalog_put('{
         {"value": "local_lc", "label": "내국신용장 사후 개설"}, {"value": "wrong_entry", "label": "필요적 기재사항 착오"}, {"value": "wrong_other", "label": "필요적 기재사항 착오 외"},
         {"value": "double_issued", "label": "착오로 이중 발급"}, {"value": "not_taxable", "label": "면세 등 발급 대상 아님"}, {"value": "wrong_rate", "label": "세율 착오"},
         {"value": "input_error", "label": "입력 실수(수정 발행 아님)"}]}]},
-    "compensate": {"roles": ["accounting"], "label": "대변 메모 게시", "params": [
+    "compensate": {"roles": ["accounting"], "label": "대변 메모 게시", "hidden": true, "params": [
       {"name": "amend_reason", "label": "수정 사유", "type": "text"}, {"name": "date", "label": "일자", "type": "date"}, {"name": "reason", "label": "사유", "type": "text"}]},
-    "set_evidence": {"roles": ["accounting"], "label": "증빙 적기", "params": [
+    "set_evidence": {"roles": ["accounting"], "label": "증빙 적기", "hidden": true, "params": [
       {"name": "evidence_type", "label": "증빙", "type": "text"}, {"name": "approval_no", "label": "승인번호", "type": "text"},
       {"name": "non_deduct_reason", "label": "불공제 사유", "type": "text"}, {"name": "card_kind", "label": "카드 구분", "type": "text"}]},
     "debit_note": {"roles": ["accounting"], "label": "차변 메모", "params": [

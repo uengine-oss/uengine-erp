@@ -465,6 +465,8 @@ declare
   dup jsonb;
   problems jsonb;
   norm text;
+  supply numeric;
+  tax_ numeric;
   out_ jsonb := '[]'::jsonb;
 begin
   perform erp.require_module('invoicing');
@@ -476,8 +478,17 @@ begin
     party := erp.vch_find_partner(rw ->> 'partner_tax_id', rw ->> 'partner_name');
     pid := nullif(party ->> 'id', '')::uuid;
     if erp.inv_calendar_date(rw ->> 'date') is null then problems := problems || '"날짜를 읽을 수 없습니다"'::jsonb; end if;
-    if erp.num(rw -> 'supply', null) is null then problems := problems || '"공급가액을 읽을 수 없습니다"'::jsonb; end if;
-    total := erp.num(rw -> 'supply') + erp.num(rw -> 'tax');
+    supply := erp.num(rw -> 'supply', null);
+    tax_ := erp.num(rw -> 'tax', null);
+    -- A card or receipt file often gives only the amount paid: 공급대가 ÷ 1.1 is the tax office's own answer for that.
+    if supply is null and erp.num(rw -> 'total', null) is not null then
+      total := erp.num(rw -> 'total');
+      if p_evidence in ('other_receipt', 'none', 'exempt_invoice') then supply := total; tax_ := 0;
+      else supply := erp.money(total / 1.1); tax_ := total - supply; end if;
+    end if;
+    if supply is null then problems := problems || '"공급가액을 읽을 수 없습니다"'::jsonb; end if;
+    tax_ := coalesce(tax_, 0);
+    total := coalesce(supply, 0) + tax_;
     norm := erp.vch_norm_approval(rw ->> 'approval_no');
     key_ := coalesce(norm, concat_ws('|', erp.vch_digits(rw ->> 'partner_tax_id'), rw ->> 'partner_name', rw ->> 'date', total::text));
     dup := null;
@@ -493,7 +504,7 @@ begin
     out_ := out_ || jsonb_strip_nulls(jsonb_build_object('row', i, 'partner_id', pid, 'partner_by', party -> 'by',
       'new_partner', case when pid is null then jsonb_strip_nulls(jsonb_build_object('name', rw -> 'partner_name', 'tax_id', rw -> 'partner_tax_id')) end,
       'duplicate_of', dup, 'suggested_account_id', case when pid is not null then erp.vch_last_account(pid, p_move_type) end,
-      'total', total, 'problems', case when jsonb_array_length(problems) > 0 then problems end));
+      'supply', supply, 'tax', tax_, 'total', total, 'problems', case when jsonb_array_length(problems) > 0 then problems end));
   end loop;
   return jsonb_build_object('move_type', p_move_type, 'evidence_type', p_evidence, 'rows', out_);
 end $$;

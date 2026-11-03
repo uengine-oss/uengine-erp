@@ -453,6 +453,7 @@ test('a file becomes candidates: what is already there, who is new, and what was
     { date: '2026-05-30', partner_name: '다르게 적은 이름', partner_tax_id: '1234567890', supply: 200000, tax: 20000, approval_no: 'F-2', item: '자재' },
     { date: '2026-05-30', partner_name: '한빛부품', supply: 300000, tax: 30000, approval_no: 'F-2', item: '자재' },
     { date: '어제', partner_name: '한빛부품', supply: 'abc', approval_no: 'F-3' },
+    { date: '2026-05-30', partner_name: '한빛부품', total: 1100, approval_no: 'F-4' },
   ]
   const r = await q(c.adminId, 'select public.erp_voucher_candidates($1, $2, $3) r', ['in_invoice', 'tax_invoice', JSON.stringify(rows)])
   assert.deepEqual(r.rows[0].new_partner, { name: '새 공급사', tax_id: '333-44-55555' })
@@ -460,6 +461,7 @@ test('a file becomes candidates: what is already there, who is new, and what was
   assert.equal(r.rows[2].partner_id, vendor); assert.equal(r.rows[2].partner_by, 'name')
   assert.equal(r.rows[2].duplicate_of.by, 'same_file')
   assert.equal(r.rows[3].problems.length, 2)
+  assert.deepEqual([Number(r.rows[4].supply), Number(r.rows[4].tax)], [1000, 100], 'only the amount paid: 공급대가 ÷ 1.1')
   assert.equal((await c.db.query('select max(seq) as n from erp.events')).rows[0].n, seq, 'reading writes nothing')
 
   // Commit through the shared import: every row is the same command a screen sends.
