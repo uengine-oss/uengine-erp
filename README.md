@@ -7,7 +7,7 @@
 ## 시작하기
 
 1. [Supabase](https://supabase.com) 프로젝트를 만듭니다. 무료 플랜으로 충분합니다.
-2. 앱을 열고 프로젝트 주소와 공개 키를 넣습니다.
+2. [앱](https://uengine-oss.github.io/uengine-erp/)을 열고 프로젝트 주소와 공개 키를 넣습니다.
 3. 화면이 주는 설치 SQL 을 SQL Editor 에 붙여 넣어 실행합니다.
 4. 회사를 만듭니다. 이때 판매 모듈이 켜집니다.
 
