@@ -194,6 +194,21 @@ test('rollback before delivery: the undone event is skipped, not delivered', asy
   assert.equal((await sub('pts.confirm')).failures, 0)
 })
 
+test('rolling back the rollback before delivery: the event stands again and is delivered', async () => {
+  const o = await order()
+  const conf = await c.admin('t_order', o.id, 'confirm', {})
+  const undo = async (corr) => {
+    const plan = (await c.db.asUser(c.adminId, 'select public.erp_rollback_preview($1, $2) as p', ['correlation', JSON.stringify({ correlation_id: corr })])).rows[0].p
+    return (await c.db.asUser(c.adminId, 'select public.erp_rollback_apply($1, $2, $3, $4, $5) as r', ['correlation', JSON.stringify({ correlation_id: corr }), plan.hash, true, '시험'])).rows[0].r
+  }
+  const first = await undo(conf.correlation_id)
+  assert.equal((await c.rec(o.id)).status, 'draft')
+  await undo(first.correlation_id)
+  assert.equal((await c.rec(o.id)).status, 'sale')
+  await tick()
+  assert.equal(await n(`select count(*)::int n from erp.records where type = 'x_points' and state ->> 'order_id' = $1 and not deleted`, [o.id]), 1)
+})
+
 test('off and on again: events in between wait by default, or can be skipped', async () => {
   await c.admin('module', null, 'disable', { id: 'a' })
   const during = await order()
@@ -262,4 +277,24 @@ test('an app older than the database supports is refused', async () => {
   await rejects(c.db.asUser(c.adminId, `select public.erp_command('t_b', null, 'create', '{"name":"옛 앱"}', null, null, 'test', null, null, '0.0.1')`), 'ERP_APP_OUTDATED')
   const s = (await c.db.asUser(null, 'select public.erp_status() r', [], 'anon')).rows[0].r
   assert.ok(s.min_app_version)
+})
+
+test('a module can be turned on while the ledger holds nothing settled yet', async () => {
+  const fresh = await company({ modules: [] })
+  try {
+    await fresh.db.query(`create schema p; create function p.h(ev erp.events) returns void language sql as $f$ select 1 $f$;
+      select erp.module_put('{"id":"m","label":"모듈","subscribes":[{"name":"m.x","handler":"p.h","events":["X"]}]}'::jsonb)`)
+    await fresh.db.query(`begin; select erp.modules_bootstrap('"all"'); commit`)
+    assert.equal((await fresh.db.query(`select enabled from erp.modules where id = 'm'`)).rows[0].enabled, true)
+  } finally { await fresh.close() }
+})
+
+test('seeds can fill fields of a module that is off, and users cannot', async () => {
+  const fresh = await company({ modules: [] })
+  try {
+    await fresh.db.query(`select erp.catalog_tag_fields('tag', 'off_module', array['color']); select erp.module_put('{"id":"off_module","label":"꺼짐"}'::jsonb)`)
+    await rejects(fresh.admin('tag', null, 'create', { name: '사람', color: 'red' }), 'ERP_MODULE_OFF')
+    const seeded = (await fresh.db.query(`select set_config('erp.seeding', 'on', false), erp.validate('tag', '{"name":"시드","color":"red"}', true) v`)).rows[0].v
+    assert.equal(seeded.color, 'red')
+  } finally { await fresh.db.query(`select set_config('erp.seeding', '', false)`); await fresh.close() }
 })

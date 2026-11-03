@@ -45,23 +45,29 @@
 
 ## 청구가 내는 것
 
-줄 공통: `lines:[{line_id, origin_line_id, product_id, variant_id, name, qty, uom_id, price_unit, discount, subtotal, tax_amount, total, taxes:[{tax_id, name, amount, base}], is_downpayment, account_id}]`
+줄 공통: `lines:[{line_id, origin_line_id, product_id, variant_id, name, qty, uom_id, price_unit, discount, subtotal, tax_amount, total, taxes:[{tax_id, name, amount, base, account_id}], is_downpayment, downpayment_line_id, account_id}]`
 
 | 이벤트 | `data` 의 사실 |
 |---|---|
-| `InvoiceDrafted` | 초안이 생기거나 바뀔 때. `move_type, origin_type, origin_id, partner_id, lines` |
-| `InvoicePosted` | `move_type, number, origin_type, origin_id, partner_id, partner_name, region, date, due_date, currency, amount_untaxed, amount_tax, amount_total, reversal_of, lines` |
+| `InvoiceDrafted` | 초안이 생기거나 바뀔 때. `move_type, origin_type, origin_id, partner_id, reversal_of, lines` |
+| `InvoicePosted` | `move_type, number, origin_type, origin_id, partner_id, partner_name, region, date, invoice_date, due_date, installments, currency, amount_untaxed, amount_tax, amount_total, reversal_of, lines` |
 | `InvoiceResetToDraft` | `move_type, number, origin_type, origin_id, partner_id, lines` |
 | `InvoiceCancelled` | 초안 또는 게시 취소. `move_type, number, origin_type, origin_id, partner_id, lines` |
-| `PaymentPosted` | `payment_type, number, partner_id, amount, date, journal, allocations:[{move_id, amount}], unallocated, writeoff_amount, writeoff_account_id` |
-| `PaymentCancelled` | `payment_type, number, partner_id, amount, date, journal, allocations` |
-| `InvoicePaymentApplied` | 청구서 스트림. `payment_id, amount, residual, payment_state, partner_id, due_date, date` |
+| `PaymentPosted` | `payment_type, partner_type, number, partner_id, amount, date, journal, allocations:[{move_id, amount}], unallocated, writeoff_amount, writeoff_account_id, writeoff_label, early_discount, writeoff_taxes` |
+| `PaymentCancelled` | `payment_type, partner_type, number, partner_id, amount, date, journal, allocations` |
+| `InvoicePaymentApplied` | 청구서 스트림. `payment_id, credit_move_id, amount, residual, payment_state, partner_id, due_date, date`. 맞물림을 풀면 같은 이벤트가 음수 `amount` 로 나간다 |
 
 청구는 초안일 때부터 `qty` 를 알린다. 판매와 구매의 `qty_invoiced`·`qty_billed` 는 초안 시점에 움직인다.
 
 ### 선금
 
 청구가 `method: percentage|fixed` 로 만든 선금 청구서는 `InvoiceDrafted` 줄에 `is_downpayment: true`, `origin_line_id: null` 을 싣고 `line_id` 를 고정한다. 판매는 이 줄을 받아 주문에 `is_downpayment` 줄을 하나 더하되, `invoice_line_id` 로 중복을 막는다. 일반 청구서를 만들 때 청구는 `erp.peek` 로 주문의 선금 줄을 읽어 음수 줄(`origin_line_id` = 주문의 선금 줄)로 차감한다.
+
+## 회계가 내는 것
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `JournalEntryPosted` | 전표 스트림. 효과 `gl = [{account_id, partner_id, date, debit, credit}]`. 분석의 기간은 `occurred_at` 이 아니라 효과의 `date` 로 거른다(회계를 늦게 켜면 전표 시각은 다시 만든 시점이다) |
 
 ## 기초데이터가 내는 것
 

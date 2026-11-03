@@ -128,7 +128,8 @@ begin
     when 'enable' then
       if m.enabled then return stream; end if;
       first_time := m.enabled_at is null;
-      h := erp.bus_horizon();
+      -- An empty ledger has no horizon; selecting into the record still gives it fields, all null.
+      select * into h from erp.bus_horizon();
       for s in select * from erp.subscriptions where module = mid for update loop
         if first_time and s.since_option is not null and opts ? s.since_option then
           update erp.subscriptions set last_txid = '0', last_seq = 0, since = (opts ->> s.since_option)::timestamptz where name = s.name;
@@ -185,6 +186,32 @@ begin
   end loop;
 end $$;
 
+-- Correlations rolled back after this point and not restored since. Rolling back a rollback makes what it
+-- undid stand again, so a subscriber that had not reached those events must still receive them.
+create or replace function erp.undone_correlations(p_after bigint) returns text[]
+language plpgsql stable as $$
+declare
+  r record;
+  c text;
+  restored text[];
+  out_ text[] := '{}';
+begin
+  for r in
+    select e.correlation_id, min(e.seq) as first_seq, (array_agg(e.data -> 'reverted' -> 'correlations'))[1] as scope
+      from erp.events e where e.event_type = 'Reverted' and e.seq > p_after
+     group by e.correlation_id order by first_seq
+  loop
+    for c in select jsonb_array_elements_text(r.scope) loop
+      select array_agg(distinct x) into restored
+        from erp.events p, jsonb_array_elements_text(p.data -> 'reverted' -> 'correlations') x
+       where p.event_type = 'Reverted' and p.correlation_id::text = c;
+      if restored is not null then out_ := array(select unnest(out_) except select unnest(restored)); end if;
+      out_ := out_ || c;
+    end loop;
+  end loop;
+  return out_;
+end $$;
+
 -- Delivers what the subscriber has not seen, one event per subtransaction, so a failure undoes only that
 -- event's work and leaves the cursor on it. Returns how many events the handler accepted.
 create or replace function erp.drain(p_name text, p_batch int default 100) returns int
@@ -201,9 +228,7 @@ begin
   select * into s from erp.subscriptions where name = p_name and active for update skip locked;
   if not found then return 0; end if;
   -- A rollback that arrives before delivery means the event no longer stands.
-  select coalesce(array_agg(c), '{}') into undone
-    from erp.events r, jsonb_array_elements_text(r.data -> 'reverted' -> 'correlations') c
-   where r.event_type = 'Reverted' and r.seq > s.last_seq;
+  undone := erp.undone_correlations(s.last_seq);
 
   for ev in
     select * from erp.events e

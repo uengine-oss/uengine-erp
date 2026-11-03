@@ -457,7 +457,8 @@ begin
   for f in select * from jsonb_array_elements(d -> 'fields') loop
     k := f ->> 'name'; t := f ->> 'type';
     if coalesce((f ->> 'readonly')::boolean, false) then continue; end if;
-    if not erp.module_on(f ->> 'module') then
+    -- Seeds are written before any module is on and must be ready for whichever one the company turns on later.
+    if not erp.module_on(f ->> 'module') and current_setting('erp.seeding', true) is distinct from 'on' then
       if p_payload ? k then perform erp.fail('ERP_MODULE_OFF', format('%s 항목에 필요한 모듈이 꺼져 있습니다', f ->> 'label')); end if;
       continue;
     end if;
@@ -893,9 +894,11 @@ create or replace function erp.seed_defaults() returns void
 language plpgsql as $$
 declare f record;
 begin
+  perform set_config('erp.seeding', 'on', true);
   for f in select fn from erp.default_seeds order by sort, fn loop
     execute format('select %s()', f.fn);
   end loop;
+  perform set_config('erp.seeding', '', true);
 end $$;
 
 -- Members project into erp.members so role checks do not parse JSON on every command.
