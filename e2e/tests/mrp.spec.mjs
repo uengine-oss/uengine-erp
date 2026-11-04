@@ -363,7 +363,7 @@ test('S15-6. 되돌리면 재고도 함께 돌아가고, 완제품이 이미 팔
   await settled(admin, async () => (await onHand(ids.fan.variant)) === 0, '출고')
   await page.reload()
   await historyItem(page, '제조 완료').getByTestId('history-rollback-work').click()
-  await expect(page.getByTestId('rollback-blocked')).toContainText(`${FAN} 재고가 -2 로 음수가 됩니다`)
+  await expect(page.getByTestId('rollback-blocked')).toContainText(`${FAN} 재고가 음수가 됩니다(-2)`)
   await expect(page.getByTestId('rollback-apply')).toHaveCount(0)
   await shot(page, 'mrp-19-rollback-blocked')
   await page.getByTestId('rollback-cancel').click()

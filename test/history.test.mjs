@@ -13,7 +13,7 @@ const DOMAIN = `
   $f$;
   create function erp.t_stock_reset() returns void language sql as $f$ truncate erp.t_stock $f$;
   create function erp.t_stock_check(p_rows jsonb) returns jsonb language sql stable as $f$
-    select coalesce(jsonb_agg(format('%s 재고가 %s 로 음수가 됩니다', sku, after_)), '[]'::jsonb) from (
+    select coalesce(jsonb_agg(format('%s 재고가 음수가 됩니다(%s)', sku, after_)), '[]'::jsonb) from (
       select d.sku, s.on_hand + d.delta as after_
         from (select r ->> 'sku' as sku, sum(coalesce((r ->> 'on_hand')::numeric, 0)) as delta from jsonb_array_elements(p_rows) r group by 1) d
         join erp.t_stock s on s.sku = d.sku

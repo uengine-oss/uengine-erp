@@ -102,6 +102,7 @@ describe('whatif_price', () => {
     const a = r.result.assumed
     assert.equal(a.units.p50.toFixed(2), (r.result.units.p50 * Math.pow(1.1, -1.5)).toFixed(2))
     assert.ok(a.delta_revenue.p50 < 0, 'with -1.5 a rise loses revenue')
+    assert.ok(a.delta_revenue.p10 <= a.delta_revenue.p50 && a.delta_revenue.p50 <= a.delta_revenue.p90, 'a loss still reads low to high')
     assert.ok(r.warnings.some((w) => w.includes('가정')))
     assert.match(r.verdict.text, /가정/)
   })
