@@ -86,9 +86,13 @@ export function whatIfPrice(p: Panel, input: { variant_id: string; pct: number; 
     const k = Math.pow(1 + pct / 100, e)
     const uA = scaled(units, k)
     const r = scaled(uA, next), m = scaled(uA, next - cost)
-    const delta = (x: Band, y: Band): Band => ({ p10: x.p10 - y.p10, p50: x.p50 - y.p50, p90: x.p90 - y.p90 })
+    // Both sides move with the same units, so a loss is largest where volume is largest: the low end comes from the high run.
+    const delta = (x: Band, y: Band): Band => {
+      const a = x.p10 - y.p10, c = x.p90 - y.p90
+      return { p10: Math.min(a, c), p50: x.p50 - y.p50, p90: Math.max(a, c) }
+    }
     assumed = { elasticity: e, units: uA, revenue: r, margin: m, delta_revenue: delta(r, base.revenue), delta_margin: delta(m, base.margin) }
-    warnings.push(`탄력성 ${e}로 본 것은 기록에서 읽은 값이 아니라 입력한 가정입니다`)
+    warnings.push(`기록에서 읽은 값이 아니라 입력한 가정(탄력성 ${e})입니다`)
     const d = assumed.delta_margin.p50
     verdict = { code: d > 0 ? 'up' : d < 0 ? 'down' : 'indistinguishable', text: `가정(탄력성 ${e})대로면 이익 ${d >= 0 ? '증가' : '감소'}`, good: d > 0 }
   }

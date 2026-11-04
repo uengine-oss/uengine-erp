@@ -78,7 +78,7 @@ language sql as $$ truncate erp.quants $$;
 -- claim a receipt never happened after its goods already shipped.
 create or replace function erp.quant_check(p_rows jsonb) returns jsonb
 language sql stable as $$
-  select coalesce(jsonb_agg(format('%s 재고가 %s 로 음수가 됩니다', coalesce(v.name, d.variant_id::text), trim_scale(coalesce(q.qty, 0) + d.delta))), '[]'::jsonb)
+  select coalesce(jsonb_agg(format('%s 재고가 음수가 됩니다(%s)', coalesce(v.name, d.variant_id::text), trim_scale(coalesce(q.qty, 0) + d.delta))), '[]'::jsonb)
     from (select (r ->> 'variant_id')::uuid as variant_id, (r ->> 'location_id')::uuid as location_id, (r ->> 'lot_id')::uuid as lot_id,
                  sum(coalesce((r ->> 'qty')::numeric, 0)) as delta
             from jsonb_array_elements(p_rows) r group by 1, 2, 3) d
