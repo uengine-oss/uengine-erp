@@ -133,6 +133,25 @@
 | `OpportunityDeleted` | `number` |
 | `OpportunityPrivateChanged`, `OpportunityPrivateErased` | `opportunity_id, fields` / `opportunity_id, erased_at`. **값은 없다.** `sales`, `admin` 만 읽는다 |
 
+## 프로젝트가 내는 것
+
+프로젝트의 공통 사실: `number, name, stage, partner_id, partner_name, manager_id, date_start, date_end, origin_type, origin_id, origin_number`.
+작업의 공통 사실: `number, name, project_id, project_name, stage, planned_hours, deadline, employee_id, member_id, person_name, started_on, done_on, origin_line_id`.
+시간의 공통 사실: `task_id, task_name, project_id, project_name, employee_id, member_id, person_name, user_id, department_name, date, hours`. `stage` 는 그 이벤트 뒤의 단계다. 인사가 꺼져 있으면 `employee_id` 는 `null` 이다.
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `ProjectCreated`, `ProjectCancelled`, `ProjectOriginCancelled` | 프로젝트 공통 사실 |
+| `ProjectChanged` | `changed:{칸:{from, to}}` + 프로젝트 공통 사실 |
+| `ProjectDone` | `done_on` + 프로젝트 공통 사실 |
+| `ProjectReopened` | `was` + 프로젝트 공통 사실 |
+| `ProjectDeleted` | `number` |
+| `TaskCreated`, `TaskDeleted` | 작업 공통 사실 |
+| `TaskChanged` | `changed` + 작업 공통 사실 |
+| `TaskStageChanged` | `from, to` + 작업 공통 사실 |
+| `TimeLogged`, `TimeRemoved` | 시간 공통 사실 |
+| `TimeChanged` | `changed` + 시간 공통 사실 |
+
 ## 기초데이터가 내는 것
 
 | 이벤트 | `data` 의 사실 |
@@ -161,4 +180,5 @@
 | 인사 | 없음 | 아무 이벤트도 듣지 않는다 |
 | 경비 | 없음 | 아무 이벤트도 듣지 않는다. 직원은 명령을 처리하는 동안 `erp.peek` 로 읽는다 |
 | CRM | 없음 | 아무 이벤트도 듣지 않는다 |
+| 프로젝트 | `SalesOrderConfirmed`, `SalesOrderLineAdded`, `SalesOrderLineQtyChanged`, `SalesOrderCancelled` | 프로젝트를 요청하는 서비스 줄에서 프로젝트와 작업을 만들고 따라간다 |
 | 분석 | 원장 전체 | 구독하지 않고 직접 읽는다 |

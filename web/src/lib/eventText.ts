@@ -60,6 +60,8 @@ const EXACT: Record<string, string> = {
   ExpenseSubmitted: '경비 신청', ExpenseApproved: '경비 승인', ExpenseRefused: '경비 반려', ExpensePaid: '경비 지급', ExpenseCancelled: '경비 취소',
   OpportunityCreated: '영업 기회 등록', OpportunityChanged: '영업 기회 변경', OpportunityStageChanged: '단계 이동', OpportunityWon: '수주', OpportunityLost: '실주', OpportunityReopened: '다시 열림', OpportunityDeleted: '영업 기회 삭제',
   OpportunityPrivateChanged: '연락처 변경', OpportunityPrivateErased: '연락처 지움', QuotationFromOpportunity: '영업 기회에서 온 견적',
+  ProjectCreated: '프로젝트 생성', ProjectChanged: '프로젝트 변경', ProjectDone: '프로젝트 완료', ProjectCancelled: '프로젝트 취소', ProjectReopened: '프로젝트 다시 열림', ProjectDeleted: '프로젝트 삭제', ProjectOriginCancelled: '원본 주문 취소됨',
+  TaskCreated: '작업 생성', TaskChanged: '작업 변경', TaskStageChanged: '작업 단계 이동', TaskDeleted: '작업 삭제', TimeLogged: '시간 기록', TimeChanged: '시간 변경', TimeRemoved: '시간 지움',
   DepartmentCreated: '부서 생성', DepartmentChanged: '부서 변경', DepartmentArchived: '부서 보관', DepartmentUnarchived: '부서 보관 해제', DepartmentDeleted: '부서 삭제',
 }
 

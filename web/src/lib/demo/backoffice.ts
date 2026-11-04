@@ -92,3 +92,43 @@ export function crmSteps(seed: number, onDay: number, end: number, customers: nu
   }
   return out
 }
+
+const WORKERS = ['박영업', '이재고', '최구매', '정회계'] as const
+const TASKS = ['현장 확인', '설치', '시운전', '교육', '정리'] as const
+
+/**
+ * Projects from the day the module comes on, none of them from an order, so sales is not touched. People overrun their plans a little,
+ * which is what the effort model measures, and the last ones are still running for whoever opens the demo.
+ */
+export function projectSteps(seed: number, onDay: number, end: number, customers: number): Steps {
+  const r = rng(seed * 15485863 + 401)
+  const out: Steps = new Map()
+  const add = adder(out, end)
+  add(onDay, stepper(onDay, '08:35')('module', null, 'enable', { id: 'project' }))
+  let n = 0
+  for (let d = onDay + 1; d < end - 30; d += 12 + Math.floor(r() * 12)) {
+    const pid = uuid(`project:${seed}:${n++}`)
+    const length = 5 + Math.floor(r() * TASKS.length)
+    add(d, stepper(d, '08:50')('project', pid, 'create', { name: `공조 설비 납품 ${n}호`, partner_id: uuid(`customer:${Math.floor(r() * customers)}`), date_start: isoOf(d), date_end: isoOf(d + 18 + Math.floor(r() * 25)) }))
+    let day = d + 1
+    for (let i = 0; i < length; i++) {
+      const tid = uuid(`task:${pid}:${i}`)
+      const who = WORKERS[Math.floor(r() * WORKERS.length)]
+      const planned = 2 + Math.floor(r() * 7)
+      const actual = Math.round(planned * (0.8 + r() * 0.9) * 2) / 2
+      add(d, stepper(d, '08:55')('project_task', tid, 'create', { project_id: pid, name: TASKS[i % TASKS.length], planned_hours: planned, member_id: `$member:${who}` }))
+      add(day, stepper(day, '09:30')('project_task', tid, 'to_doing', {}, who))
+      let left = actual
+      let k = 0
+      while (left > 0) {
+        const hours = Math.min(left, 4)
+        add(day, stepper(day, '18:00')('time_entry', uuid(`time:${tid}:${k++}`), 'create', { task_id: tid, hours, date: isoOf(day), member_id: `$member:${who}` }, who))
+        left -= hours
+        day += 1
+      }
+      add(day - 1, stepper(day - 1, '18:30')('project_task', tid, 'to_done', {}, who))
+    }
+    if (day < end - 1) add(day, stepper(day, '19:00')('project', pid, 'finish', {}))
+  }
+  return out
+}

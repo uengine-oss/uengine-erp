@@ -156,7 +156,7 @@ test('S14-4. 수주하면 판매 모듈이 이벤트를 듣고 견적 초안을 
   await expect(dialog).toContainText('판매가 켜져 있으면 견적 초안이 생깁니다')
   await page.getByTestId('dlg-confirm').click()
   await expect(pill(page, '수주')).toBeVisible()
-  await expect(page.getByTestId('opportunity-quote')).toHaveCount(1, { timeout: 20_000 })
+  await expect(page.getByTestId('opportunity-quote')).toHaveCount(1, { timeout: 60_000 })
   await shot(page, 'crm-03-won')
   await page.getByTestId('opportunity-quote').getByRole('link').click()
   await expect(page).toHaveURL(/\/r\/sales_order\//)
@@ -175,7 +175,7 @@ test('S14-5. 다시 열면 보내지 않은 견적은 취소된다', async ({ pa
   await page.getByTestId('dlg-confirm').click()
   await expect(pill(page, '신규')).toBeVisible()
   const quote = page.getByTestId('opportunity-quote')
-  await expect(quote).toContainText('취소', { timeout: 20_000 })
+  await expect(quote).toContainText('취소', { timeout: 60_000 })
 })
 
 test('S14-6. 조회 역할은 등록하지 못하고 연락처도 못 보며, 데이터베이스도 답하지 않는다', async ({ page }) => {

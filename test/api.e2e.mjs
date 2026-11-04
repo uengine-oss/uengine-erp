@@ -2,6 +2,7 @@
 // Run after scripts/reset-local.mjs and install-local.mjs with SETUP_CODE set.
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import pg from 'pg'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -268,4 +269,92 @@ test('People over real HTTP: resources and tools appear by themselves, and priva
   const count = await rpc('erp_headcount', { p_on: '2025-03-04' })
   assert.equal(count.status, 200)
   assert.ok(!count.json.people.some((p) => p.id === id))
+})
+
+test('Back office over real HTTP: keys carry a member\'s rights, a paid claim is compensated, and a receipt goes through real storage', async () => {
+  const member = async (name, roles) => {
+    const email = `${name}-${stamp}@example.com`
+    const m = await rpc('erp_command', { p_type: 'member', p_id: null, p_command: 'create', p_payload: { name, email, password: PASS, roles } })
+    assert.equal(m.status, 200, JSON.stringify(m.json))
+    return { record: m.json.id, token: await login(email), key: (await rpc('erp_api_key_create', { p_member_id: m.json.id, p_label: name })).json.key }
+  }
+  const client = (m) => mcpClient({ Authorization: `Bearer ${KEY}`, 'x-erp-key': m.key })
+  const boss = await member('back-boss', ['accounting'])
+  const staff = await member('back-staff', ['sales'])
+  const noRole = await member('back-none', ['viewer'])
+  const d = await http('POST', 'erp_api_department', { body: { name: `백오피스-${stamp}` } })
+  const bossE = await http('POST', 'erp_api_employee', { body: { name: '백상사', hire_date: '2025-01-02', department_id: d.json[0].id, member_id: boss.record } })
+  await http('POST', 'erp_api_employee', { body: { name: '백직원', hire_date: '2025-01-02', department_id: d.json[0].id, member_id: staff.record, manager_id: bossE.json[0].id } })
+  const agentBoss = await client(boss)
+  const agentStaff = await client(staff)
+  const agentNone = await client(noRole)
+  const call = async (c, name, args) => JSON.parse(text(await c.callTool({ name, arguments: args })))
+  try {
+    const { tools } = await agentStaff.listTools()
+    assert.equal(tools.length, 4, 'the same four tools')
+    for (const t of ['expense', 'opportunity', 'project', 'project_task', 'time_entry']) assert.ok(tools[0].inputSchema.properties.type.enum.includes(t), t)
+
+    // A receipt through the real storage API, under the real row security.
+    const claim = await http('POST', 'erp_api_expense', { token: staff.token, body: { title: '전송 시험 택시', amount: 12000 } })
+    assert.equal(claim.status, 201, JSON.stringify(claim.json))
+    const id = claim.json[0].id
+    const rid = crypto.randomUUID()
+    const path = `expense/${id}/${rid}`
+    const file = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAEBgIApD5fRAAAAABJRU5ErkJggg==', 'base64')
+    const put = (token, target = path, type = 'image/png', body = file) => fetch(`${URL_}/storage/v1/object/erp-receipts/${target}`, { method: 'POST', headers: { apikey: KEY, Authorization: `Bearer ${token}`, 'Content-Type': type }, body })
+    const get = (token, target = path) => fetch(`${URL_}/storage/v1/object/erp-receipts/${target}`, { headers: { apikey: KEY, Authorization: `Bearer ${token}` } })
+    assert.ok(!(await put(noRole.token)).ok, 'someone else cannot put a file on this claim')
+    assert.ok(!(await put(KEY)).ok, 'the public key cannot either')
+    const up = await put(staff.token)
+    assert.ok(up.ok, await up.clone().text())
+    assert.equal((await put(staff.token, `expense/${id}/${crypto.randomUUID()}`, 'application/x-msdownload')).ok, false, 'the bucket refuses what is not a receipt')
+    const sha = crypto.createHash('sha256').update(file).digest('hex')
+    const attach = (rec, token = staff.token) => rpc('erp_command', { p_type: 'expense', p_id: id, p_command: 'attach_receipt', p_payload: rec }, { token })
+    assert.equal((await attach({ id: crypto.randomUUID(), sha256: crypto.createHash('sha256').update('없는 파일').digest('hex'), mime: 'image/png', size: 10, file_name: '없음.png' })).status, 404, 'a file that is not there cannot be recorded')
+    const ok = await attach({ id: rid, sha256: sha, mime: 'image/png', size: file.length, file_name: '비밀-전송.png' })
+    assert.equal(ok.status, 200, JSON.stringify(ok.json))
+    assert.ok((await get(staff.token)).ok, 'the claimant reads it')
+    assert.ok(!(await get(noRole.token)).ok, 'someone else does not')
+    assert.deepEqual((await http('GET', `erp_expense_receipts?expense_id=eq.${id}`, { token: noRole.token })).json, [])
+    assert.equal((await db.query(`select count(*)::int n from erp.events where data::text like '%비밀-전송%'`)).rows[0].n, 0, 'the file name is not in the ledger')
+
+    // Filed, approved and paid by people and agents; one word from the agent undoes it.
+    const saga = crypto.randomUUID()
+    const refused = await agentNone.callTool({ name: 'erp_update', arguments: { type: 'expense', id, values: { state: 'approved' } } })
+    assert.ok(refused.isError)
+    await call(agentStaff, 'erp_update', { type: 'expense', id, values: { state: 'submitted' } })
+    assert.ok((await get(boss.token)).ok, 'filed: the one asked to approve reads it')
+    const self = await agentStaff.callTool({ name: 'erp_update', arguments: { type: 'expense', id, values: { state: 'approved' } } })
+    assert.ok(self.isError); assert.match(text(self), /ERP_FORBIDDEN/)
+    await call(agentBoss, 'erp_update', { type: 'expense', id, saga_id: saga, values: { state: 'approved' } })
+    await call(agentBoss, 'erp_update', { type: 'expense', id, saga_id: saga, values: { state: 'paid' } })
+    await waitFor(async () => !(await call(agentBoss, 'erp_read', { saga })).pending, 'the books')
+    const plan = await call(agentBoss, 'erp_read', { rollback: { correlation_id: saga } })
+    assert.equal(plan.mode, 'compensate')
+    await call(agentBoss, 'erp_create', { type: 'rollback', values: { correlation_id: saga, plan_hash: plan.hash, allow_cascade: true }, reason: '말로 취소' })
+    const after_ = await waitFor(async () => { const s = await call(agentBoss, 'erp_read', { saga }); return !s.pending && s }, 'the correction')
+    assert.ok(after_.net.every((n) => Number(n.amount) === 0), JSON.stringify(after_.net))
+
+    // A deal by key: won, and sales drafts a quote with nobody connected but the worker.
+    const deal = await call(agentStaff, 'erp_create', { type: 'opportunity', values: { name: '전송 시험 건', company_name: `전송 회사 ${stamp}`, expected_amount: 700000 } })
+    const noDeal = await agentNone.callTool({ name: 'erp_create', arguments: { type: 'opportunity', values: { name: 'x' } } })
+    assert.ok(noDeal.isError)
+    await call(agentStaff, 'erp_update', { type: 'opportunity', id: deal.id, values: { state: 'won' } })
+    const quote = await waitFor(async () => (await http('GET', `erp_records?type=eq.sales_order&state->>origin_id=eq.${deal.id}&select=id,status`)).json[0], 'the quote')
+    assert.equal(quote.status, 'draft')
+    assert.deepEqual((await http('GET', `erp_opportunity_private?opportunity_id=eq.${deal.id}`, { token: noRole.token })).json, [])
+
+    // A project by REST and hours by key.
+    const lead = await member('back-lead', ['project'])
+    const proj = await http('POST', 'erp_api_project', { token: lead.token, body: { name: '전송 프로젝트' } })
+    assert.equal(proj.status, 201, JSON.stringify(proj.json))
+    assert.equal((await http('POST', 'erp_api_project', { token: noRole.token, body: { name: 'x' } })).status, 403)
+    const task = await http('POST', 'erp_api_project_task', { token: lead.token, body: { name: '전송 작업', project_id: proj.json[0].id, planned_hours: 4, member_id: staff.record } })
+    assert.equal(task.status, 201, JSON.stringify(task.json))
+    const log = await call(agentStaff, 'erp_create', { type: 'time_entry', values: { task_id: task.json[0].id, hours: 2 } })
+    assert.equal(log.state.person_name, '백직원')
+    const over = await agentStaff.callTool({ name: 'erp_create', arguments: { type: 'time_entry', values: { task_id: task.json[0].id, hours: 23 } } })
+    assert.ok(over.isError); assert.match(text(over), /24시간/)
+    assert.equal((await rpc('erp_project_summary', { p_project: proj.json[0].id })).json.tasks, 1)
+  } finally { await Promise.all([agentBoss, agentStaff, agentNone].map((c) => c.close().catch(() => {}))) }
 })

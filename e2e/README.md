@@ -368,6 +368,25 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 꺼도 이력과 전환율이 남는다 | `crm.test.mjs` 1 | SQL | ✅ |
 | 가상 회사에 영업 기회가 더해져도 다른 수치는 그대로다 | `crm.test.mjs` 1 | SQL | ✅ |
 
+### 16. 프로젝트 (spec `erp-project`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 프로젝트는 꺼진 채 시작하고 다른 모듈 없이 동작한다 | `project.test.mjs` 2<br>`project.spec.mjs` 3<br>`isolation.test.mjs` 5 | SQL, 브라우저 | ✅ |
+| 시간은 작업의 스트림에 쓰지 않는다 | `project.test.mjs` 1 | SQL | ✅ |
+| 담당자는 인사가 켜져 있으면 직원이고 아니면 구성원이다 | `project.test.mjs` 2<br>`project.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 담당자와 프로젝트 담당만 일을 옮긴다 | `project.test.mjs` 1<br>`project.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 시간과 날짜의 경계가 지켜진다 | `project.test.mjs` 3<br>`project.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 단계와 끝남의 규칙이 지켜진다 | `project.test.mjs` 2<br>`project.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 서비스 주문이 프로젝트가 될 수 있다 | `project.test.mjs` 4<br>`project.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 되돌릴 수 없는 상태가 없으므로 사가는 되돌리기다 | `project.test.mjs` 2 | SQL | ✅ |
+| MCP 는 구성원의 권한만큼만 한다 | `project.test.mjs` 1 | SQL | ✅ |
+| 작업 소요 실측은 계획과 기록이 있는 완료 작업으로만 센다 | `project.test.mjs` 1<br>`project.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 납기 지연은 아는 만큼만 말한다 | `project.test.mjs` 1<br>`project.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 근태와의 대조는 근태 이벤트가 있을 때만 한다 | `project.test.mjs` 1<br>`project.spec.mjs` 1 | SQL, 브라우저 | ◐ |
+| 꺼도 이력과 분석이 남는다 | `project.test.mjs` 1 | SQL | ✅ |
+| 가상 회사에 프로젝트가 더해져도 다른 수치는 그대로다 | `project.test.mjs` 1 | SQL | ✅ |
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |

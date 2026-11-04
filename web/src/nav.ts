@@ -68,6 +68,8 @@ export interface NavScreen {
   marks?: (rows: ErpRecord[]) => Promise<Record<string, { label: string; color: string }>>
   /** Fields never drawn on the form. */
   hideFields?: string[]
+  /** Fields not drawn while this catalog type is on: a task's account field gives way to its employee field. */
+  hideWhenOn?: Record<string, string>
   /** States in which the form is display-only. The server refuses such edits anyway; this just does not offer them. */
   readonlyIn?: string[]
   /** How some commands are asked, where the catalog's parameters alone would not make a usable dialog. */
@@ -298,6 +300,18 @@ export const NAV: NavModule[] = [
         advanced: ['source', 'note', 'created_on'],
       },
       { label: '영업 분석', route: '/crm/analysis', needs: 'opportunity', roles: ['sales'] },
+    ],
+  },
+  {
+    key: 'project', label: '프로젝트', icon: 'project',
+    screens: [
+      { type: 'project', formPanel: loader('ProjectPanel'), readonlyIn: ['done', 'cancelled'], advanced: ['note'], views: { date: 'date_end', groups: ['partner_id', 'manager_id'], title: 'name' } },
+      {
+        type: 'project_task', formPanel: loader('TaskTimePanel'), readonlyIn: ['done', 'cancelled'], hideWhenOn: { member_id: 'employee' }, hideFields: ['project_name', 'person_name'], advanced: ['note'],
+        views: { date: 'deadline', groups: ['project_name', 'person_name'], moves: true, title: 'name', subtitle: 'person_name' },
+      },
+      { type: 'time_entry', hideWhenOn: { member_id: 'employee' }, hideFields: ['task_name', 'person_name'] },
+      { label: '프로젝트 분석', route: '/project/analysis', needs: 'project_task' },
     ],
   },
   {

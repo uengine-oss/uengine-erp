@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { company, rejects } from './lib/harness.mjs'
 
-const FILES = { sales: '30_sales.sql', inventory: '40_inventory.sql', purchase: '50_purchase.sql', invoicing: ['60_invoicing.sql', '62_bank.sql'], accounting: '65_accounting.sql', hr: '67_hr.sql', expense: '67d_expense.sql', crm: '67e_crm.sql', analytics: '70_analytics.sql' }
+const FILES = { sales: '30_sales.sql', inventory: '40_inventory.sql', purchase: '50_purchase.sql', invoicing: ['60_invoicing.sql', '62_bank.sql'], accounting: '65_accounting.sql', hr: '67_hr.sql', expense: '67d_expense.sql', crm: '67e_crm.sql', project: '67f_project.sql', analytics: '70_analytics.sql' }
 const read = (f) => { try { return fs.readFileSync(new URL(`../sql/${f}`, import.meta.url), 'utf8') } catch { return null } }
 const stripComments = (s) => s.replace(/--.*$/gm, '')
 
@@ -178,7 +178,7 @@ for (const on of [['hr'], ['hr', 'sales'], ['hr', 'sales', 'inventory', 'purchas
 }
 
 // The back office beside everything else, in companies that have it and companies that do not.
-const OFFICE_STREAMS = ['employee', 'employee_private', 'department', 'expense', 'expense_category', 'opportunity', 'opportunity_private']
+const OFFICE_STREAMS = ['employee', 'employee_private', 'department', 'expense', 'expense_category', 'opportunity', 'opportunity_private', 'project', 'project_task', 'time_entry']
 async function workInBackOffice(k, has) {
   const quotes = []
   if (has('crm')) {
@@ -190,6 +190,17 @@ async function workInBackOffice(k, has) {
     await seller.cmd('opportunity', won.id, 'set_private', { phone: '010-1' })
     await seller.cmd('opportunity', won.id, 'win', {})
     quotes.push(won.id)
+    await k.settle()
+  }
+  if (has('project')) {
+    const lead = await k.addMember('프로젝트 담당', ['project'])
+    const worker = await k.addMember('작업자', ['viewer'])
+    const p = await lead.cmd('project', null, 'create', { name: '설치', date_end: '2099-01-01' })
+    const t = await lead.cmd('project_task', null, 'create', { project_id: p.id, name: '현장', planned_hours: 8, member_id: worker.record })
+    await worker.cmd('project_task', t.id, 'to_doing', {})
+    await worker.cmd('time_entry', null, 'create', { task_id: t.id, hours: 3 })
+    await worker.cmd('project_task', t.id, 'to_done', {})
+    await lead.cmd('project', p.id, 'finish', {})
     await k.settle()
   }
   if (!has('expense')) return { quotes }
@@ -206,7 +217,8 @@ async function workInBackOffice(k, has) {
   return { paid, quotes }
 }
 for (const on of [['hr', 'expense'], ['hr', 'expense', 'sales'], ['hr', 'expense', 'accounting'], ['hr', 'expense', 'invoicing', 'accounting'], ['hr', 'expense', ...ALL],
-  ['crm'], ['crm', 'sales'], ['crm', 'inventory', 'purchase'], ['crm', 'hr', 'expense', 'accounting'], ['crm', 'hr', 'expense', ...ALL]]) {
+  ['crm'], ['crm', 'sales'], ['crm', 'inventory', 'purchase'], ['crm', 'hr', 'expense', 'accounting'], ['crm', 'hr', 'expense', ...ALL],
+  ['project'], ['project', 'sales'], ['project', 'hr'], ['project', 'crm', 'sales', 'invoicing'], ['project', 'crm', 'hr', 'expense', ...ALL]]) {
   const has = (m) => on.includes(m)
   test(`back office [${on.join(', ')}]: its work and the rest stay out of each other's way`, async () => {
     const k = await company({ modules: on })
@@ -236,13 +248,23 @@ for (const on of [['hr', 'expense'], ['hr', 'expense', 'sales'], ['hr', 'expense
       }
       await k.settle()
       const end = await counts(k)
+      // Goods on an order ask for no project, so nothing moves here even with both on.
       for (const type of OFFICE_STREAMS) assert.equal(end[type], afterOffice[type], `business work wrote on ${type}`)
+      if (has('project') && has('sales')) {
+        const service = await k.admin('product', null, 'create', { name: '용역', type: 'service', list_price: 1000, creates_project: true })
+        const o = await k.admin('sales_order', null, 'create', { partner_id: partner, lines: [{ variant_id: service.state.variants[0].id, qty: 1 }] })
+        await k.admin('sales_order', o.id, 'confirm', {})
+        await k.settle()
+        assert.equal((await k.db.query(`select id from erp.records where type = 'project' and state ->> 'origin_id' = $1`, [o.id])).rows.length, 1, 'a service that asks becomes a project')
+      }
       assert.equal((await k.settle()).failing, 0)
       assert.deepEqual(await k.verifyProjection(), [])
       const models = (await k.db.asUser(k.adminId, 'select public.erp_models() r')).rows[0].r
       assert.equal(models.find((m) => m.id === 'stat_expense').state, has('expense') ? 'insufficient' : 'locked')
       assert.equal(models.find((m) => m.id === 'crm_forecast').state, has('crm') ? 'insufficient' : 'locked')
       assert.equal(models.find((m) => m.id === 'crm_repurchase').state, has('crm') && has('sales') ? 'insufficient' : 'locked')
+      assert.equal(models.find((m) => m.id === 'project_effort').state, has('project') ? 'insufficient' : 'locked')
+      assert.equal(models.find((m) => m.id === 'project_risk').state, has('project') ? 'insufficient' : 'locked')
       assert.equal(models.find((m) => m.id === 'demand_sales').state, has('sales') ? 'insufficient' : 'locked')
     } finally { await k.close() }
   })

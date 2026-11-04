@@ -12,7 +12,8 @@
    "test/demo.test.mjs",
    "test/hr.test.mjs",
    "test/expense.test.mjs",
-   "test/crm.test.mjs"
+   "test/crm.test.mjs",
+   "test/project.test.mjs"
   ],
   "e2e": [
    "test/api.e2e.mjs"
@@ -88,6 +89,10 @@
   {
    "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
    "id": "erp-crm"
+  },
+  {
+   "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
+   "id": "erp-project"
   }
  ],
  "videos": [
