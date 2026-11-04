@@ -79,11 +79,11 @@ language sql stable as $$
               where not coalesce((d ->> 'hidden')::boolean, false))
   select jsonb_build_object('tools', jsonb_build_array(
     jsonb_build_object('name', 'erp_read',
-      'description', 'ERP 조회. 인자 없음=유형 목록. type=목록(filter 는 필드 일치, search 는 이름 검색). type+id=한 건. type+schema=필드와 가능한 상태 변경. id+history=이벤트 이력과 correlation_id. as_of(ISO 시각)=그 시점의 값. saga=사가 번호=만든 문서와 구독자 처리 여부. rollback={correlation_id}=되돌리기 방식(rollback|compensate|blocked)·범위·hash 미리보기. events={after,from,to,stream,limit}=원장을 커서로 차례로 읽기.',
+      'description', 'ERP 조회. 인자 없음=유형 목록. type=목록(filter 는 필드 일치, search 는 이름 검색). type+id=한 건. type+schema=필드와 가능한 상태 변경. id+history=이벤트 이력과 correlation_id. as_of(ISO 시각)=그 시점의 값. saga=사가 번호=만든 문서와 구독자 처리 여부. rollback={correlation_id}=되돌리기 방식(rollback|compensate|blocked)·범위·hash 미리보기. events={after,from,to,stream,limit}=원장을 커서로 차례로 읽기. process_log={case,from,to,after,limit,major}=프로세스 마이닝용 사례별 이벤트(case=sales_order|purchase_order|document).',
       'inputSchema', jsonb_build_object('type', 'object', 'properties', jsonb_build_object(
         'type', jsonb_build_object('type', 'string', 'enum', t.e), 'id', '{"type":"string"}'::jsonb, 'schema', '{"type":"boolean"}'::jsonb,
         'history', '{"type":"boolean"}'::jsonb, 'filter', '{"type":"object"}'::jsonb, 'search', '{"type":"string"}'::jsonb,
-        'as_of', '{"type":"string"}'::jsonb, 'saga', '{"type":"string"}'::jsonb, 'rollback', '{"type":"object"}'::jsonb, 'analytics', '{"type":"object"}'::jsonb, 'events', '{"type":"object"}'::jsonb, 'limit', '{"type":"integer"}'::jsonb, 'offset', '{"type":"integer"}'::jsonb))),
+        'as_of', '{"type":"string"}'::jsonb, 'saga', '{"type":"string"}'::jsonb, 'rollback', '{"type":"object"}'::jsonb, 'analytics', '{"type":"object"}'::jsonb, 'events', '{"type":"object"}'::jsonb, 'process_log', '{"type":"object"}'::jsonb, 'limit', '{"type":"integer"}'::jsonb, 'offset', '{"type":"integer"}'::jsonb))),
     jsonb_build_object('name', 'erp_create',
       'description', 'ERP 레코드 생성. 필드는 erp_read 의 schema 로 확인한다. saga_id 를 주면 같은 업무로 묶인다. type=rollback 은 되돌리기 실행: values={correlation_id, plan_hash, allow_cascade}, reason 필수.',
       'inputSchema', jsonb_build_object('type', 'object', 'required', '["type","values"]'::jsonb, 'properties', jsonb_build_object(
@@ -205,6 +205,8 @@ begin
   if a ? 'saga' then return public.erp_saga_status((a ->> 'saga')::uuid); end if;
   if a ? 'analytics' then return erp.mcp_analytics(a -> 'analytics'); end if;
   if a ? 'events' then return erp.mcp_events(a -> 'events'); end if;
+  -- The same rows the process-mining screen turns into files, under the same row rule (sql/74_process_log.sql).
+  if a ? 'process_log' then return erp.process_log(a -> 'process_log'); end if;
   if a ? 'rollback' then
     if coalesce(a -> 'rollback' ->> 'kind', 'correlation') = 'correlation' then
       return public.erp_saga_plan((a -> 'rollback' ->> 'correlation_id')::uuid);
