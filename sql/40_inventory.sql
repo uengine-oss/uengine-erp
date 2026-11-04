@@ -1404,6 +1404,28 @@ begin
   return out_;
 end $$;
 
+-- Goods going back out take back what their receipt did to the average, as far as what remains can show it: with nothing left there is
+-- no average to speak of, and the next receipt sets it. Without this the stock would carry a value the books no longer hold.
+create or replace function erp.stock_average_back(p_variant uuid, p_qty numeric, p_unit numeric, p_reason text) returns void
+language plpgsql as $$
+declare
+  v jsonb := erp.stock_variant(p_variant);
+  on_hand numeric; old_ numeric; new_ numeric;
+begin
+  if v ->> 'cost_method' <> 'average' or p_qty <= 0 then return; end if;
+  perform 1 from erp.records where id = (v ->> 'product_id')::uuid for update;
+  v := erp.stock_variant(p_variant);
+  select coalesce(sum(z.qty), 0) into on_hand from erp.quants z where z.variant_id = p_variant;
+  old_ := erp.num(v -> 'standard_price');
+  if on_hand - p_qty <= 0 then return; end if;
+  new_ := round((on_hand * old_ - p_qty * p_unit) / (on_hand - p_qty), 6);
+  if new_ is distinct from old_ then
+    perform erp.emit('product', (v ->> 'product_id')::uuid, 'ProductCostChanged', jsonb_build_object(
+      'col', jsonb_build_object('variants', jsonb_build_object('set', jsonb_build_array(jsonb_build_object('id', v ->> 'variant_id', 'standard_price', new_)))),
+      'variant_id', v ->> 'variant_id', 'product_id', v ->> 'product_id', 'from', old_, 'to', new_, 'reason', p_reason));
+  end if;
+end $$;
+
 -- What the document's correction takes back, from the transfers its original made. An open one is simply cancelled.
 create or replace function erp.stock_voucher_return(ev erp.events, p_origin uuid) returns void
 language plpgsql as $$
@@ -1435,6 +1457,7 @@ begin
       x := least(left_, erp.num(want -> k));
       continue when x <= 0;
       want := want || jsonb_build_object(k, erp.num(want -> k) - x);
+      if r.state ->> 'picking_type' = 'incoming' then perform erp.stock_average_back(k::uuid, x, erp.num(m -> 'unit_cost'), coalesce(ev.data ->> 'number', '')); end if;
       rows_ := rows_ || jsonb_strip_nulls(jsonb_build_object('id', m -> 'id', 'qty', x, 'lots', m -> 'lots'));
     end loop;
     continue when jsonb_array_length(rows_) = 0;
@@ -1557,8 +1580,7 @@ declare
   r erp.records;
   new_id uuid;
   rows_ jsonb;
-  m jsonb; v jsonb;
-  on_hand numeric; old_ numeric; new_ numeric; q numeric;
+  m jsonb;
 begin
   for r in select * from erp.stock_origin_pickings(ev.stream_id) x
             where x.status = 'done' and not coalesce((x.state ->> 'is_return')::boolean, false)
@@ -1571,19 +1593,7 @@ begin
     continue when rows_ = '[]'::jsonb;
     if r.state ? 'production_value' then
       for m in select value from jsonb_array_elements(r.state -> 'moves') where erp.num(value -> 'done') > 0 loop
-        v := erp.stock_variant((m ->> 'variant_id')::uuid);
-        continue when v ->> 'cost_method' <> 'average';
-        perform 1 from erp.records where id = (v ->> 'product_id')::uuid for update;
-        v := erp.stock_variant((m ->> 'variant_id')::uuid);
-        select coalesce(sum(z.qty), 0) into on_hand from erp.quants z where z.variant_id = (m ->> 'variant_id')::uuid;
-        q := erp.num(m -> 'done'); old_ := erp.num(v -> 'standard_price');
-        continue when on_hand - q <= 0;
-        new_ := round((on_hand * old_ - q * erp.num(m -> 'unit_cost')) / (on_hand - q), 6);
-        if new_ is distinct from old_ then
-          perform erp.emit('product', (v ->> 'product_id')::uuid, 'ProductCostChanged', jsonb_build_object(
-            'col', jsonb_build_object('variants', jsonb_build_object('set', jsonb_build_array(jsonb_build_object('id', v ->> 'variant_id', 'standard_price', new_)))),
-            'variant_id', v ->> 'variant_id', 'product_id', v ->> 'product_id', 'from', old_, 'to', new_, 'reason', coalesce(ev.data ->> 'number', '')));
-        end if;
+        perform erp.stock_average_back((m ->> 'variant_id')::uuid, erp.num(m -> 'done'), erp.num(m -> 'unit_cost'), coalesce(ev.data ->> 'number', ''));
       end loop;
     end if;
     perform erp.picking_make_return(new_id, jsonb_build_object('return_of', r.id, 'moves', rows_, 'to_refund', false, 'note', ev.data ->> 'number'));

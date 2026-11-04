@@ -547,3 +547,24 @@ test('everything still folds from the ledger', async () => {
   assert.deepEqual(await c.verifyProjection(), [])
   assert.equal((await c.settle()).failing, 0)
 })
+
+test('S18. undoing a receipt of an average-cost product takes the average back, so the stock is worth what the books say', async () => {
+  const cat = await c.admin('product_category', null, 'create', { name: `평균 ${nextNo}`, cost_method: 'average' })
+  const prod = await c.admin('product', null, 'create', { name: `평균 부품 ${nextNo}`, type: 'goods', category_id: cat.id, standard_price: 40000, list_price: 90000 })
+  const v = (await c.rec(prod.id)).state.variants[0].id
+  await mcp('erp_create', { type: 'account_move', values: purchase({}, { variant_id: v, qty: 10, price_unit: 40000 }) })
+  await c.settle()
+  const unit = async () => Number((await c.db.query('select erp.variant($1) ->> $2 as n', [v, 'standard_price'])).rows[0].n)
+  assert.equal(await unit(), 40000)
+  const saga = crypto.randomUUID()
+  await mcp('erp_create', { type: 'account_move', saga_id: saga, values: purchase({}, { variant_id: v, qty: 20, price_unit: 50000 }) })
+  await c.settle()
+  assert.equal(await onHand(v), 30)
+  assert.equal((await unit()).toFixed(2), '46666.67')
+  const plan = await mcp('erp_read', { rollback: { correlation_id: saga } })
+  await mcp('erp_create', { type: 'rollback', values: { correlation_id: saga, plan_hash: plan.json.hash, allow_cascade: false }, reason: '취소' })
+  await c.settle()
+  assert.equal(await onHand(v), 10)
+  // Six decimals of an average that did not divide evenly leave a millionth behind.
+  assert.ok(Math.abs(await unit() - 40000) < 0.00001, `the average is what it was: ${await unit()}`)
+})
