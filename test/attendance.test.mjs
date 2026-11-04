@@ -318,6 +318,29 @@ test('a day before the module was on, or before someone joined, is not called an
 
 /* ---------- The month ---------- */
 
+test('S12. a closed month reaches payroll through the event itself, in the minutes attendance sends', async () => {
+  const k = await company({ modules: ['hr', 'attendance', 'accounting', 'payroll'], clock: '2026-09-01T09:00:00+09:00' })
+  try {
+    await clock(k, '2026-09-01')
+    const staff = await k.addMember('한인사', ['hr'])
+    const d = await k.admin('department', null, 'create', { name: '물류' })
+    const m = await k.addMember('급여 대상', ['viewer'])
+    const e = await hireOn(k.admin, '급여 대상', '2024-03-04', d.id, { member_id: m.record })
+    await k.settle()
+    // A week counts in the month it ends, so this one lies inside September. 600 minutes, 60 of break: 540. 60 over eight hours.
+    await day(k, m, '2026-09-22', '09:00', '19:00')
+    await clock(k, '2026-10-01T09:00')
+    await staff.cmd('attendance_month', null, 'close', { period: '2026-09' })
+    await k.settle()
+    const row = (await q(k, `select worked_hours::float8 w, overtime_hours::float8 o from erp.payroll_attendance where period_month = '2026-09' and employee_id = $1`, [e]))[0]
+    assert.ok(row, 'the month reached payroll')
+    assert.equal(row.w, 9)
+    assert.equal(row.o, 1)
+  } finally {
+    await k.close()
+  }
+})
+
 test('S12. closing a month: not while it is running or with stamps missing; after it nothing moves and AttendanceClosed goes out', async () => {
   const k = await company({ modules: ['hr', 'attendance'], clock: '2026-09-01T09:00:00+09:00' })
   try {
