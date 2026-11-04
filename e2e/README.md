@@ -371,20 +371,20 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
-| SQL | `test/*.test.mjs` (28개) | 768 |
+| SQL | `test/*.test.mjs` (30개) | 848 |
 | HTTP | `test/*.e2e.mjs` (2개) | 15 |
-| 브라우저 | `e2e/tests/*.spec.mjs` (15개) | 179 |
-| 합계 | 45개 | 962 |
+| 브라우저 | `e2e/tests/*.spec.mjs` (17개) | 198 |
+| 합계 | 49개 | 1061 |
 
 | 단계 | 파일별 시험 수 |
 |---|---|
-| SQL | `accounting.test.mjs` 27 · `api.test.mjs` 11 · `bus.test.mjs` 18 · `concurrency.test.mjs` 11 · `core.test.mjs` 18 · `demo.test.mjs` 4 · `growth.test.mjs` 11 · `history.test.mjs` 21 · `inventory.test.mjs` 63 · `hr.test.mjs` 42 · `invoicing.test.mjs` 51 · `isolation.test.mjs` 46 · `master.test.mjs` 45 · `models.test.mjs` 36 · `plugin.test.mjs` 8 · `pricing.test.mjs` 145 · `purchase.test.mjs` 30 · `rebuild-gl.test.mjs` 8 · `sales.test.mjs` 51 |
+| SQL | `accounting.test.mjs` 27 · `api.test.mjs` 11 · `attendance.test.mjs` 18 · `bus.test.mjs` 18 · `concurrency.test.mjs` 11 · `core.test.mjs` 18 · `demo.test.mjs` 4 · `growth.test.mjs` 11 · `history.test.mjs` 21 · `inventory.test.mjs` 63 · `hr.test.mjs` 42 · `invoicing.test.mjs` 51 · `isolation.test.mjs` 56 · `master.test.mjs` 45 · `models.test.mjs` 36 · `plugin.test.mjs` 8 · `pricing.test.mjs` 145 · `purchase.test.mjs` 30 · `rebuild-gl.test.mjs` 8 · `sales.test.mjs` 51 · `timeoff.test.mjs` 45 |
 | HTTP | `api.e2e.mjs` 8 · `stack.e2e.mjs` 7 |
-| 브라우저 | `demo.spec.mjs` 5 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `hr.spec.mjs` 13 · `integration.spec.mjs` 3 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `pages.spec.mjs` 4 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `whatif.spec.mjs` 15 |
+| 브라우저 | `attendance.spec.mjs` 8 · `demo.spec.mjs` 5 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `hr.spec.mjs` 13 · `integration.spec.mjs` 3 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `pages.spec.mjs` 4 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `timeoff.spec.mjs` 11 · `whatif.spec.mjs` 15 |
 
-위 표의 합계는 실제로 돌려 센 값이다(SQL `tests 768`, 브라우저 `179 passed`, HTTP `api.e2e.mjs` 8, `stack.e2e.mjs` 7). 파일별 표는 인사를 더하면서 바뀐 파일만 고쳤고, 그 전에 더해진 파일은 아직 빠져 있어 합이 맞지 않는다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 32개는 다섯 모듈의 조합마다 하나씩 생기고, 인사를 더한 조합 5개가 따로 있다.
+위 표의 합계는 실제로 돌려 센 값이다(SQL `tests 848`, 브라우저 `198 passed`, HTTP `api.e2e.mjs` 8, `stack.e2e.mjs` 7). 파일별 표는 휴가와 근태를 더하면서 바뀐 파일만 고쳤고, 그 전에 더해진 파일은 아직 빠져 있어 합이 맞지 않는다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 32개는 다섯 모듈의 조합마다 하나씩 생기고, 인사를 더한 조합 5개와 휴가·근태를 더한 조합 6개가 따로 있다. 로컬 Postgres 의 디버거 확장(`pldbgapi2`)이 가끔 시험 하나를 떨어뜨린다. 그 파일만 다시 돌리면 통과한다.
 
-openspec 명세 13개의 요구사항 230개: 덮음 201 · 일부 29 · 공백 0. 시나리오 673개: 덮음 643 · 일부 12 · 공백 18.
+openspec 명세 15개의 요구사항 260개, 시나리오 721개. 이번에 더한 요구사항 28개와 시나리오 37개는 모두 덮었다. 그 앞의 분류는 요구사항 230개 기준으로 덮음 201 · 일부 29 · 공백 0, 시나리오 673개 기준으로 덮음 643 · 일부 12 · 공백 18 이고 다시 세지 않았다.
 
 ## 남은 공백
 

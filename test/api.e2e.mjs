@@ -111,7 +111,8 @@ test('MCP over HTTP with a login token: CRUD with the official SDK', async () =>
   assert.deepEqual(tools.map((t) => t.name), ['erp_read', 'erp_create', 'erp_update', 'erp_delete'])
   const size = Buffer.byteLength(JSON.stringify(tools))
   console.log(`  tools/list: ${tools.length} tools, ${size} bytes`)
-  assert.ok(size < 4000)
+  // Each type a company has on adds its name to all four tools. Leave and attendance took it past the 4 KB this started with; 6 KB is still about 1,500 tokens.
+  assert.ok(size < 6000)
   const types = JSON.parse(text(await c.callTool({ name: 'erp_read', arguments: {} })))
   assert.ok(types.some((t) => t.type === 'partner'))
   const made = JSON.parse(text(await c.callTool({ name: 'erp_create', arguments: { type: 'partner', values: { name: 'MCP 거래처' } } })))
