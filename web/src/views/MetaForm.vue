@@ -72,9 +72,10 @@ function toggleHistory() {
 }
 
 const view = computed<State>(() => asOf.value?.state ?? draft.value)
+// Words kept outside the ledger have no past, so a look back in time does not show today's beside that day's figures.
 const fields = computed<Field[]>(() => (doc.value
   ? formFields(doc.value, isNew.value).filter((f) => !(f.name === 'state' && doc.value?.states?.length) && !screen.value?.hideFields?.includes(f.name)
-    && !(screen.value?.hideWhenOn?.[f.name] && catalogOf(screen.value.hideWhenOn[f.name])))
+    && !(screen.value?.hideWhenOn?.[f.name] && catalogOf(screen.value.hideWhenOn[f.name])) && !(f.private && asOf.value))
   : []))
 const lineFields = computed(() => fields.value.filter((f) => f.type === 'lines'))
 // With line tables, totals read best under the lines, like the foot of a printed document.
@@ -137,11 +138,21 @@ const dirty = computed(() => {
 
 /* Loading */
 let loadSeq = 0
+const words = ref<State>({})
+// Asked before the form is filled, so a saved field never flashes empty and then counts as changed.
+async function loadWords(id: string) {
+  if (!doc.value?.private_read) return
+  try {
+    words.value = await rpc<State>(doc.value.private_read, { p_id: id })
+  } catch {
+    words.value = {}
+  }
+}
 function adoptRecord(r: ErpRecord) {
   record.value = r
   const next: State = {}
   for (const f of doc.value?.fields ?? []) {
-    const v = r.state?.[f.name]
+    const v = f.private ? words.value[f.name] : r.state?.[f.name]
     next[f.name] = v ?? (f.type === 'lines' || f.type === 'tags' || f.type === 'refs' ? [] : null)
   }
   draft.value = next
@@ -201,6 +212,8 @@ async function loadRecord() {
       notFound.value = true
       return
     }
+    await loadWords((data as ErpRecord).id)
+    if (my !== loadSeq) return
     adoptRecord(data as ErpRecord)
     if (timeView.at) await applyCompanyTime()
     else {
@@ -314,8 +327,9 @@ function addSuggested(s: { product_id: string; name: string }) {
   suggested.value = suggested.value.filter((x) => x.product_id !== s.product_id)
 }
 
-function adoptResult(res: CommandResult) {
+async function adoptResult(res: CommandResult) {
   const state = res.state ?? {}
+  await loadWords(res.id)
   adoptRecord({
     id: res.id, type: res.type, version: res.version, name: res.name, status: res.status, state,
     active: state.active ?? true,
@@ -336,7 +350,7 @@ async function save(): Promise<boolean> {
   try {
     if (isNew.value) {
       const res = await sendCommand({ type: props.type, command: 'create', payload: createPayload() })
-      adoptResult(res)
+      await adoptResult(res)
       newBaselinePayload.value = createPayload()
       toast('저장했습니다.')
       await router.replace({ name: 'record', params: { type: props.type, id: res.id } })
@@ -346,7 +360,7 @@ async function save(): Promise<boolean> {
     const payload = updatePayload()
     if (!Object.keys(payload).length) return true
     const res = await sendCommand({ type: props.type, id: props.id, command: 'update', payload, expectedVersion: record.value?.version ?? null })
-    adoptResult(res)
+    await adoptResult(res)
     remoteStale.value = false
     remoteNotice.value = ''
     toast('저장했습니다.')
@@ -408,7 +422,7 @@ async function runCommand(command: string, label: string, def: Pick<CommandDef, 
     for (;;) {
       try {
         const res = await sendCommand({ type: props.type, id: props.id, command, payload, expectedVersion: record.value?.version ?? null, reason })
-        adoptResult(res)
+        await adoptResult(res)
         toast(label.endsWith('완료') ? label : `${label} 완료`)
         void loadStream()
         after?.()
@@ -568,6 +582,12 @@ async function rereadAfterChange() {
     return
   }
   const fresh = data as ErpRecord
+  // Words can change on no version of this document: erasing them writes elsewhere.
+  if (fresh.version === current.version && doc.value?.private_read && !dirty.value) {
+    await loadWords(fresh.id)
+    adoptRecord(fresh)
+    return
+  }
   // A slower read can come back after a later save has already moved this screen on.
   if (fresh.version <= current.version) return
   if (dirty.value) {
@@ -576,6 +596,7 @@ async function rereadAfterChange() {
     return
   }
   if (!timeView.at) asOf.value = null
+  await loadWords(fresh.id)
   adoptRecord(fresh)
 }
 onDataChanged(() => { void rereadAfterChange() })
@@ -597,8 +618,10 @@ onLedgerEvent((ev) => {
   const mine = ev.actor_id === session.me?.user_id && ev.source !== 'rollback' && !ev.source.startsWith('bus:')
   remoteNotice.value = mine ? '' : `${who}이 방금 이 문서를 변경해 화면을 새로 고쳤습니다.`
   remoteStale.value = false
-  void db().from('erp_records').select('*').eq('id', props.id!).maybeSingle().then(({ data }) => {
-    if (data && !dirty.value) adoptRecord(data as ErpRecord)
+  void db().from('erp_records').select('*').eq('id', props.id!).maybeSingle().then(async ({ data }) => {
+    if (!data) return
+    await loadWords((data as ErpRecord).id)
+    if (!dirty.value) adoptRecord(data as ErpRecord)
   })
 })
 

@@ -16,6 +16,8 @@ export interface Field {
   default?: unknown
   readonly?: boolean
   computed?: boolean
+  /** Kept outside the ledger by the handler. The form reads it through the type's private_read function, never from state. */
+  private?: boolean
   create_only?: boolean
   unique?: boolean
   options?: FieldOption[]
@@ -80,6 +82,8 @@ export interface CatalogDoc {
   pick_states?: string[]
   /** Fields held outside the ledger, in a table only some roles can read. The record itself never carries their values. */
   private_fields?: Field[]
+  /** The function that answers one record's private fields, for whoever may read that record. */
+  private_read?: string
 }
 
 export type State = Record<string, any>

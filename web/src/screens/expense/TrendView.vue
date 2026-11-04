@@ -9,7 +9,7 @@ import Icon from '../../components/Icon.vue'
 import { STATE_COLOR, STATE_LABEL } from '../analytics/fmt'
 
 interface Row { period: string; department_id: string | null; department_name: string; amount: number; claims: number }
-interface Trend { rows: Row[]; total: number; claims: number }
+interface Trend { rows: Row[]; total: number; claims: number; scope: 'mine' | 'all' }
 
 const end = () => timeView.date || fmtDay(new Date().toISOString())
 const from = ref(`${Number(end().slice(0, 4)) - 1}${end().slice(4, 7)}-01`)
@@ -71,6 +71,7 @@ const deptSum = (dept: string) => (data.value?.rows ?? []).filter((r) => r.depar
       <template v-else-if="data">
         <p v-if="model?.stale_modules?.length" class="small dim" data-testid="expense-trend-stale">{{ model.evidence.message }}</p>
         <section class="panel">
+          <p v-if="data.scope === 'mine'" class="banner banner-info" role="status" data-testid="expense-trend-scope"><Icon name="info" /><span class="grow">내가 볼 수 있는 경비만 셉니다. 회사 전체 금액이 아닙니다. 전체는 회계 담당자가 봅니다.</span></p>
           <div class="headline"><strong data-testid="expense-trend-total">{{ fmtMoney(data.total) }}</strong><span class="muted small">승인한 경비 {{ data.claims }}건. 취소한 경비는 빼고 셉니다. 부서는 승인할 때의 부서입니다.</span></div>
           <p v-if="!ready" class="muted small" data-testid="expense-trend-short">{{ model?.evidence.message }}. 금액은 사실이지만 추이를 말하기에는 아직 짧습니다.</p>
           <table v-if="months.length" class="tbl" data-testid="expense-trend-table">

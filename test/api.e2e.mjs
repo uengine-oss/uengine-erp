@@ -7,8 +7,9 @@ import fs from 'node:fs'
 import pg from 'pg'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { createClient } from '../web/node_modules/@supabase/supabase-js/dist/index.mjs'
 
-const URL_ = process.env.API_URL, KEY = process.env.ANON_KEY, CODE = process.env.SETUP_CODE
+const URL_ =process.env.API_URL, KEY = process.env.ANON_KEY, CODE = process.env.SETUP_CODE
 const db = new pg.Client({ connectionString: 'postgres://postgres:postgres@127.0.0.1:56322/postgres' })
 const stamp = Date.now()
 const PASS = 'password-1234'
@@ -381,10 +382,45 @@ test('Back office over real HTTP: keys carry a member\'s rights, a paid claim is
     assert.deepEqual((await http('GET', `erp_expense_receipts?expense_id=eq.${id}`, { token: noRole.token })).json, [])
     assert.equal((await db.query(`select count(*)::int n from erp.events where data::text like '%비밀-전송%'`)).rows[0].n, 0, 'the file name is not in the ledger')
 
+    // The claim itself, over the real gateway: someone else gets nothing, by login or by key, and the words are in no event.
+    for (const path of [`erp_records?id=eq.${id}`, `erp_events?stream_id=eq.${id}`, `erp_api_expense?id=eq.${id}`]) {
+      assert.deepEqual((await http('GET', path, { token: noRole.token })).json, [], path)
+      assert.equal((await http('GET', path, { token: staff.token })).json.length > 0, true, path)
+    }
+    assert.equal((await rpc('erp_stream', { p_id: id }, { token: noRole.token })).status, 403)
+    assert.equal((await rpc('erp_expense_words', { p_id: id }, { token: noRole.token })).status, 403)
+    assert.equal((await rpc('erp_expense_words', { p_id: id }, { token: staff.token })).json.title, '전송 시험 택시')
+    assert.equal((await db.query(`select count(*)::int n from erp.events where data::text like '%전송 시험 택시%'`)).rows[0].n, 0, 'the words are not in the ledger')
+    assert.ok(!JSON.stringify(await call(agentNone, 'erp_read', { type: 'expense' })).includes(id), 'an agent key of someone else lists nothing')
+    const outsiderRead = await agentNone.callTool({ name: 'erp_read', arguments: { type: 'expense', id } })
+    assert.ok(outsiderRead.isError); assert.match(text(outsiderRead), /ERP_FORBIDDEN/)
+    assert.ok(JSON.stringify(await call(agentStaff, 'erp_read', { type: 'expense', id })).includes('12000'), 'the claimant\'s key reads the amount')
+
+    // The realtime server asks the same policy for each subscriber. A change on something everyone reads proves the channel is alive.
+    const watch = async (token) => {
+      // Awaited: a channel opened before the token is set joins with the public key, and every row then reads as refused.
+      const client = createClient(URL_, KEY, { auth: { persistSession: false, autoRefreshToken: false } })
+      await client.realtime.setAuth(token)
+      const got = []
+      const channel = client.channel(`privacy-${crypto.randomUUID()}`).on('postgres_changes', { event: 'INSERT', schema: 'erp', table: 'events' }, (m) => got.push(m.new))
+      await new Promise((resolve, reject) => channel.subscribe((s) => (s === 'SUBSCRIBED' ? resolve() : s === 'CHANNEL_ERROR' || s === 'TIMED_OUT' ? reject(new Error(s)) : null)))
+      return { got, close: () => client.removeAllChannels() }
+    }
+    const [mine, theirs] = [await watch(staff.token), await watch(noRole.token)]
+    try {
+      await rpc('erp_command', { p_type: 'expense', p_id: id, p_command: 'update', p_payload: { amount: 12000, note: '실시간 시험' } }, { token: staff.token })
+      const open = await http('POST', 'erp_api_department', { body: { name: `실시간-${stamp}` } })
+      await waitFor(async () => theirs.got.some((e) => e.stream_id === open.json[0].id) && mine.got.some((e) => e.stream_id === id), 'realtime to deliver', 30000)
+      assert.ok(!theirs.got.some((e) => e.stream_id === id), 'the channel is alive and the claim did not come through it')
+      assert.ok(!JSON.stringify(theirs.got).includes('12000'), 'nor its amount')
+      assert.ok(!JSON.stringify(mine.got).includes('실시간 시험'), 'and even the claimant\'s event carries no words')
+    } finally { await mine.close(); await theirs.close() }
+
     // Filed, approved and paid by people and agents; one word from the agent undoes it.
     const saga = crypto.randomUUID()
     const refused = await agentNone.callTool({ name: 'erp_update', arguments: { type: 'expense', id, values: { state: 'approved' } } })
-    assert.ok(refused.isError)
+    assert.ok(refused.isError); assert.match(text(refused), /ERP_NOT_FOUND/)
+    await call(agentStaff, 'erp_update', { type: 'expense', id, values: { title: '전송 시험 택시', no_receipt_reason: '파일도 있음' } })
     await call(agentStaff, 'erp_update', { type: 'expense', id, values: { state: 'submitted' } })
     assert.ok((await get(boss.token)).ok, 'filed: the one asked to approve reads it')
     const self = await agentStaff.callTool({ name: 'erp_update', arguments: { type: 'expense', id, values: { state: 'approved' } } })

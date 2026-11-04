@@ -19,6 +19,7 @@ declare
   ver int := p_expected_version;
   corr uuid := coalesce(nullif(current_setting('erp.saga_id', true), '')::uuid, gen_random_uuid());
 begin
+  perform erp.require_scope(p_type, p_id);
   -- A state change is how CRUD callers express a business action: the catalog says which command means it.
   if vals ? 'state' and d ? 'transitions' then
     select status into cur from erp.records where id = p_id and type = p_type;
@@ -83,6 +84,8 @@ declare
 begin
   execute format('drop view if exists public.%I', view_);
   select string_agg(case
+      -- "private": the handler keeps it outside the ledger. The column takes a write and reads as nothing.
+      when (f ->> 'private')::boolean then format('null::text as %I', f ->> 'name')
       when f ->> 'type' in ('lines', 'refs', 'tags', 'json') then format('state -> %L as %I', f ->> 'name', f ->> 'name')
       when f ->> 'type' in ('number', 'money', 'integer') then format('(state ->> %L)::numeric as %I', f ->> 'name', f ->> 'name')
       when f ->> 'type' = 'boolean' then format('(state ->> %L)::boolean as %I', f ->> 'name', f ->> 'name')

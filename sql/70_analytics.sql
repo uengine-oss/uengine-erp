@@ -1047,6 +1047,8 @@ begin
         from ok where day between p_from and p_to group by 1, 2, 3
     )
     select jsonb_build_object('from', p_from, 'to', p_to,
+      -- These events pass through the caller's row security, so someone who is not accounting adds up only the claims they may read, and is told.
+      'scope', case when 'expense' = any (erp.scoped_types()) then 'mine' else 'all' end,
       'rows', coalesce(jsonb_agg(jsonb_build_object('period', period, 'department_id', department_id, 'department_name', department_name, 'amount', amount, 'claims', claims) order by period, department_name), '[]'::jsonb),
       'total', coalesce(sum(amount), 0), 'claims', coalesce(sum(claims), 0))
       from rows_);
@@ -1505,7 +1507,11 @@ begin
       when 'whatif_leave_policy' then have := people_now; need := 1; unit_ := '명'; since_ := first_hire; msg := '재직 직원';
       when 'overtime_risk' then have := work_days; need := 20; unit_ := '일'; since_ := work_since; msg := '퇴근까지 찍힌 날';
       when 'stat_overtime' then have := work_weeks; need := 4; unit_ := '주'; since_ := work_since; msg := '근태 기록';
-      when 'stat_expense' then have := expense_months; need := 3; unit_ := '개월'; since_ := expense_first; msg := '승인 경비';
+      when 'stat_expense' then
+        have := expense_months; need := 3; unit_ := '개월'; since_ := expense_first;
+        -- Row security has already narrowed the count. It must not read as the company's.
+        msg := case when 'expense' = any (erp.scoped_types()) then '내가 볼 수 있는 승인 경비' else '승인 경비' end;
+        extra := jsonb_build_object('scope', case when 'expense' = any (erp.scoped_types()) then 'mine' else 'all' end);
       when 'crm_conversion' then have := deals_decided; need := 20; unit_ := '건'; since_ := deals_first; msg := '수주·실주';
       when 'crm_forecast' then have := deals_decided; need := 20; unit_ := '건'; since_ := deals_first; msg := '수주·실주';
       when 'project_effort', 'project_risk' then have := tasks_measured; need := 20; unit_ := '건'; since_ := project_first; msg := '계획과 기록이 있는 완료 작업';

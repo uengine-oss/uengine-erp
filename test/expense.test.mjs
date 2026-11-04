@@ -124,19 +124,20 @@ test('nobody stands in for anyone else: not the claim, not the approval, not the
   const noLink = await rejects(stranger.cmd('expense', null, 'create', { title: '직원 아님', amount: 100 }), 'ERP_REQUIRED')
   assert.match(noLink.message, /연결된 직원이 없습니다/)
 
+  // Someone who may not read the claim is told what they would be told about no claim at all.
   const e = await claim(staff)
-  await rejects(peer.cmd('expense', e.id, 'update', { amount: 1 }), 'ERP_FORBIDDEN')
-  await rejects(peer.cmd('expense', e.id, 'submit', {}), 'ERP_FORBIDDEN')
-  await rejects(peer.cmd('expense', e.id, 'attach_receipt', receipt('남의 영수증')), 'ERP_FORBIDDEN')
-  await rejects(peer.cmd('expense', e.id, 'delete', {}), 'ERP_FORBIDDEN')
-  await rejects(peer.cmd('expense', e.id, 'cancel', {}), 'ERP_FORBIDDEN')
+  await rejects(peer.cmd('expense', e.id, 'update', { amount: 1 }), 'ERP_NOT_FOUND')
+  await rejects(peer.cmd('expense', e.id, 'submit', {}), 'ERP_NOT_FOUND')
+  await rejects(peer.cmd('expense', e.id, 'attach_receipt', receipt('남의 영수증')), 'ERP_NOT_FOUND')
+  await rejects(peer.cmd('expense', e.id, 'delete', {}), 'ERP_NOT_FOUND')
+  await rejects(peer.cmd('expense', e.id, 'cancel', {}), 'ERP_NOT_FOUND')
 
   await staff.cmd('expense', e.id, 'submit', {})
   await rejects(staff.cmd('expense', e.id, 'approve', {}), 'ERP_FORBIDDEN')
-  await rejects(peer.cmd('expense', e.id, 'approve', {}), 'ERP_FORBIDDEN')
+  await rejects(peer.cmd('expense', e.id, 'approve', {}), 'ERP_NOT_FOUND')
   await rejects(books.cmd('expense', e.id, 'approve', {}), 'ERP_FORBIDDEN')
-  await rejects(hr.cmd('expense', e.id, 'approve', {}), 'ERP_FORBIDDEN')
-  await rejects(peer.cmd('expense', e.id, 'refuse', {}, { reason: '안 됨' }), 'ERP_FORBIDDEN')
+  await rejects(hr.cmd('expense', e.id, 'approve', {}), 'ERP_NOT_FOUND')
+  await rejects(peer.cmd('expense', e.id, 'refuse', {}, { reason: '안 됨' }), 'ERP_NOT_FOUND')
 
   await boss.cmd('expense', e.id, 'approve', {})
   await rejects(boss.cmd('expense', e.id, 'pay', {}), 'ERP_FORBIDDEN')
@@ -252,7 +253,8 @@ test('the steps go in order and a refused or unknown field leaves nothing behind
   assert.equal((await q(k, `select count(*)::int n from erp.events`))[0].n, before_)
 
   const e = await claim(staff)
-  await rejects(boss.cmd('expense', e.id, 'approve', {}), 'ERP_STATE')
+  await rejects(boss.cmd('expense', e.id, 'approve', {}), 'ERP_NOT_FOUND')
+  await rejects(k.admin('expense', e.id, 'approve', {}), 'ERP_STATE')
   await rejects(books.cmd('expense', e.id, 'pay', {}), 'ERP_STATE')
   await rejects(staff.cmd('expense', e.id, 'submit', { memo: 'x' }), 'ERP_UNKNOWN_FIELD')
   await staff.cmd('expense', e.id, 'submit', {})
@@ -278,8 +280,9 @@ test('a refusal needs a reason; the claimant fixes it and files again, and only 
   await rejects(boss.cmd('expense', e.id, 'refuse', {}), 'ERP_REQUIRED')
   await rejects(boss.cmd('expense', e.id, 'refuse', {}, { reason: '   ' }), 'ERP_REQUIRED')
   const no = await boss.cmd('expense', e.id, 'refuse', {}, { reason: '금액이 다릅니다' })
-  assert.equal(no.status, 'refused'); assert.equal(no.state.refused_reason, '금액이 다릅니다')
-  assert.equal((await lastEvent(k, e.id, 'ExpenseRefused')).reason, '금액이 다릅니다')
+  assert.equal(no.status, 'refused')
+  assert.equal((await call(k, staff.id, 'erp_expense_words', e.id)).refused_reason, '금액이 다릅니다', 'the claimant reads why')
+  assert.equal((await lastEvent(k, e.id, 'ExpenseRefused')).reason, null, 'and the ledger keeps only that it happened')
   await staff.cmd('expense', e.id, 'update', { amount: 30000 })
   assert.equal((await staff.cmd('expense', e.id, 'submit', {})).status, 'submitted')
 
@@ -340,21 +343,24 @@ test('receipt edges: size, type, fingerprint, how many, and one receipt pays onc
   // Another claim, even someone else's, cannot carry the same file.
   const other = await claim(peer)
   const twice = await rejects(peer.cmd('expense', other.id, 'attach_receipt', receipt('경계-최대')), 'ERP_DUPLICATE')
-  assert.match(twice.message, /이미 EX\d+ 에 첨부/)
+  assert.match(twice.message, /이미 다른 경비에 첨부/, 'it does not say whose')
+  assert.doesNotMatch(twice.message, /EX\d+/)
+  const mineAgain = await claim(staff)
+  assert.match((await rejects(staff.cmd('expense', mineAgain.id, 'attach_receipt', receipt('경계-최대')), 'ERP_DUPLICATE')).message, /이미 EX\d+ 에 첨부/, 'on your own claim it can')
 
   for (let i = 2; i <= 10; i++) await at(receipt(`개수-${i}`))
   assert.equal((await k.rec(e.id)).state.receipt_count, 10)
   await rejects(at(receipt('개수-11')), 'ERP_INVALID')
 })
 
-test('removing a receipt: free while it is your draft, after filing only the office, with a reason that does not name the file', async () => {
+test('removing a receipt: free while it is your draft, after filing only accounting, and the reason stays out of the ledger', async () => {
   const { staff, books, hr, peer, k } = co
   const e = await claim(staff, { no_receipt_reason: null })
   const r1 = receipt('지울 파일 하나', { file_name: '지울-하나.png' })
   const r2 = receipt('지울 파일 둘', { file_name: '지울-둘.png' })
   await staff.cmd('expense', e.id, 'attach_receipt', r1)
   await staff.cmd('expense', e.id, 'attach_receipt', r2)
-  await rejects(peer.cmd('expense', e.id, 'remove_receipt', { id: r1.id }), 'ERP_FORBIDDEN')
+  await rejects(peer.cmd('expense', e.id, 'remove_receipt', { id: r1.id }), 'ERP_NOT_FOUND')
   await rejects(staff.cmd('expense', e.id, 'remove_receipt', { id: crypto.randomUUID() }), 'ERP_NOT_FOUND')
   await rejects(staff.cmd('expense', e.id, 'delete', {}), 'ERP_IN_USE')
   assert.equal((await staff.cmd('expense', e.id, 'remove_receipt', { id: r1.id })).state.receipt_count, 1)
@@ -363,13 +369,14 @@ test('removing a receipt: free while it is your draft, after filing only the off
   await staff.cmd('expense', e.id, 'submit', {})
   await rejects(staff.cmd('expense', e.id, 'remove_receipt', { id: r2.id }), 'ERP_FORBIDDEN')
   await rejects(books.cmd('expense', e.id, 'remove_receipt', { id: r2.id }), 'ERP_REQUIRED')
-  await rejects(books.cmd('expense', e.id, 'remove_receipt', { id: r2.id }, { reason: '지울-둘.png 을 지웁니다' }), 'ERP_INVALID')
-  assert.equal((await hr.cmd('expense', e.id, 'remove_receipt', { id: r2.id }, { reason: '본인 요청' })).state.receipt_count, 0)
-  assert.equal((await lastEvent(k, e.id, 'ExpenseReceiptRemoved')).reason, '본인 요청')
+  await rejects(hr.cmd('expense', e.id, 'remove_receipt', { id: r2.id }, { reason: '본인 요청' }), 'ERP_NOT_FOUND')
+  assert.equal((await books.cmd('expense', e.id, 'remove_receipt', { id: r2.id }, { reason: '본인 요청' })).state.receipt_count, 0)
+  assert.equal((await lastEvent(k, e.id, 'ExpenseReceiptRemoved')).reason, null)
+  assert.equal((await call(k, staff.id, 'erp_expense_words', e.id)).removal_reason, '본인 요청')
   assert.deepEqual(await q(k, `select id from erp.expense_receipts where expense_id = $1`, [e.id]), [])
 })
 
-test('who reads a receipt: the claimant, the approver and the offices. The claim itself every member reads', async () => {
+test('who reads a receipt: the same people who read the claim', async () => {
   const { staff, peer, boss, books, hr, stranger, k } = co
   const e = await claim(staff, { no_receipt_reason: null })
   const r = receipt('읽기 권한 시험')
@@ -380,26 +387,24 @@ test('who reads a receipt: the claimant, the approver and the offices. The claim
   assert.equal((await read(staff.id)).length, 1)
   assert.deepEqual(await read(boss.id), [], 'not filed yet, so no one has asked the manager')
   await staff.cmd('expense', e.id, 'submit', {})
-  for (const [who, n] of [[staff, 1], [boss, 1], [books, 1], [hr, 1], [peer, 0], [stranger, 0]]) {
+  for (const [who, n] of [[staff, 1], [boss, 1], [books, 1], [hr, 0], [peer, 0], [stranger, 0]]) {
     assert.equal((await read(who.id)).length, n, `row visible to ${who.id}`)
     assert.equal(await may(who.id, path, 'read'), n === 1)
   }
   assert.equal((await read(k.adminId)).length, 1)
   await rejects(k.db.asUser(null, 'select * from public.erp_expense_receipts', [], 'anon'), 'permission denied')
-  await rejects(k.db.asUser(hr.id, `delete from erp.expense_receipts where expense_id = $1`, [e.id]), 'permission denied')
+  await rejects(k.db.asUser(books.id, `delete from erp.expense_receipts where expense_id = $1`, [e.id]), 'permission denied')
   await rejects(k.db.asUser(staff.id, `update erp.expense_receipts set file_name = 'x' where expense_id = $1`, [e.id]), 'permission denied')
 
   assert.equal(await may(staff.id, path, 'write'), false, 'filed: the file is evidence now')
   assert.equal(await may(books.id, path, 'write'), true)
+  assert.equal(await may(hr.id, path, 'write'), false, 'people staff have no say over what they did not file')
   assert.equal(await may(staff.id, 'expense/../../etc/passwd', 'read'), false)
   assert.equal(await may(staff.id, `expense/${e.id}/nope`, 'read'), false)
   const open = await claim(staff)
   assert.equal(await may(staff.id, `expense/${open.id}/${crypto.randomUUID()}`, 'write'), true)
   assert.equal(await may(peer.id, `expense/${open.id}/${crypto.randomUUID()}`, 'write'), false)
   assert.strictEqual(await may(peer.id, `expense/${open.id}/${crypto.randomUUID()}`, 'read'), false, 'a plain no, also with nobody asked yet')
-
-  // The claim's facts are readable by every member because the kernel reads by type. docs/modules/expense.md says so.
-  assert.equal((await k.db.asUser(stranger.id, `select state ->> 'title' t from public.erp_records where id = $1`, [e.id])).rows[0].t, '택시비')
 })
 
 test('where the project has storage, a record of a file that is not there is refused', async () => {
@@ -434,7 +439,7 @@ test('books: approval owes the person, payment settles it, from the account the 
     assert.deepEqual((await tb(k)).sort(), [['253', 0, 20000], ['811', 20000, 0]])
     const entry = (await q(k, `select * from erp.records where type = 'journal_entry' and state ->> 'origin_id' = $1`, [e.id]))[0]
     assert.equal(entry.state.date, '2026-06-02'); assert.equal(entry.state.number, e.state.number); assert.equal(entry.status, 'auto')
-    assert.match(entry.state.lines[0].name, /박영업: 택시비/)
+    assert.equal(entry.state.lines[0].name, `${e.state.number} 식대`, 'which claim and what kind, not whose and not why')
     await books.cmd('expense', e.id, 'pay', { paid_on: '2026-06-03' })
     await k.settle()
     assert.deepEqual((await tb(k)).sort(), [['103', 0, 20000], ['253', 20000, 20000], ['811', 20000, 0]])
@@ -652,7 +657,7 @@ test('saga over MCP: an agent files, gets it approved and paid, then one word un
   } finally { await c2.k.close() }
 })
 
-test('saga: nothing paid yet goes back by rollback; a closed period stops it and says what to do', async () => {
+test('saga: an approval nothing was paid on goes back by rollback, a claim with words on it is cancelled, and a closed period stops it and says what to do', async () => {
   const c2 = await setup(['hr', 'expense', 'accounting'])
   try {
     const { k, hr, staffE } = c2
@@ -669,9 +674,21 @@ test('saga: nothing paid yet goes back by rollback; a closed period stops it and
     const a = crypto.randomUUID()
     const id = await run(a)
     const plan = mcpJson(await mcpCall(k, agent.id, 'erp_read', { rollback: { correlation_id: a } }))
-    assert.equal(plan.mode, 'rollback')
+    assert.equal(plan.mode, 'compensate', 'the words do not go back with the ledger, so the claim is cancelled instead')
     mcpJson(await mcpCall(k, agent.id, 'erp_create', { type: 'rollback', values: { correlation_id: a, plan_hash: plan.hash }, reason: '취소' }))
-    assert.equal((await k.rec(id)).deleted, true)
+    assert.equal((await k.rec(id)).status, 'cancelled')
+
+    // Only the approval in this piece of work: it goes back, and so does its entry.
+    const held = await filed(c2.hr, { employee_id: staffE.id, amount: 700, date: '2026-05-21' })
+    const c = crypto.randomUUID()
+    mcpJson(await mcpCall(k, agent.id, 'erp_update', { type: 'expense', id: held.id, saga_id: c, values: { state: 'approved' } }))
+    await k.settle()
+    const back = mcpJson(await mcpCall(k, agent.id, 'erp_read', { rollback: { correlation_id: c } }))
+    assert.equal(back.mode, 'rollback')
+    mcpJson(await mcpCall(k, agent.id, 'erp_create', { type: 'rollback', values: { correlation_id: c, plan_hash: back.hash }, reason: '승인을 잘못 눌렀다' }))
+    assert.equal((await k.rec(held.id)).status, 'submitted')
+    assert.equal((await call(k, agent.id, 'erp_expense_words', held.id)).undo_reason, '승인을 잘못 눌렀다')
+    assert.equal((await q(k, `select count(*)::int n from erp.events where reason = $1`, ['승인을 잘못 눌렀다']))[0].n, 0, 'on no stream, the entry\'s included')
 
     const b = crypto.randomUUID()
     await run(b)

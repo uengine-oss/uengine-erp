@@ -78,6 +78,7 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 다른 모듈 없이 일할 수 없는 모듈은 그렇게 밝힌다 | `expense.test.mjs` 1<br>`expense.spec.mjs` 1 | SQL, 브라우저 | ✅ |
 | 켜기 전에 무엇이 열리고 무엇을 다시 만들 수 없는지 알려 준다 | `modules.spec.mjs` 1<br>`growth.spec.mjs` 1<br>`accounting.test.mjs` 1 | SQL, 브라우저 | ✅ |
 | 켠 모듈은 그 뒤의 이벤트부터 받고 고른 만큼만 과거를 읽는다 | `modules.spec.mjs` 1<br>`bus.test.mjs` 5<br>`growth.test.mjs` 2<br>`growth.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 유형은 카탈로그로 행 단위 읽기를 정할 수 있다 | `expense-privacy.test.mjs` 3 | SQL | ✅ |
 | 모듈 사이의 통로는 원장 이벤트 하나다 | `growth.test.mjs` 1<br>`growth.spec.mjs` 1<br>`bus.test.mjs` 1 | SQL, 브라우저 | ✅ |
 | 다섯 모듈의 어떤 조합도 동작한다 | `isolation.test.mjs` 32 | SQL | ✅ |
 | 구독자가 실패해도 다른 일은 멈추지 않는다 | `growth.test.mjs` 1<br>`modules.spec.mjs` 2<br>`bus.test.mjs` 3 | SQL, 브라우저 | ✅ |
@@ -476,9 +477,11 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 이벤트는 구독자에게 필요한 사실을 싣는다 | `expense.test.mjs` 1 | SQL | ✅ |
 | 회계가 켜져 있으면 전표가 생기고 나중에 켜도 같다 | `expense.test.mjs` 4<br>`expense.spec.mjs` 2 | SQL, 브라우저 | ✅ |
 | 잠긴 기간은 승인, 지급, 취소를 막는다 | `expense.test.mjs` 1 | SQL | ✅ |
-| 지급한 경비는 되돌리지 않고 보상한다 | `expense.test.mjs` 4 | SQL | ✅ |
+| 지급한 경비는 되돌리지 않고 보상한다 | `expense.test.mjs` 4<br>`expense-privacy.test.mjs` 1 | SQL | ✅ |
 | MCP 는 구성원의 권한만큼만 한다 | `expense.test.mjs` 1 | SQL | ✅ |
-| 부서별 경비 추이는 세 상태로 보이고 원장만 읽는다 | `expense.test.mjs` 1<br>`expense.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 부서별 경비 추이는 세 상태로 보이고 원장만 읽는다 | `expense.test.mjs` 1<br>`expense-privacy.test.mjs` 1<br>`expense.spec.mjs` 3 | SQL, 브라우저 | ✅ |
+| 경비는 관계된 사람만 어떤 길로도 읽는다 | `expense-privacy.test.mjs` 5<br>`api.e2e.mjs` 1<br>`expense.spec.mjs` 2 | SQL, HTTP, 브라우저 | ✅ |
+| 사람이 친 글은 원장에 없고 지울 수 있다 | `expense-privacy.test.mjs` 5<br>`expense.spec.mjs` 1 | SQL, 브라우저 | ✅ |
 | 경비 유형은 회계 담당자가 다룬다 | `expense.test.mjs` 1 | SQL | ✅ |
 | 가상 회사에 경비가 더해져도 판매와 재고 수치는 그대로다 | `expense.test.mjs` 2 | SQL | ✅ |
 

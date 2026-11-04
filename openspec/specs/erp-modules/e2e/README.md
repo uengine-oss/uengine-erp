@@ -15,6 +15,9 @@ source scripts/local-env.sh && npm run test:e2e -- modules.spec.mjs growth.spec.
 
 | 스펙 시나리오 | 시험 | 단계 | |
 |---|---|---|---|
+| 플러그인 유형 | `expense-privacy.test.mjs › the kernel: read_scope works from the catalog for any type, and a type without one reads as before` | SQL | ✅ |
+| 되돌리기 계획 | `expense-privacy.test.mjs › an approver's agent plans the undo of its own approval: the entry it may not read is counted, not named, and the plan still runs` | SQL | ✅ |
+| 사가 상태 | `expense-privacy.test.mjs › the claimant's agent undoes its own work by key: cancelled, the reason kept outside, its name kept off the plan for what it may not read` | SQL | ✅ |
 | 새 회사는 판매만 켜진다 | `growth.test.mjs › S1. a new company starts with sales alone`<br>`modules.spec.mjs › S1. 판매만 켜져 있으면 메뉴에 판매만 있고, 재고 명령은 거부된다`<br>`growth.spec.mjs › S1. 판매만 켜진 회사: 메뉴에는 판매뿐이고, 견적을 보내고 주문으로 확정한다` | SQL, 브라우저 | ✅ |
 | 꺼진 모듈의 명령은 거부되고 그 유형은 보이지 않는다 | `growth.test.mjs › S1. a new company starts with sales alone`<br>`bus.test.mjs › a module that is off gets nothing and blocks nothing, and its commands are refused`<br>`modules.spec.mjs › S1. 판매만 켜져 있으면 메뉴에 판매만 있고, 재고 명령은 거부된다` | SQL, 브라우저 | ✅ |
 | 켜는 순서와 끄는 순서 | `expense.test.mjs › S13. it starts off, cannot be turned on before people, and people cannot be turned off under it`<br>`expense.spec.mjs › S13-0. 인사 없이는 경비를 켤 수 없고, 메뉴에도 없으며 통계는 잠겨 있다` | SQL, 브라우저 | ✅ |

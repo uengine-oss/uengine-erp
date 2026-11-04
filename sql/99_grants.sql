@@ -21,7 +21,7 @@ begin
   loop
     execute format('revoke all on function %s from public, anon, authenticated', f.sig);
   end loop;
-  grant execute on function erp.is_member(), erp.has_role(text[]), erp.current_actor(), erp.readable_types() to authenticated;
+  grant execute on function erp.is_member(), erp.has_role(text[]), erp.current_actor(), erp.readable_types(), erp.open_types(), erp.scoped_types(), erp.scoped_ids() to authenticated;
 
   for f in select c.relname as proname, format('public.%I', c.relname) as sig from pg_class c join pg_namespace n on n.oid = c.relnamespace
             where n.nspname = 'public' and c.relname like 'erp\_%' and c.relkind in ('v', 'm', 'r') loop

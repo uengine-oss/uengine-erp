@@ -74,7 +74,7 @@ const EXACT: Record<string, string> = {
   LeavePolicySet: '연차 정책 설정', LeavePolicyChanged: '연차 정책 변경', LeavePersonSynced: '휴가 대상 반영', LeavePersonAutoGrantChanged: '자동 부여 변경', LeaveAttendanceNoted: '근태 마감 반영',
   AttendanceCheckedIn: '출근', AttendanceCheckedOut: '퇴근', AttendanceEntered: '근태 입력', AttendanceCorrected: '근태 정정', AttendanceClosed: '근태 월 마감',
   AttendanceLeaveNoted: '휴가 반영', AttendanceLeaveCleared: '휴가 반영 해제', AttendancePolicySet: '근태 기준 설정', AttendancePolicyChanged: '근태 기준 변경', AttendancePersonSynced: '근태 대상 반영',
-  ExpenseCreated: '경비 작성', ExpenseChanged: '경비 변경', ExpenseDeleted: '경비 삭제', ExpenseReceiptAttached: '영수증 첨부', ExpenseReceiptRemoved: '영수증 지움',
+  ExpenseCreated: '경비 작성', ExpenseChanged: '경비 변경', ExpenseDeleted: '경비 삭제', ExpenseReceiptAttached: '영수증 첨부', ExpenseReceiptRemoved: '영수증 지움', ExpenseWordsErased: '적요와 메모 지움',
   ExpenseSubmitted: '경비 신청', ExpenseApproved: '경비 승인', ExpenseRefused: '경비 반려', ExpensePaid: '경비 지급', ExpenseCancelled: '경비 취소',
   OpportunityCreated: '영업 기회 등록', OpportunityChanged: '영업 기회 변경', OpportunityStageChanged: '단계 이동', OpportunityWon: '수주', OpportunityLost: '실주', OpportunityReopened: '다시 열림', OpportunityDeleted: '영업 기회 삭제',
   OpportunityPrivateChanged: '연락처 변경', OpportunityPrivateErased: '연락처 지움', QuotationFromOpportunity: '영업 기회에서 온 견적',

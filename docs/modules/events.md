@@ -202,17 +202,19 @@
 
 ## 경비가 내는 것
 
-공통 사실: `number, employee_id, employee_name, department_id, department_name, category_id, category_name, account_id, date, title, amount`. 경비 ID 는 `ev.stream_id` 다. `date` 는 지출일이고 `account_id` 는 없을 수 있다. 부서는 그 일이 있을 때의 부서다.
+공통 사실: `number, employee_id, employee_name, department_id, department_name, category_id, category_name, account_id, date, amount`. 경비 ID 는 `ev.stream_id` 다. `date` 는 지출일이고 `account_id` 는 없을 수 있다. 부서는 그 일이 있을 때의 부서다. **사람이 친 글은 어떤 이벤트에도 없고 `reason` 도 비어 있다.** 스트림 `expense` 는 행 단위로 읽는다(`read_scope`). 구독자는 소유자 권한으로 돌므로 그대로 받는다. 금액은 회계가 다시 만들 수 있도록 싣는다.
 
 | 이벤트 | `data` 의 사실 |
 |---|---|
-| `ExpenseSubmitted` | 공통 사실 + `approver_id, approver_name, approver_user_id, receipt_count, no_receipt_reason, possible_duplicates` |
+| `ExpenseSubmitted` | 공통 사실 + `approver_id, approver_name, approver_user_id, receipt_count, possible_duplicates` |
 | `ExpenseApproved` | 공통 사실 + `accounting_date, self_approved, approved_by_name, receipt_count` |
-| `ExpenseRefused` | 공통 사실. 사유는 이벤트의 `reason` 이다 |
+| `ExpenseRefused` | 공통 사실. 사유는 원장 밖이다 |
 | `ExpensePaid` | 공통 사실 + `paid_on, paid_from(bank, cash), accounting_date` |
-| `ExpenseCancelled` | 공통 사실 + `was(취소 전 상태), accounting_date, paid_on`. 사유는 이벤트의 `reason` 이다 |
+| `ExpenseCancelled` | 공통 사실 + `was(취소 전 상태), accounting_date, paid_on`. 사유는 원장 밖이다 |
 | `ExpenseReceiptAttached` | `number, receipt_id, sha256, mime, size`. **파일 이름과 위치는 없다** |
 | `ExpenseReceiptRemoved` | `number, receipt_id` |
+| `ExpenseChanged` | `number, words_changed:[칸 이름]`. 글이 바뀌었다는 사실만 |
+| `ExpenseWordsErased` | 자기 스트림 `expense_private`. `expense_id, number, erased_at`. `accounting` 만 읽는다 |
 
 ## CRM 이 내는 것
 

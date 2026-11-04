@@ -573,12 +573,13 @@ begin
 end $$;
 
 -- Approval owes the person the money, payment settles it. Everything comes from the event, so turning this on late books the same.
+-- The label says which claim and what kind, never whose: a journal is read for its own reasons and the claim says the rest to those who may read it.
 create or replace function erp.books_on_expense(ev erp.events) returns void
 language plpgsql as $$
 declare
   d jsonb := ev.data;
   amount_ numeric := erp.num(d -> 'amount');
-  label_ text := concat_ws(': ', d ->> 'employee_name', d ->> 'title');
+  label_ text := concat_ws(' ', d ->> 'number', d ->> 'category_name');
   owed text := erp.seed_id('미지급금')::text;
 begin
   if ev.event_type = 'ExpenseApproved' then

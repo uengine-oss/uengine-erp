@@ -2,7 +2,7 @@
 // list that opens, and the file is picked through the file dialog. The file really goes to the stack's Storage API. Names are made up.
 import { Buffer } from 'node:buffer'
 import { test, expect, shot, connectAndLogin, fieldInput } from '../lib/fixtures.mjs'
-import { ADMIN, command, freshCompany, sql, tokenFor } from '../lib/stack.mjs'
+import { ADMIN, ANON_KEY, API_URL, command, freshCompany, sql, tokenFor } from '../lib/stack.mjs'
 
 test.describe.configure({ mode: 'serial' })
 
@@ -68,14 +68,10 @@ test('S13-0. 인사 없이는 경비를 켤 수 없고, 메뉴에도 없으며 �
   await expect(modelCard(page, 'stat_expense').getByTestId('model-message')).toContainText('경비 모듈을 켜면 열립니다')
 
   await menu(page, 'settings', '/settings/modules')
-  await expect(card(page, 'expense').getByTestId('module-requires')).toHaveText('인사')
-  await card(page, 'expense').getByTestId('module-enable').click()
-  const dialog = page.getByRole('dialog')
-  await expect(dialog).toContainText('경비 모듈 켜기')
-  await page.getByTestId('dlg-confirm').click()
-  await expect(dialog).toContainText('인사 모듈이 먼저 켜져 있어야')
+  await expect(card(page, 'expense').getByTestId('module-needs')).toHaveText('인사')
+  await expect(card(page, 'expense').getByTestId('module-requires')).toContainText('인사 모듈을 먼저 켜야 합니다')
+  await expect(card(page, 'expense').getByTestId('module-enable')).toBeDisabled()
   await shot(page, 'expense-01-needs-people')
-  await dialog.getByRole('button', { name: '취소' }).click()
   await expect(card(page, 'expense').getByTestId('module-state')).toHaveText('꺼짐')
 
   await card(page, 'hr').getByTestId('module-enable').click()
@@ -111,6 +107,7 @@ test('S13-1. 박영업이 경비를 만들고, 영수증 없이는 신청이 막
   await page.getByTestId('save').click()
   await expect(page.getByTestId('form-version')).toHaveText('v1')
   await expect(page.getByTestId('form-title')).toContainText('EX')
+  await expect(fieldInput(page, 'title'), '적요는 원장 밖에서 다시 읽어 온다').toHaveValue('거래처 미팅 택시')
   claimId = page.url().split('/').pop()
 
   await press(page, '신청')
@@ -136,28 +133,39 @@ test('S13-1. 박영업이 경비를 만들고, 영수증 없이는 신청이 막
   await expect(page.getByTestId('receipt-remove')).toHaveCount(0)
   await expect(page.getByTestId('receipt-add')).toHaveCount(0)
 
-  // 원장에는 파일 이름이 없다.
-  expect((await sql(`select count(*)::int n from erp.events where data::text like $1`, [`%${RECEIPT}%`])).rows[0].n).toBe(0)
+  // 원장에는 파일 이름도 적요도 없다.
+  for (const word of [RECEIPT, '거래처 미팅 택시']) expect((await sql(`select count(*)::int n from erp.events where data::text like $1`, [`%${word}%`])).rows[0].n).toBe(0)
 })
 
-test('S13-2. 다른 직원은 내역을 보되 영수증은 못 열고, 저장소도 답하지 않는다', async ({ page }) => {
-  await connectAndLogin(page, PEER)
-  await menu(page, 'expense', 'expense')
-  await expect(rows(page)).toHaveCount(1)
-  await rows(page).first().click()
-  await expect(page.getByTestId('receipt-hidden')).toContainText('볼 권한이 없습니다')
-  await expect(page.getByTestId('receipt-row')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '승인', exact: true })).toHaveCount(0)
-  const path = (await sql(`select path from erp.expense_receipts where expense_id = $1`, [claimId])).rows[0].path
-  const seen = await page.evaluate(async ({ path }) => {
-    const raw = Object.entries(localStorage).find(([k]) => k.startsWith('sb-') && k.endsWith('-auth-token'))
-    const token = raw ? JSON.parse(raw[1]).access_token : ''
-    const conn = JSON.parse(localStorage.getItem('erp.connection') ?? '{}')
-    const r = await fetch(`${conn.url}/storage/v1/object/erp-receipts/${path}`, { headers: { Authorization: `Bearer ${token}`, apikey: conn.key } })
-    return r.status
-  }, { path })
-  expect([400, 403, 404], `다른 직원이 파일을 직접 달라고 해도 받지 못한다 (${seen})`).toContain(seen)
-})
+// 관계없는 사람에게는 경비가 아예 없다. 목록, 주소, 이력, 저장소 어디로 물어도 같다.
+for (const [label, who] of [['다른 직원', PEER], ['아무것도 올리지 않은 인사 담당자', PEOPLE]]) {
+  test(`S13-2. ${label}에게는 이 경비가 없다: 목록에 없고, 주소로 와도 못 열고, 저장소도 답하지 않는다`, async ({ page }) => {
+    await connectAndLogin(page, who)
+    await menu(page, 'expense', 'expense')
+    await expect(page.getByTestId('list-table').or(page.getByText(/없습니다/)).first()).toBeVisible()
+    await expect(rows(page)).toHaveCount(0)
+    await shot(page, `expense-02b-nothing-${who.name}`)
+
+    await page.goto(`/#/r/expense/${claimId}`)
+    await expect(page.getByText('이 문서를 찾을 수 없습니다')).toBeVisible()
+    await expect(page.getByTestId('receipt-panel')).toHaveCount(0)
+
+    // 화면이 아니라 그 사람의 토큰으로 직접 물어도 같다.
+    const path = (await sql(`select path from erp.expense_receipts where expense_id = $1`, [claimId])).rows[0].path
+    const headers = { Authorization: `Bearer ${await tokenFor(who.email, who.password)}`, apikey: ANON_KEY, 'Content-Type': 'application/json' }
+    const post = (fn) => fetch(`${API_URL}/rest/v1/rpc/${fn}`, { method: 'POST', headers, body: JSON.stringify({ p_id: claimId }) })
+    const seen = {
+      file: (await fetch(`${API_URL}/storage/v1/object/erp-receipts/${path}`, { headers })).status,
+      stream: (await post('erp_stream')).status,
+      words: (await post('erp_expense_words')).status,
+      events: await (await fetch(`${API_URL}/rest/v1/erp_events?stream_id=eq.${claimId}`, { headers })).json(),
+    }
+    expect([400, 403, 404], `파일을 직접 달라고 해도 받지 못한다 (${seen.file})`).toContain(seen.file)
+    expect(seen.stream).toBe(403)
+    expect(seen.words).toBe(403)
+    expect(seen.events).toEqual([])
+  })
+}
 
 test('S13-3. 김팀장이 파일을 열어 보고 반려하면 박영업이 고쳐서 다시 신청하고, 그다음 승인한다', async ({ page }) => {
   await connectAndLogin(page, BOSS)
@@ -254,6 +262,8 @@ test('S13-6. 지급한 경비를 취소하면 전표가 지워지고 원장에�
   await type(page, dialog.locator('#dlg-reason'), '이중 지급 정정')
   await page.getByTestId('dlg-confirm').click()
   await expect(page.locator('.pill').filter({ hasText: '취소' }).first()).toBeVisible()
+  await expect(page.locator('[data-field="cancel_reason"]'), '사유는 이 경비를 볼 수 있는 사람에게 보이고').toContainText('이중 지급 정정')
+  expect((await sql(`select count(*)::int n from erp.events where reason = $1 or data::text like $2`, ['이중 지급 정정', '%이중 지급 정정%'])).rows[0].n, '원장에는 없다').toBe(0)
   await expect.poll(async () => Number((await sql(`select coalesce(sum(debit - credit), 0)::numeric n from erp.gl_lines where account_id = erp.seed_id('미지급금')`)).rows[0].n), { timeout: 20_000 }).toBe(0)
   const trail = (await sql(`select event_type from erp.events where stream_id = $1 order by version`, [claimId])).rows.map((r) => r.event_type)
   expect(trail).toEqual(expect.arrayContaining(['ExpenseApproved', 'ExpensePaid', 'ExpenseCancelled']))
@@ -266,6 +276,7 @@ test('S13-7. 부서별 경비 추이: 이력이 짧으면 사실만 보여 주�
   await connectAndLogin(page, BOSS)
   await menu(page, 'expense', '/expense/trend')
   await expect(page.getByTestId('expense-trend-state')).toHaveText('근거 부족')
+  await expect(page.getByTestId('expense-trend-scope'), '회사 전체 금액인 척하지 않는다').toContainText('내가 볼 수 있는 경비만')
   await expect(page.getByTestId('expense-trend-empty').or(page.getByTestId('expense-trend-short')).first()).toBeVisible()
   for (const [n, amount] of [[1, 10000], [32, 20000], [63, 40000]]) {
     const e = await command(staff, 'expense', null, 'create', { title: `월별 경비 ${n}`, amount, date: daysAgo(n), no_receipt_reason: '시험' })
@@ -282,4 +293,38 @@ test('S13-7. 부서별 경비 추이: 이력이 짧으면 사실만 보여 주�
   await expect(modelCard(page, 'stat_expense').getByTestId('model-state')).toHaveText('사용 가능')
   await modelCard(page, 'stat_expense').getByTestId('model-open').click()
   await expect(page.getByTestId('expense-trend')).toBeVisible()
+})
+
+test('S13-8. 회계 담당자에게는 회사 전체 추이이고, 관계없는 직원의 추이에는 아무것도 없다', async ({ page }) => {
+  await connectAndLogin(page, BOOKS)
+  await menu(page, 'expense', '/expense/trend')
+  await expect(page.getByTestId('expense-trend-total')).toContainText('70,000')
+  await expect(page.getByTestId('expense-trend-scope')).toHaveCount(0)
+  await page.getByTestId('user').click()
+  await page.getByTestId('logout').click()
+  await expect(page.getByLabel('이메일')).toBeVisible()
+
+  await connectAndLogin(page, PEER)
+  await menu(page, 'expense', '/expense/trend')
+  await expect(page.getByTestId('expense-trend-scope')).toBeVisible()
+  await expect(page.getByTestId('expense-trend-total')).toHaveText(/^₩?0/)
+  await expect(page.getByTestId('expense-trend-table')).toHaveCount(0)
+})
+
+test('S13-9. 박영업이 적요와 메모를 지우면 되돌릴 수 없고, 원장에는 지웠다는 사실만 남으며, 금액과 전표는 그대로다', async ({ page }) => {
+  await connectAndLogin(page, STAFF)
+  await page.goto(`/#/r/expense/${claimId}`)
+  await expect(page.locator('[data-field="title"]')).toContainText('거래처 미팅 택시')
+  await page.getByTestId('words-erase').click()
+  await expect(page.getByRole('dialog')).toContainText('되돌릴 수 없습니다')
+  await page.getByTestId('dlg-confirm').click()
+  await expect(page.locator('.toast').filter({ hasText: '적요와 메모를 지웠습니다' })).toBeVisible()
+  await expect(page.locator('[data-field="title"]')).not.toContainText('거래처 미팅 택시')
+  await expect(page.getByTestId('words-erase')).toHaveCount(0)
+  await expect(page.locator('[data-field="amount"]')).toContainText('12,500')
+  expect((await sql(`select count(*)::int n from erp.expense_private where expense_id = $1`, [claimId])).rows[0].n).toBe(0)
+  const trail = (await sql(`select reason, data from erp.events where event_type = 'ExpenseWordsErased' and data ->> 'expense_id' = $1`, [claimId])).rows
+  expect(trail).toHaveLength(1)
+  expect(trail[0].reason).toBeNull()
+  await shot(page, 'expense-07-erased')
 })

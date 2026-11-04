@@ -69,6 +69,7 @@ end $$;
 
 create or replace function public.erp_saga_plan(p_saga uuid) returns jsonb
 language plpgsql stable security definer set search_path = erp, extensions, pg_temp as $$
+declare plan jsonb;
 begin
   -- The correction sits on the same streams, so asking again would read as someone else's work.
   if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '이 회사의 구성원이 아닙니다'); end if;
@@ -78,7 +79,8 @@ begin
   if not erp.may_rollback('correlation', jsonb_build_object('correlation_id', p_saga)) then
     perform erp.fail('ERP_FORBIDDEN', '되돌릴 권한이 없습니다. 관리자이거나, 에이전트가 MCP로 직접 한 일이고 그 위에 다른 작업이 없어야 합니다');
   end if;
-  return erp.saga_plan(p_saga);
+  plan := erp.saga_plan(p_saga);
+  return erp.plan_redact(plan, erp.plan_hidden(plan));
 end $$;
 
 create or replace function public.erp_saga_undo(p_saga uuid, p_hash text, p_allow_cascade boolean default false, p_reason text default null) returns jsonb
@@ -116,9 +118,11 @@ begin
       done_ := done_ || jsonb_build_object('type', c -> 'type', 'label', c -> 'label', 'name', c -> 'name', 'id', c -> 'id', 'action', c -> 'action', 'result_id', res -> 'id');
     end loop;
   end if;
-  insert into erp.saga_undone(saga_id, mode, correlation_id, reason, actor_id) values (p_saga, plan ->> 'mode', corr, p_reason, erp.current_actor());
-  return jsonb_build_object('mode', plan ->> 'mode', 'correlation_id', corr, 'done', done_, 'follow', plan -> 'follow', 'keep', plan -> 'keep',
-    'warnings', plan -> 'warnings', 'streams', jsonb_array_length(plan -> 'streams'));
+  -- A type that keeps words out of the ledger has the reason already. This table has no way to forget it.
+  insert into erp.saga_undone(saga_id, mode, correlation_id, reason, actor_id)
+  values (p_saga, plan ->> 'mode', corr, case when erp.plan_keeps_reason(plan) then '' else p_reason end, erp.current_actor());
+  return erp.plan_redact(jsonb_build_object('mode', plan ->> 'mode', 'correlation_id', corr, 'done', done_, 'follow', plan -> 'follow', 'keep', plan -> 'keep',
+    'warnings', plan -> 'warnings', 'streams', jsonb_array_length(plan -> 'streams')), erp.plan_hidden(plan));
 end $$;
 
 -- What an agent reads before it says "done": what the saga made, and whether every subscriber has caught up.
@@ -127,19 +131,26 @@ create or replace function public.erp_saga_status(p_saga uuid) returns jsonb
 language plpgsql stable security definer set search_path = erp, extensions, pg_temp as $$
 declare
   readable text[] := erp.readable_types();
+  limited text[] := erp.scoped_types();
+  seen uuid[] := erp.scoped_ids();
   u erp.saga_undone;
   ids uuid[];
 begin
   if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '이 회사의 구성원이 아닙니다'); end if;
   select * into u from erp.saga_undone where saga_id = p_saga;
   ids := array_remove(array[p_saga, u.correlation_id], null);
+  -- Work of which the caller may read nothing looks like work that never happened. Not even its undo reason gets out.
+  if exists (select 1 from erp.events e where e.correlation_id = any (ids))
+     and not exists (select 1 from erp.events e where e.correlation_id = any (ids) and erp.readable_row(e.stream_type, e.stream_id, readable, limited, seen)) then
+    return jsonb_build_object('saga_id', p_saga, 'undone', null, 'events', 0, 'documents', '[]'::jsonb, 'net', '[]'::jsonb, 'pending', false, 'stuck', '[]'::jsonb);
+  end if;
   return jsonb_build_object(
     'saga_id', p_saga,
     'undone', case when u.saga_id is null then null else jsonb_build_object('mode', u.mode, 'correlation_id', u.correlation_id, 'reason', u.reason, 'at', u.at) end,
     'events', (select count(*) from erp.events e where e.correlation_id = any (ids)),
     'documents', (select coalesce(jsonb_agg(jsonb_build_object('id', r.id, 'type', r.type, 'label', c.doc ->> 'label', 'name', r.name, 'status', r.status, 'deleted', r.deleted) order by r.created_at), '[]'::jsonb)
                     from erp.records r join erp.catalog c on c.type = r.type
-                   where r.type = any (readable) and r.id in (select e.stream_id from erp.events e where e.correlation_id = any (ids))),
+                   where erp.readable_row(r.type, r.id, readable, limited, seen) and r.id in (select e.stream_id from erp.events e where e.correlation_id = any (ids))),
     -- What the work changed in total, read from the ledger's own effects: stock by place, books by account.
     -- After a correct undo every amount here is zero, and that is what an agent shows instead of its word.
     'net', (select coalesce(jsonb_agg(jsonb_build_object('kind', n.kind, 'key', n.key_, 'name', n.name_, 'amount', n.amount) order by n.kind, n.name_), '[]'::jsonb) from (
@@ -148,10 +159,10 @@ begin
                      sum(case when row_ ? 'debit' or row_ ? 'credit' then coalesce(erp.num(row_ -> 'debit'), 0) - coalesce(erp.num(row_ -> 'credit'), 0) else coalesce(erp.num(row_ -> 'qty'), 0) end) as amount
                 from erp.events e, jsonb_each(e.data -> 'effects') as t(kind, arr), jsonb_array_elements(t.arr) row_
                 left join erp.records a on a.id = coalesce(row_ ->> 'account_id', row_ ->> 'variant_id')::uuid
-               where e.correlation_id = any (ids) and (row_ ? 'qty' or row_ ? 'debit' or row_ ? 'credit') and e.stream_type = any (readable)
+               where e.correlation_id = any (ids) and (row_ ? 'qty' or row_ ? 'debit' or row_ ? 'credit') and erp.readable_row(e.stream_type, e.stream_id, readable, limited, seen)
                group by 1, 2) n),
     'pending', exists (select 1 from erp.subscriptions s join erp.events e on e.correlation_id = any (ids) and (e.txid, e.seq) > (s.last_txid, s.last_seq)
                         where s.active and (s.event_types is null or e.event_type = any (s.event_types)) and (s.since is null or e.occurred_at >= s.since)),
     'stuck', (select coalesce(jsonb_agg(jsonb_build_object('subscription', s.name, 'error', s.last_error)), '[]'::jsonb) from erp.subscriptions s
-               where s.active and s.failures > 0 and s.last_error_seq in (select e.seq from erp.events e where e.correlation_id = any (ids))));
+               where s.active and s.failures > 0 and s.last_error_seq in (select e.seq from erp.events e where e.correlation_id = any (ids) and erp.readable_row(e.stream_type, e.stream_id, readable, limited, seen))));
 end $$;

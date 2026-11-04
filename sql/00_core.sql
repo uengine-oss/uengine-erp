@@ -462,6 +462,65 @@ language sql stable security definer set search_path = erp, pg_temp as $$
       or m.roles && array(select jsonb_array_elements_text(c.doc -> 'read_roles'))
 $$;
 
+-- A type can also decide record by record: "read_scope": {"roles": [...], "fn": "erp.x"}. Those roles and admin read every record, and for
+-- everyone else the module's function names the ones they may. The type stays readable above, so its menu and list work with fewer rows.
+create or replace function erp.scoped_types() returns text[]
+language sql stable security definer set search_path = erp, pg_temp as $$
+  select coalesce(array_agg(c.type), '{}') from erp.catalog c
+    join erp.members m on m.user_id = erp.current_actor() and m.active
+   where c.doc ? 'read_scope' and not 'admin' = any (m.roles)
+     and not m.roles && array(select jsonb_array_elements_text(coalesce(c.doc -> 'read_scope' -> 'roles', '[]'::jsonb)))
+     and (not (c.doc ? 'read_roles') or m.roles && array(select jsonb_array_elements_text(c.doc -> 'read_roles')))
+$$;
+
+-- What the caller reads whole. The policies ask this first, so a row of any other type costs what it always did and the two below never run.
+create or replace function erp.open_types() returns text[]
+language sql stable security definer set search_path = erp, pg_temp as $$
+  select coalesce(array_agg(c.type), '{}') from erp.catalog c
+    join erp.members m on m.user_id = erp.current_actor() and m.active
+   where 'admin' = any (m.roles)
+      or ((not (c.doc ? 'read_roles') or m.roles && array(select jsonb_array_elements_text(c.doc -> 'read_roles')))
+          and (not (c.doc ? 'read_scope') or m.roles && array(select jsonb_array_elements_text(coalesce(c.doc -> 'read_scope' -> 'roles', '[]'::jsonb)))))
+$$;
+
+-- One answer per query, not one call per row: a policy runs before any filter that is not leakproof, so a scan of the ledger for one kind
+-- of effect would otherwise call a module for every event of that type. A query that meets no such row never runs this.
+create or replace function erp.scoped_ids() returns uuid[]
+language plpgsql stable security definer set search_path = erp, pg_temp as $$
+declare
+  fn text;
+  part uuid[];
+  out_ uuid[] := '{}';
+begin
+  for fn in select c.doc -> 'read_scope' ->> 'fn' from erp.catalog c where c.type = any (erp.scoped_types()) loop
+    execute format('select %s()', fn) into part;
+    out_ := out_ || coalesce(part, '{}');
+  end loop;
+  return out_;
+end $$;
+
+-- The same decision for readers that run with the owner's rights and skip row security. They fetch the three lists once and test each row.
+create or replace function erp.readable_row(p_type text, p_id uuid, p_readable text[], p_limited text[], p_ids uuid[]) returns boolean
+language sql immutable as $$
+  select p_type = any (p_readable) and (p_type <> all (p_limited) or p_id = any (p_ids))
+$$;
+
+create or replace function erp.can_read(p_type text, p_id uuid) returns boolean
+language plpgsql stable as $$
+begin
+  if not p_type = any (erp.readable_types()) then return false; end if;
+  return p_type <> all (erp.scoped_types()) or p_id = any (erp.scoped_ids());
+end $$;
+
+-- A command on a record the caller may not read answers as for no record at all, so it tells neither that it exists nor what state it is in.
+create or replace function erp.require_scope(p_type text, p_id uuid) returns void
+language plpgsql stable as $$
+begin
+  if p_id is not null and p_type = any (erp.scoped_types()) and not p_id = any (erp.scoped_ids()) then
+    perform erp.fail('ERP_NOT_FOUND', format('레코드를 찾을 수 없습니다 (%s)', p_type));
+  end if;
+end $$;
+
 alter table erp.events enable row level security;
 alter table erp.records enable row level security;
 alter table erp.members enable row level security;
@@ -471,9 +530,11 @@ alter table erp.sequences enable row level security;
 alter table erp.hooks enable row level security;
 
 drop policy if exists events_read on erp.events;
-create policy events_read on erp.events for select to authenticated using (stream_type = any ((select erp.readable_types())::text[]));
+create policy events_read on erp.events for select to authenticated using (stream_type = any ((select erp.open_types())::text[])
+  or (stream_type = any ((select erp.scoped_types())::text[]) and stream_id = any ((select erp.scoped_ids())::uuid[])));
 drop policy if exists records_read on erp.records;
-create policy records_read on erp.records for select to authenticated using (type = any ((select erp.readable_types())::text[]));
+create policy records_read on erp.records for select to authenticated using (type = any ((select erp.open_types())::text[])
+  or (type = any ((select erp.scoped_types())::text[]) and id = any ((select erp.scoped_ids())::uuid[])));
 drop policy if exists members_read on erp.members;
 create policy members_read on erp.members for select to authenticated using ((select erp.is_member()));
 drop policy if exists catalog_read on erp.catalog;
@@ -504,6 +565,8 @@ end $$;
 --             required list search default readonly options[{value,label}] ref unique
 --   states[]: value label color        transitions[]: command to from[] label roles[] primary params[]
 --   commands: {create|update|delete|archive|unarchive: {roles: []}}
+--   read_scope: {roles: [], fn}: who reads each record, below. reason_fn(id, reason): this type keeps a command's reason out of the ledger.
+--   A field with private: true is taken by the handler and kept outside the ledger; private_read names the function that answers one record's.
 ------------------------------------------------------------------------------------------------
 create or replace function erp.catalog_put(p_doc jsonb) returns void
 language sql as $$
@@ -733,6 +796,7 @@ begin
      and string_to_array(p_app_version, '.')::int[] < string_to_array(erp.min_app_version(), '.')::int[] then
     perform erp.fail('ERP_APP_OUTDATED', format('앱이 이 데이터베이스보다 오래되었습니다(앱 v%s, 최소 v%s). 새로 고침하세요', p_app_version, erp.min_app_version()));
   end if;
+  if p_command <> 'create' then perform erp.require_scope(p_type, p_id); end if;
   -- A client that lost the response can resend the same key and get the first answer instead of a duplicate.
   key_ := coalesce(p_idempotency_key, nullif(current_setting('request.headers', true), '')::json ->> 'idempotency-key');
   if key_ is not null then
@@ -779,11 +843,12 @@ create or replace function erp.min_app_version() returns text language sql immut
 ------------------------------------------------------------------------------------------------
 -- Reads that need more than the views give: history, time travel, integrity
 ------------------------------------------------------------------------------------------------
--- Security-definer readers bypass row security, so each one checks the record's type itself.
+-- Security-definer readers bypass row security, so each one checks the record itself. No such record reads the same as no right to it.
 create or replace function erp.require_readable(p_id uuid) returns void
 language plpgsql stable as $$
+declare t text := (select r.type from erp.records r where r.id = p_id);
 begin
-  if not exists (select 1 from erp.records r where r.id = p_id and r.type = any (erp.readable_types())) then
+  if t is null or not erp.can_read(t, p_id) then
     perform erp.fail('ERP_FORBIDDEN', '이 레코드를 볼 권한이 없습니다');
   end if;
 end $$;
@@ -821,11 +886,15 @@ end $$;
 
 create or replace function public.erp_correlation(p_correlation_id uuid) returns jsonb
 language plpgsql stable security definer set search_path = erp, pg_temp as $$
-declare out_ jsonb;
+declare
+  out_ jsonb;
+  readable text[] := erp.readable_types();
+  limited text[] := erp.scoped_types();
+  seen uuid[] := erp.scoped_ids();
 begin
   if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '구성원만 볼 수 있습니다'); end if;
   select coalesce(jsonb_agg(to_jsonb(e) order by seq), '[]'::jsonb) into out_ from erp.events e
-   where correlation_id = p_correlation_id and stream_type = any (erp.readable_types());
+   where correlation_id = p_correlation_id and erp.readable_row(stream_type, stream_id, readable, limited, seen);
   return out_;
 end $$;
 

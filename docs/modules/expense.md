@@ -18,7 +18,9 @@
 
 `expense_category`(경비 유형): `name`(유일), `account_id`(회계가 켜져 있을 때만 보인다). 새 회사에 식대, 교통비, 출장비, 접대비, 통신비, 소모품, 기타 경비가 들어 있다. 쓰기는 `accounting`.
 
-`expense`(경비): `number`(`EX00001`), `employee_id, date, title, category_id, amount, note, no_receipt_reason`. 나머지는 서버가 쓴다: `employee_name, employee_user_id, department_id, department_name, category_name, account_id, receipts, receipt_count, possible_duplicates, approver_id, approver_name, approver_user_id, approved_by_name, accounting_date, paid_on, paid_from, refused_reason, cancelled_from, state`.
+`expense`(경비): `number`(`EX00001`), `employee_id, date, category_id, amount`. 나머지는 서버가 쓴다: `employee_name, employee_user_id, department_id, department_name, category_name, account_id, filed_by_user_id, filed_by_name, receipts, receipt_count, possible_duplicates, approver_id, approver_name, approver_user_id, approved_by_name, accounting_date, paid_on, paid_from, cancelled_from, state`. 표시 이름은 번호다.
+
+적요와 사유는 원장에 없다. `title, note, no_receipt_reason` 은 명령으로 받되 `erp.expense_private` 에 넣고, `refused_reason, cancel_reason, removal_reason, undo_reason` 은 서버가 같은 곳에 넣는다. 아래 「누가 읽는가」.
 
 ## 상태와 권한
 
@@ -32,21 +34,53 @@ draft → submitted → approved → paid
 
 | 명령 | 누가 | 뜻 |
 |---|---|---|
-| `create`, `update`, `delete` | 본인, `hr`, `accounting` | `employee_id` 를 비우면 이 계정의 재직 직원 기록이다. `update` 는 작성 중과 반려만, `delete` 는 작성 중이고 영수증이 없을 때만 |
-| `attach_receipt`, `remove_receipt` | 본인, `hr`, `accounting` | 아래 「영수증」 |
-| `submit` | 본인, `hr`, `accounting` | 영수증이나 없는 사유가 있어야 한다. 그때의 상사를 승인자로 적는다 |
+| `create` | 본인. 다른 직원 것은 `hr`, `accounting` | `employee_id` 를 비우면 이 계정의 재직 직원 기록이다. 대신 올린 사람은 그 경비를 계속 다룬다 |
+| `update`, `delete` | 본인, 대신 올린 사람, `accounting` | `update` 는 작성 중과 반려만, `delete` 는 작성 중이고 영수증이 없을 때만. 지우면 적요와 메모도 지운다 |
+| `attach_receipt`, `remove_receipt` | 본인, 대신 올린 사람, `accounting` | 아래 「영수증」 |
+| `submit` | 본인, 대신 올린 사람, `accounting` | 적요와, 영수증이나 없는 사유가 있어야 한다. 그때의 상사를 승인자로 적는다 |
+| `erase_private` | 본인, 대신 올린 사람, `accounting` | 적요, 메모, 사유를 지운다. 사유를 받지 않는다 |
 | `approve{accounting_date}` | 승인자, `admin` | 비우면 지출일이다. 지출일 이상, 오늘 이하, 잠기지 않은 날. `ExpenseApproved` |
 | `refuse`(사유 필수) | 승인자, `admin` | 신청한 사람이 고쳐서 다시 신청한다 |
 | `pay{paid_on, paid_from}` | `accounting` | 회계일 이상, 오늘 이하, 잠기지 않은 날. `paid_from` 은 `bank`(기본) 또는 `cash`. `ExpensePaid` |
-| `cancel`(승인 뒤에는 사유 필수) | 신청 전후는 본인·승인자·`hr`·`accounting`, 승인 뒤는 승인자·`accounting`, 지급 뒤는 `accounting` | `ExpenseCancelled`. 전표가 지워진다 |
+| `cancel`(승인 뒤에는 사유 필수) | 신청 전후는 본인·대신 올린 사람·승인자·`accounting`, 승인 뒤는 승인자·`accounting`, 지급 뒤는 `accounting` | `ExpenseCancelled`. 전표가 지워진다 |
 
 **본인 승인.** 상사가 있으면 관리자여도 본인 것을 승인하지 못한다. 상사가 없는 사람(대표)의 경비는 관리자가 승인하며, 그 관리자가 본인이면 이벤트에 `self_approved: true` 가 남는다. 상사에게 ERP 계정이 없으면 관리자가 승인한다.
 
-**퇴사자.** 새 경비를 올릴 수 없다. 이미 만든 것은 인사나 회계 담당자가 이어서 처리한다.
+**퇴사자.** 새 경비를 올릴 수 없다. 이미 만든 것은 대신 올린 사람이나 회계 담당자가 이어서 처리한다.
 
 **같은 날 같은 금액.** 같은 사람, 같은 지출일, 같은 금액의 진행 중 경비가 있으면 막지 않고 `possible_duplicates` 에 번호를 적어 승인자에게 보여 준다. 택시 두 번일 수 있어서다. 같은 파일은 막는다.
 
-**읽기 권한의 한계.** 커널의 읽기 권한은 유형 단위라서 **경비의 금액, 적요, 직원 이름은 모든 구성원이 읽는다.** 민감한 것은 영수증이고, 영수증만 행 단위로 막는다. 금액까지 가리려면 커널에 행 단위 읽기 규칙을 더해야 한다.
+## 누가 읽는가
+
+경비는 무엇에 돈을 썼는지를 말한다. 그래서 **신청한 본인, 그 경비의 승인자, 대신 올린 사람, 회계 담당자만 읽는다.** 나머지 구성원에게는 없는 문서다. 아무것도 올리지 않은 인사 담당자도 같다. 승인자는 신청된 뒤부터 읽고, 작성 중인 경비는 모른다. 관리자는 회계 담당자와 같다. 스스로 역할을 줄 수 있고, 상사가 없는 사람의 경비를 승인하며, 원장 내보내기와 되돌리기를 맡는다.
+
+| 무엇 | 어디에 | 누가 읽는가 |
+|---|---|---|
+| 금액, 사람과 부서 이름, 유형, 날짜, 상태 | 원장 이벤트와 레코드 | 위의 사람들. RLS |
+| 적요, 메모, 영수증 없는 사유, 반려·취소·영수증 삭제·되돌리기 사유 | `erp.expense_private`(원장 밖) | 위의 사람들. `public.erp_expense_words(id)` 로만. 표에는 정책도 권한도 없다 |
+| 파일 이름, 위치 | `erp.expense_receipts`(원장 밖) | 위의 사람들. RLS |
+| 파일 | Storage `expense/<경비 ID>/<영수증 ID>` | 위의 사람들. 정책이 `public.erp_receipt_may` 를 부른다 |
+| 지문(sha256), 크기, 형식 | 원장 이벤트 | 위의 사람들 |
+
+**금액은 원장에 있다.** 회계는 이벤트만 읽고 전표를 만들고, 나중에 켜도 같은 전표가 나와야 한다(M1, M8). 그래서 금액, 사람, 날짜는 이벤트에 남고 지울 수 없다. 다만 그 이벤트를 위의 사람들만 읽는다. **사람이 친 글만 원장 밖에 둔다.** 그래서 지울 수 있다.
+
+**사유도 글이다.** `refuse`, `cancel`, `remove_receipt` 의 사유는 화면에서 왔든 사가에서 왔든 처리기가 `erp.expense_private` 로 옮기고 이벤트의 `reason` 은 비운다. 다른 명령은 사유를 받으면 거부한다. 잃어버리는 것보다 낫다. 되돌리기는 카탈로그의 `reason_fn` 으로 같은 곳에 넣고, 경비가 범위에 있으면 그 되돌리기의 어떤 이벤트에도 사유를 적지 않는다. 전표 스트림도 마찬가지다. 회사 전체를 고른 시점으로 되돌릴 때는 그 사유가 어느 경비에 관한 말이 아니므로 경비 스트림에만 적지 않고 다른 스트림에는 적는다.
+
+**한 곳의 결정.** 카탈로그의 `read_scope: {roles: ["accounting"], fn: "erp.exp_readable_ids"}` 가 정하고, 커널이 RLS 와 소유자 권한 경로(MCP, 이력, 시점 읽기, 사가, 되돌리기 미리보기, 참조, 가져오기, 이벤트 피드, 실시간)에 같게 적용한다. 그래서 목록, 상세, 이력 화면은 고치지 않았다. 볼 수 없는 경비에 명령을 보내면 없는 문서와 같은 `ERP_NOT_FOUND` 다. 상태도 존재도 알 수 없다. 설계는 `openspec/specs/erp-modules/spec.md` 의 「행 단위 읽기」에 있다.
+
+**MCP.** 에이전트는 그 구성원이 읽는 경비를 읽지만 글은 읽지 못한다. `erp_expense_words` 는 도구가 아니다. 적요는 쓸 수 있고 읽을 수 없다.
+
+**지우기.** `erase_private` 는 행을 지우고 숨은 스트림 `expense_private` 에 `ExpenseWordsErased{expense_id, number, erased_at}` 를 남긴다. 누가 언제 지웠는지만 남고 그 스트림은 `accounting` 만 읽는다. 지운 글은 돌아오지 않고, 돌아올 수 없으니 사가에도 속하지 않는다. 금액과 전표, 지급 기록은 그대로다. 지운 경비를 다시 신청하려면 적요를 다시 적는다. 글은 버전이 없다. 고치면 옛 글은 사라지고, 원장에는 `ExpenseChanged.words_changed` 에 칸 이름만 남으며, 시점 보기에서는 글 칸을 보이지 않는다.
+
+**이 규칙으로도 알 수 있는 것.**
+
+- 번호는 회사 전체에서 하나씩 올라가므로 자기 번호로 대략의 건수를 짐작한다.
+- 같은 파일을 가진 사람은 그 파일이 이미 어딘가에 신청되었다는 것을 안다. 어느 경비인지는 그 경비를 읽을 수 있을 때만 말한다. 한 영수증으로 두 번 받지 못하게 하려면 필요하다.
+- `possible_duplicates` 는 같은 사람의 다른 경비 번호를 승인자와 대신 올린 사람에게 보여 준다. 번호뿐이다.
+- 경비가 참조하는 직원이나 유형을 지우려는 담당자는 「다른 레코드(expense)에서 사용 중」 이라는 말을 듣는다. 어느 경비인지는 없다.
+- 원장 내보내기(`erp_export_events`)는 관리자만 하고 금액을 담는다. 글은 없다.
+
+**업그레이드 한계.** 이 규칙 전에 만든 경비의 이벤트에는 `title`, `no_receipt_reason`, 사유가 그대로 있다. 원장은 고칠 수 없다. 아직 공개 전이라 옮기는 절차를 만들지 않았다. 그런 DB 는 RLS 로 읽기는 막히지만 원장에 글이 남아 있고, 원장 내보내기에도 들어간다. 지우려면 회사를 새로 만든다.
 
 ## 영수증: 왜 Supabase Storage 인가
 
@@ -60,17 +94,11 @@ draft → submitted → approved → paid
 
 그래서 **Storage 를 도입한다.** 설치 SQL 이 비공개 버킷 `erp-receipts`(10 MB, JPG·PNG·WEBP·HEIC·PDF)와 `storage.objects` 정책을 만든다. 저장소가 없는 DB(시험용 임시 DB)에서는 건너뛰고 설치는 계속된다. 로컬 스택도 `supabase/config.toml` 의 `[storage] enabled = true` 로 바꿨다.
 
-| 무엇 | 어디에 | 누가 읽는가 |
-|---|---|---|
-| 파일 | Storage `expense/<경비 ID>/<영수증 ID>` | 본인, 승인자, `hr`, `accounting`, `admin`. 정책이 `public.erp_receipt_may` 를 부른다 |
-| 파일 이름, 위치 | `erp.expense_receipts`(원장 밖) | 같은 사람들. RLS |
-| 지문(sha256), 크기, 형식 | 원장 | 모든 구성원 |
-
 파일 이름은 원장에 넣지 않는다. 사람 이름이나 카드 번호가 들어 있을 수 있어서다. 지문은 승인한 뒤 파일이 바뀌지 않았다는 증거다. 인사 모듈의 민감 정보 패턴을 따르되 칸이 아니라 파일이라서 다음이 다르다.
 
 - **올리는 순서.** 경비를 저장하고, 브라우저가 지문을 계산해 올리고, `attach_receipt` 로 등록한다. 등록이 거부되면 올린 파일을 지운다. 저장소가 있는 프로젝트에서는 파일이 실제로 있어야 등록된다.
-- **지우기.** 작성 중과 반려 상태에서는 본인이 사유 없이 지운다. 신청한 뒤에는 증빙이므로 `hr`, `accounting` 이 사유를 적어 지우고, 사유에 파일 이름을 적으면 거부한다. 원장에는 지웠다는 사실과 지문이 남는다.
-- **같은 영수증.** 취소되지 않은 다른 경비에 같은 지문이 있으면 `ERP_DUPLICATE` 다. 동시에 올려도 잠금으로 막는다.
+- **지우기.** 작성 중과 반려 상태에서는 본인이나 대신 올린 사람이 사유 없이 지운다. 신청한 뒤에는 증빙이므로 `accounting` 이 사유를 적어 지운다. 사유는 원장 밖에 두고, 원장에는 지웠다는 사실과 지문이 남는다.
+- **같은 영수증.** 취소되지 않은 다른 경비에 같은 지문이 있으면 `ERP_DUPLICATE` 다. 동시에 올려도 잠금으로 막는다. 번호는 그 경비를 읽을 수 있는 사람에게만 말한다.
 - **되돌리기.** 파일은 함께 돌아오지 않으므로, 되돌릴 시점에 없던 영수증이 남아 있으면 `revert_check_fn` 이 막고 먼저 지우라고 말한다.
 - **MCP.** `attach_receipt` 는 `erp_update` 의 `action` 으로 부를 수 있지만 파일을 올리는 길은 없다. 에이전트는 Storage 에 쓰지 못하므로 사람이 올리거나 `no_receipt_reason` 을 적는다. MCP 로 파일 이름을 읽는 길도 없다.
 
@@ -86,7 +114,9 @@ draft → submitted → approved → paid
 | `ExpensePaid` | `paid_on` | 미지급금 | 보통예금 또는 현금 |
 | `ExpenseCancelled` | 원래 날짜 | 그 경비의 열린 전표를 지운다(`erp.books_withdraw`) | |
 
-승인할 때의 유형 계정을 이벤트에 싣는다. 전표의 거래처는 비어 있다. 직원은 거래처가 아니고 적요에 이름이 남는다. 그래서 **직원별 미지급 잔액 보고서는 없다.** 경비 목록의 승인 상태로 본다.
+승인할 때의 유형 계정을 이벤트에 싣는다. 전표의 거래처는 비어 있고, 전표의 적요는 `EX00001 식대` 처럼 번호와 유형뿐이다. 사람 이름도 사람이 친 글도 없다. 그래서 **직원별 미지급 잔액 보고서는 없다.** 경비 목록의 승인 상태로 본다.
+
+**전표로 알 수 있는 것.** `journal_entry` 와 `erp.gl_lines` 는 `read_roles: ["accounting"]` 이므로 회계 담당자와 관리자만 읽는다. 그들은 경비를 어차피 읽는다. 전표 하나만 보면 번호, 유형의 계정, 금액, 회계일, 지급일을 알고, 누구의 경비인지는 원본 문서(`origin_id`)를 열어야 안다.
 
 회계 구독에 더한 것은 이벤트 이름 셋, 처리기 하나, 시드 계정(미지급금, 복리후생비, 여비교통비, 기업업무추진비, 통신비, 소모품비, 잡비)이다.
 
@@ -94,7 +124,8 @@ draft → submitted → approved → paid
 
 | 상황 | 방식 |
 |---|---|
-| 아직 지급하지 않음 | `rollback`. 경비와 전표가 함께 돌아간다 |
+| 아직 지급하지 않음 | `rollback`. 경비와 전표가 함께 돌아간다. 글은 돌아가지 않는다. 버전이 없고, 되돌린 사유는 `undo_reason` 에 남는다 |
+| 경비를 만든 일 자체 | 글이 원장 밖에 남으므로 `revert_check_fn` 이 막는다. 사가에서는 `cancel` 로 상쇄하고, 화면에서는 취소하거나 글을 먼저 지운다 |
 | 지급함 | `revert_blocked_states: ["paid"]`. 돈이 이미 나갔으므로 되돌리지 않고 `compensate`: `cancel` 을 실행한다. 지급 기록은 남고 장부는 0 이 된다. **돈을 되찾는 일은 사람이 한다고 경고한다** |
 | 잠긴 기간의 전표가 얽힘 | `lock_fn` 이 막는다. `blocked`. 이유를 말한다 |
 | 영수증이 남아 있음 | `revert_check_fn` 이 되돌리기를 막는다. 사가에서는 `cancel` 로 상쇄한다 |
@@ -106,12 +137,12 @@ draft → submitted → approved → paid
 
 ## 모델
 
-`stat_expense` 부서별 경비 추이. `public.erp_expense_trend(p_from, p_to, p_as_of)` 가 `ExpenseApproved` 이벤트만 읽는다. 달은 지출일, 부서는 승인할 때의 부서다. 취소하거나 되돌린 건은 빠진다. 근거는 승인 경비가 있었던 달 3개월이다. 통계라 정답을 재서 정한 값이 아니라 추이에 점이 셋은 있어야 한다는 판단이다. 근거가 모자라면 합계는 사실이므로 보여 주고 추이라고 말하지 않는다.
+`stat_expense` 부서별 경비 추이. `public.erp_expense_trend(p_from, p_to, p_as_of)` 가 호출한 사람의 권한으로 `ExpenseApproved` 이벤트만 읽는다. 회계 담당자는 회사 전체를 보고(`scope: "all"`), 나머지는 자기가 읽을 수 있는 경비만 더하며 `scope: "mine"` 과 화면 문구로 그렇다고 말한다. 근거 문구도 「내가 볼 수 있는 승인 경비」 다. 달은 지출일, 부서는 승인할 때의 부서다. 취소하거나 되돌린 건은 빠진다. 근거는 승인 경비가 있었던 달 3개월이다. 통계라 정답을 재서 정한 값이 아니라 추이에 점이 셋은 있어야 한다는 판단이다. 근거가 모자라면 합계는 사실이므로 보여 주고 추이라고 말하지 않는다.
 
 ## 화면
 
-메타데이터 화면에 전용 부분이 둘이다. `ExpenseReceiptPanel`: 파일을 올리고 여는 일은 폼 칸으로 할 수 없다. `TrendView`: 달과 부서의 표. 승인과 반려 단추는 승인자와 관리자에게만 보인다(`CommandUi.showIf`). 결정은 데이터베이스가 한다.
+메타데이터 화면에 전용 부분이 둘이다. `ExpenseReceiptPanel`: 파일을 올리고 여는 일은 폼 칸으로 할 수 없다. `TrendView`: 달과 부서의 표. 승인과 반려 단추는 승인자와 관리자에게만 보인다(`CommandUi.showIf`). 결정은 데이터베이스가 한다. 글 칸은 카탈로그의 `private: true` 와 `private_read` 를 보고 폼이 `erp_expense_words` 로 읽어 채운다. 목록에는 글 칸이 없고 번호로 찾는다.
 
 ## 시험과 데모
 
-시험은 `test/expense.test.mjs`, `test/isolation.test.mjs`, `e2e/tests/expense.spec.mjs`. 브라우저 시험은 실제 Storage API 에 파일을 올린다. 데모는 `web/src/lib/demo/backoffice.ts`.
+시험은 `test/expense.test.mjs`, `test/expense-privacy.test.mjs`(사람마다, 그 사람의 키마다, 읽는 길마다 원본 응답에서 글과 금액을 찾는다), `test/isolation.test.mjs`, `e2e/tests/expense.spec.mjs`. 브라우저 시험은 실제 Storage API 에 파일을 올린다. 데모는 `web/src/lib/demo/backoffice.ts`.

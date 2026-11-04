@@ -420,7 +420,7 @@ export const NAV: NavModule[] = [
       {
         type: 'expense', formPanel: loader('ExpenseReceiptPanel'), readonlyIn: ['submitted', 'approved', 'paid', 'cancelled'],
         hideFields: ['employee_name', 'department_name', 'possible_duplicates', 'receipt_count'],
-        advanced: ['note'],
+        advanced: ['note', 'removal_reason', 'undo_reason'],
         views: { date: 'date', amount: 'amount', groups: ['department_name', 'employee_name'] },
         commands: { approve: { showIf: mayApproveExpense }, refuse: { showIf: mayApproveExpense } },
       },

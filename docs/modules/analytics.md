@@ -26,7 +26,7 @@ SQL 은 사실을 돌려주고, 계산은 브라우저에서 한다. 모든 함�
 | `erp_quote_conversion(p_from, p_to, p_as_of)` | `{quotes, won, lost, open, rate, low, high, decided_rate, median_days}`. `low`·`high` 는 80% 구간 |
 | `erp_headcount(p_on, p_as_of)`, `erp_headcount_trend(p_from, p_to, p_as_of)` | 그날의 재직 인원과 부서, 달별 입퇴사와 인원. 업무 날짜와 원장 시점이 따로다. `docs/modules/hr.md` 참고 |
 | `erp_mrp_lead_times(p_as_of)`, `erp_mrp_materials(p_weeks, p_as_of)`, `erp_mrp_whatif(p_variant_id, p_factor, p_as_of)` | 실측 제조 기간, 자재 소요, 생산량 변경 시 자재 소진일. `docs/modules/mrp.md` 참고 |
-| `erp_expense_trend(p_from, p_to, p_as_of)` | 승인 경비를 지출한 달과 승인 때의 부서로. `docs/modules/expense.md` 참고 |
+| `erp_expense_trend(p_from, p_to, p_as_of)` | 승인 경비를 지출한 달과 승인 때의 부서로. 부른 사람이 읽을 수 있는 경비만 더하고 `scope` 로 말한다. `docs/modules/expense.md` 참고 |
 | `erp_crm_funnel(p_from, p_to, p_as_of)`, `erp_crm_forecast(p_as_of)`, `erp_crm_repurchase(p_on, p_as_of)` | 단계별 전환율, 수주 전망(모자라면 범위), 재구매 후보. `docs/modules/crm.md` 참고 |
 | `erp_project_effort(p_as_of)`, `erp_project_risk(p_on, p_as_of)`, `erp_time_vs_attendance(p_from, p_to, p_as_of)` | 작업 소요 실측, 납기 지연 판단, 근태 대조. `docs/modules/project.md` 참고 |
 

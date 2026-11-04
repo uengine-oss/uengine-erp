@@ -163,6 +163,8 @@ declare
   off int := coalesce((a ->> 'offset')::int, 0);
   at_ timestamptz := nullif(a ->> 'as_of', '')::timestamptz;
   readable text[] := erp.readable_types();
+  limited boolean := t = any (erp.scoped_types());
+  seen uuid[] := case when t = any (erp.scoped_types()) then erp.scoped_ids() end;
   out_ jsonb;
 begin
   if a ? 'saga' then return public.erp_saga_status((a ->> 'saga')::uuid); end if;
@@ -197,6 +199,7 @@ begin
     select coalesce(jsonb_agg(x), '[]'::jsonb) into out_ from (
       select jsonb_build_object('id', id, 'version', version, 'name', name, 'status', status) x from erp.records
        where type = t and not deleted
+         and (not coalesce(limited, false) or id = any (seen))
          and (a -> 'filter' is null or state @> (a -> 'filter'))
          and (a ->> 'search' is null or name ilike '%' || (a ->> 'search') || '%')
        order by name, id limit lim offset off) s;

@@ -103,13 +103,17 @@ declare
   probe jsonb := '{}'::jsonb;
   k text;
   hits uuid[];
+  readable text[] := erp.readable_types();
+  limited text[] := erp.scoped_types();
+  seen uuid[] := erp.scoped_ids();
 begin
   for k in select value from jsonb_array_elements_text(coalesce(p_keys, '[]'::jsonb)) loop
     if not p_vals ? k then return null; end if;
     probe := probe || jsonb_build_object(k, p_vals -> k);
   end loop;
   if probe = '{}'::jsonb then return null; end if;
-  select array_agg(r.id) into hits from erp.records r where r.type = p_type and not r.deleted and r.state @> probe;
+  -- The caller names the key, so a record they may not read must not answer "that one exists" to whatever they guess.
+  select array_agg(r.id) into hits from erp.records r where r.type = p_type and not r.deleted and r.state @> probe and erp.readable_row(r.type, r.id, readable, limited, seen);
   if cardinality(hits) > 1 then
     perform erp.fail('ERP_DUPLICATE', format('같은 값을 가진 레코드가 %s건이라 어느 것을 고칠지 알 수 없습니다: %s', cardinality(hits), probe));
   end if;

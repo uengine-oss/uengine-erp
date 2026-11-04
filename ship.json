@@ -20,6 +20,7 @@
    "test/timeoff.test.mjs",
    "test/attendance.test.mjs",
    "test/expense.test.mjs",
+   "test/expense-privacy.test.mjs",
    "test/crm.test.mjs",
    "test/project.test.mjs"
   ],

@@ -45,7 +45,10 @@ create index if not exists events_state_flag_idx on erp.events (stream_id, versi
 
 create or replace function public.erp_records_at(p_type text, p_at timestamptz, p_limit int default 100, p_offset int default 0, p_status text default null)
 returns jsonb language plpgsql stable security definer set search_path = erp, pg_temp as $$
-declare out_ jsonb;
+declare
+  out_ jsonb;
+  limited boolean := p_type = any (erp.scoped_types());
+  seen uuid[] := case when p_type = any (erp.scoped_types()) then erp.scoped_ids() end;
 begin
   if not p_type = any (erp.readable_types()) then perform erp.fail('ERP_FORBIDDEN', '이 유형을 볼 권한이 없습니다'); end if;
   with latest as (
@@ -67,6 +70,7 @@ begin
     select l.* from latest l
      where not exists (select 1 from removed r where r.stream_id = l.stream_id)
        and (p_status is null or exists (select 1 from status_at st where st.stream_id = l.stream_id and st.status = p_status))
+       and (not limited or l.stream_id = any (seen))
   ), page as (
     select * from visible order by created_at desc, stream_id limit p_limit offset p_offset
   ), folded as (
@@ -259,11 +263,42 @@ begin
                       and (e.actor_id is distinct from me or not (e.source = 'mcp' or e.source like 'bus:%')));
 end $$;
 
+create or replace function erp.plan_keeps_reason(p_plan jsonb) returns boolean
+language sql stable as $$
+  select exists (select 1 from jsonb_array_elements(coalesce(p_plan -> 'streams', '[]'::jsonb)) s join erp.catalog c on c.type = s ->> 'type' where c.doc ? 'reason_fn')
+$$;
+
+-- Someone who may undo their own work is not thereby allowed to read everything it touched: a subscriber's entry, or a claim since given to
+-- someone else. The plan still counts those streams, because the undo covers them, and stops naming them. The hash is already computed.
+create or replace function erp.plan_hidden(p_plan jsonb) returns text[]
+language sql stable as $$
+  select coalesce(array_agg(s ->> 'id'), '{}') from jsonb_array_elements(coalesce(p_plan -> 'streams', '[]'::jsonb)) s
+   where not erp.can_read(s ->> 'type', (s ->> 'id')::uuid)
+$$;
+
+create or replace function erp.plan_redact(p_out jsonb, p_hidden text[]) returns jsonb
+language plpgsql immutable as $$
+declare
+  k text;
+  out_ jsonb := p_out;
+begin
+  if cardinality(p_hidden) = 0 then return p_out; end if;
+  foreach k in array array['streams', 'blocked', 'hard_blocked', 'warnings', 'compensations', 'follow', 'keep', 'done'] loop
+    if jsonb_typeof(out_ -> k) = 'array' then
+      out_ := jsonb_set(out_, array[k], (select coalesce(jsonb_agg(case when x ->> 'id' = any (p_hidden) then x - 'name' - 'effects' else x end order by o), '[]'::jsonb)
+                                           from jsonb_array_elements(out_ -> k) with ordinality t(x, o)));
+    end if;
+  end loop;
+  return out_;
+end $$;
+
 create or replace function public.erp_rollback_preview(p_kind text, p_target jsonb) returns jsonb
 language plpgsql stable security definer set search_path = erp, pg_temp as $$
+declare plan jsonb;
 begin
   if not erp.may_rollback(p_kind, p_target) then perform erp.fail('ERP_FORBIDDEN', '되돌릴 권한이 없습니다. 관리자이거나, 에이전트가 MCP로 직접 한 일이고 그 위에 다른 작업이 없어야 합니다'); end if;
-  return erp.rollback_plan(p_kind, p_target);
+  plan := erp.rollback_plan(p_kind, p_target);
+  return erp.plan_redact(plan, erp.plan_hidden(plan));
 end $$;
 
 create or replace function public.erp_rollback_apply(p_kind text, p_target jsonb, p_hash text, p_allow_cascade boolean default false, p_reason text default null)
@@ -276,6 +311,8 @@ declare
   corr uuid := gen_random_uuid();
   set_ jsonb;
   unset_ jsonb;
+  keeper text;
+  outside boolean;
 begin
   if not erp.may_rollback(p_kind, p_target) then perform erp.fail('ERP_FORBIDDEN', '되돌릴 권한이 없습니다. 관리자이거나, 에이전트가 MCP로 직접 한 일이고 그 위에 다른 작업이 없어야 합니다'); end if;
   if coalesce(p_reason, '') = '' then perform erp.fail('ERP_REQUIRED', '되돌리는 사유는 필수입니다'); end if;
@@ -303,12 +340,20 @@ begin
   perform set_config('erp.causation_seq', '', true);
   perform set_config('erp.depth', '0', true);
   perform set_config('erp.source', 'rollback', true);
-  perform set_config('erp.reason', p_reason, true);
+  -- "reason_fn": this type keeps words out of the ledger, so it stores the reason itself and no event of this undo carries it, its followers
+  -- included, because a reason for undoing one piece of work is about that work. A whole company going back to a date is about none of it.
+  outside := p_kind <> 'time' and erp.plan_keeps_reason(plan);
+  perform set_config('erp.reason', case when outside then '' else p_reason end, true);
   perform set_config('erp.no_react', 'on', true);
 
   for s in select * from jsonb_array_elements(plan -> 'streams') loop
     cur := erp.state_of((s ->> 'id')::uuid);
     target := erp.fold_to_version((s ->> 'id')::uuid, (s ->> 'to_version')::int);
+    keeper := (select c.doc ->> 'reason_fn' from erp.catalog c where c.type = s ->> 'type');
+    if keeper is not null and target <> '{}'::jsonb then
+      execute format('select %s($1, $2)', keeper) using (s ->> 'id')::uuid, p_reason;
+    end if;
+    perform set_config('erp.reason', case when outside or keeper is not null then '' else p_reason end, true);
     if target = '{}'::jsonb then
       -- The stream did not exist yet. Its fields stay for the audit trail; it just stops being visible.
       set_ := '{"deleted": true, "active": false}'::jsonb;

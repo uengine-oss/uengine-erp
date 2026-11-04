@@ -69,7 +69,7 @@ test('neither of the two modules asks whether the other is on', () => {
 })
 
 test('nobody else reads or writes what a module keeps outside the ledger', () => {
-  for (const [owner, table] of [['crm', /opportunity_private/], ['expense', /expense_receipts/]]) {
+  for (const [owner, table] of [['crm', /opportunity_private/], ['expense', /expense_receipts|expense_private/]]) {
     for (const m of mods) if (m.id !== owner) assert.ok(!table.test(m.src.replace(/'OpportunityPrivate[A-Za-z]*'/g, '')), `${m.id} mentions ${table}`)
   }
   for (const id of ['crm', 'expense']) assert.match(mods.find((m) => m.id === id).src, /"subscribes": \[\]/, `${id} hears nobody`)

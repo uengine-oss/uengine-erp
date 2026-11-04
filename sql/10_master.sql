@@ -1801,6 +1801,8 @@ declare
   f jsonb;
   rows_ jsonb;
   out_ jsonb := '[]'::jsonb;
+  limited text[] := erp.scoped_types();
+  seen uuid[] := erp.scoped_ids();
 begin
   select * into me from erp.records where id = p_id;
   if not found then perform erp.fail('ERP_NOT_FOUND', '레코드를 찾을 수 없습니다'); end if;
@@ -1811,11 +1813,11 @@ begin
               where value ->> 'type' = 'ref' and value ->> 'ref' = me.type and erp.module_on(value ->> 'module') loop
       select jsonb_agg(jsonb_build_object('id', r.id, 'name', r.name, 'status', r.status) order by r.updated_at desc, r.id) into rows_ from (
         select x.id, x.name, x.status, x.updated_at from erp.records x
-         where x.type = c.type and not x.deleted and x.state @> jsonb_build_object(f ->> 'name', p_id)
+         where x.type = c.type and not x.deleted and x.state @> jsonb_build_object(f ->> 'name', p_id) and (c.type <> all (limited) or x.id = any (seen))
          order by x.updated_at desc, x.id limit least(coalesce(p_limit, 20), 200)) r;
       if rows_ is not null then
         out_ := out_ || jsonb_build_object('type', c.type, 'label', c.doc ->> 'label', 'field', f ->> 'name',
-          'count', (select count(*) from erp.records x where x.type = c.type and not x.deleted and x.state @> jsonb_build_object(f ->> 'name', p_id)), 'rows', rows_);
+          'count', (select count(*) from erp.records x where x.type = c.type and not x.deleted and x.state @> jsonb_build_object(f ->> 'name', p_id) and (c.type <> all (limited) or x.id = any (seen))), 'rows', rows_);
       end if;
     end loop;
   end loop;
