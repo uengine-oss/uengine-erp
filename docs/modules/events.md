@@ -60,14 +60,15 @@
 
 ## 청구가 내는 것
 
-줄 공통: `lines:[{line_id, origin_line_id, product_id, variant_id, name, qty, uom_id, price_unit, discount, subtotal, tax_amount, total, taxes:[{tax_id, name, amount, base, account_id}], is_downpayment, downpayment_line_id, account_id}]`
+줄 공통: `lines:[{line_id, origin_line_id, product_id, variant_id, name, qty, uom_id, price_unit, discount, subtotal, tax_amount, total, taxes:[{tax_id, name, amount, base, account_id, vat_class}], is_downpayment, downpayment_line_id, account_id, fixed_asset}]`. `vat_class` 는 `taxable`, `zero`, `exempt` 또는 없음이다. 게시 시점의 값이 실리므로 뒤에 세금 설정을 고쳐도 지난 칸은 움직이지 않는다.
 
 | 이벤트 | `data` 의 사실 |
 |---|---|
 | `InvoiceDrafted` | 초안이 생기거나 바뀔 때. `move_type, origin_type, origin_id, partner_id, reversal_of, lines` |
-| `InvoicePosted` | `move_type, number, origin_type, origin_id, partner_id, partner_name, region, date, invoice_date, due_date, installments, currency, fiscal_position_id, journal_id, journal_account_id, amount_untaxed, amount_tax, amount_total, reversal_of, lines` |
-| `InvoiceResetToDraft` | `move_type, number, origin_type, origin_id, partner_id, lines` |
-| `InvoiceCancelled` | 초안 또는 게시 취소. `move_type, number, origin_type, origin_id, partner_id, lines` |
+| `InvoicePosted` | `move_type, number, origin_type, origin_id, partner_id, partner_name, partner_tax_id, region, date, invoice_date, due_date, installments, currency, fiscal_position_id, journal_id, journal_account_id, amount_untaxed, amount_tax, amount_total, reversal_of, lines, evidence, stock_reflect, stock_warehouse_id` |
+| `InvoiceResetToDraft` | `move_type, number, origin_type, origin_id, partner_id, lines, stock_reflect` |
+| `InvoiceCancelled` | 초안 또는 게시 취소. `move_type, number, origin_type, origin_id, partner_id, lines, stock_reflect` |
+| `InvoiceEvidenceSet` | 게시 뒤에 증빙을 적었을 때. `posted, move_type, number, date, invoice_date, partner_id, partner_name, partner_tax_id, amount_untaxed, amount_tax, amount_total, reversal_of, lines, evidence`. 금액은 움직이지 않는다 |
 | `PaymentPosted` | `payment_type, partner_type, number, partner_id, amount, date, journal, journal_id, journal_account_id, payment_method_id, allocations:[{move_id, amount}], unallocated, writeoff_amount, writeoff_account_id, writeoff_label, early_discount, writeoff_taxes` |
 | `PaymentCancelled` | `payment_type, partner_type, number, partner_id, amount, date, journal, allocations` |
 | `InvoicePaymentApplied` | 청구서 스트림. `payment_id, credit_move_id, amount, residual, payment_state, partner_id, due_date, date`. 맞물림을 풀면 같은 이벤트가 음수 `amount` 로 나간다 |
@@ -78,9 +79,27 @@
 
 청구는 초안일 때부터 `qty` 를 알린다. 판매와 구매의 `qty_invoiced`·`qty_billed` 는 초안 시점에 움직인다.
 
+### 증빙과 재고 반영
+
+`evidence` 는 `{type, approval_no, deductible, non_deduct_reason, card_kind, amend_reason, original_date, original_approval_no}` 이고 없는 칸은 빠진다. 증빙이 없는 문서는 `{}` 다. `type` 은 `tax_invoice`, `exempt_invoice`, `credit_card`, `cash_receipt`, `other_receipt`, `none` 이다.
+
+**이 필드가 생기기 전의 이벤트에는 `evidence` 가 없다.** 구독자는 없는 것을 빈 것과 같게 읽고 추정하지 않는다. 사람이 `set_evidence` 를 부르면 `InvoiceEvidenceSet` 이 전체 사실과 함께 나온다.
+
+공제받지 않는 세금은 `taxes[]` 에 `non_deductible: true` 와 계정이 빈 `repartition` 을 싣는다. 회계는 기존 규칙대로 그 몫을 줄의 계정으로 보낸다.
+
+`stock_reflect: true` 면 줄의 제품이 움직여야 한다는 뜻이다. 재고 구독자가 매입(`in_invoice`)은 입고, 매출(`out_invoice`)은 출고를 만들어 곧바로 처리한다. `reversal_of` 가 있는 대변 메모와 `InvoiceResetToDraft`, `InvoiceCancelled` 는 그 문서가 만든 전표를 줄의 수량만큼 되돌린다. 처리할 수 없으면(재고 부족, 로트 미지정, 잠긴 날) 전표가 사람을 기다리고 구독자는 멈추지 않는다.
+
 ### 선금
 
 청구가 `method: percentage|fixed` 로 만든 선금 청구서는 `InvoiceDrafted` 줄에 `is_downpayment: true`, `origin_line_id: null` 을 싣고 `line_id` 를 고정한다. 판매는 이 줄을 받아 주문에 `is_downpayment` 줄을 하나 더하되, `invoice_line_id` 로 중복을 막는다. 일반 청구서를 만들 때 청구는 `erp.peek` 로 주문의 선금 줄을 읽어 음수 줄(`origin_line_id` = 주문의 선금 줄)로 차감한다.
+
+## 세금 신고가 내는 것
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `VatFiled` | `vat_return` 스트림. `year, term, kind, from, to, cells, totals`. 칸 번호와 뜻은 `krtax.md` 다. `totals` 는 `{ga, na, da, prior_refund, payable, payable_rounded}` 이다 |
+
+자기 집계 `vat_entry` 의 `VatEntryRecorded`, `VatEntryWithdrawn` 은 계약이 아니다.
 
 ## 회계가 내는 것
 
@@ -119,6 +138,7 @@
 |---|---|---|
 | 재고 | `SalesOrderConfirmed`, `SalesOrderLineAdded`, `SalesOrderLineQtyChanged`, `SalesOrderCancelled`, `SalesOrderDelivered`(`manual` 만) | 출고 전표. 손으로 납품한 만큼 열린 전표가 줄고, 남은 것이 없으면 취소된다 |
 | 재고 | `PurchaseOrderConfirmed`, `PurchaseOrderLineAdded`, `PurchaseOrderLineQtyChanged`, `PurchaseOrderLinePriceChanged`, `PurchaseOrderCancelled`, `PurchaseDraftQtyChanged` | 입고 전표, 예측 |
+| 재고 | `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled`(`stock_reflect` 만) | 전표 입력의 입출고와 그 반품 |
 | 판매 | `PickingStateChanged`, `PickingValidated` | 납품 상태, `qty_delivered` |
 | 판매 | `InvoiceDrafted`, `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled` | 청구 상태, `qty_invoiced` |
 | 판매 | `ModuleEnabled` | 재고·청구가 켜진 시점을 기록해 그 뒤의 주문만 추적 대상으로 본다 |
@@ -127,5 +147,6 @@
 | 구매 | `InvoiceDrafted`, `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled` | 청구 상태, `qty_billed` |
 | 회계 | `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled`, `PaymentPosted`, `PaymentCancelled`, `BankLineBooked`, `BankLineUnbooked` | 분개(처음부터 다시 읽는다) |
 | 회계 | `PickingValidated`, `StockAdjusted`, `StockScrapped` | 재고 평가 분개(처음부터 다시 읽는다) |
+| 세금 신고 | `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled`, `InvoiceEvidenceSet` | 신고서 칸(처음부터 다시 읽는다) |
 | 인사 | 없음 | 아무 이벤트도 듣지 않는다 |
 | 분석 | 원장 전체 | 구독하지 않고 직접 읽는다 |

@@ -37,6 +37,16 @@
 
 `PickingValidated.moves` 는 이동·로트마다 한 줄이고, 줄마다 `move_id` 가 다르다. 받는 쪽은 `origin_line_id` 로 합친다.
 
+## 전표 입력의 재고 반영
+
+구독 `inventory.invoice` 는 `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled` 를 듣고 `stock_reflect` 가 참인 것만 처리한다(`events.md`).
+
+- 매입은 입고, 매출은 출고 전표를 이벤트 번호에서 만든 id 로 만들어 곧바로 완료한다. 입고 단가는 줄의 공급가액(불공제 세액 포함) ÷ 수량이다.
+- `reversal_of` 가 있는 대변 메모와 초안 복귀·취소는 그 문서의 전표를 줄의 수량만큼 반품한다(`picking_make_return`, `to_refund: false`). 단가는 원래 전표의 것이라 전표가 맞는다. 열린 전표는 취소한다.
+- 완료할 수 없으면 전표가 기다린다. 구독자는 멈추지 않는다.
+- 평균 원가 제품은 반품이 평균을 되돌리지 않는다(입고 때 바뀐 값이 남는다). 수량과 전표 금액은 돌아가지만 그 뒤의 평가 단가는 다를 수 있다.
+- 켜기 전의 전표는 반영하지 않는다.
+
 ## 재고 수량
 
 - 파생 표 `erp.quants(variant_id, location_id, lot_id, qty, reserved, in_date)`. 효과 kind `quant` 로만 바뀐다. `data.effects.quant = [{variant_id, location_id, lot_id, qty, reserved}]`.

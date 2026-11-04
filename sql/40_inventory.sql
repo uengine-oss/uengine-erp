@@ -1366,6 +1366,124 @@ begin
 end $$;
 
 ------------------------------------------------------------------------------------------------
+-- A voucher that says its goods move. Invoicing never calls here: it states stock_reflect and the lines on its events
+-- and this module acts on them. There is usually no stock clerk in such a company, so the transfer is done at once.
+-- When it cannot be (not enough on hand, a lot nobody chose, a closed day) it waits for a person; the voucher stands.
+------------------------------------------------------------------------------------------------
+create or replace function erp.stock_try_finish(p_id uuid) returns void
+language plpgsql as $$
+begin
+  if erp.state_of(p_id) ->> 'picking_type' = 'outgoing' then perform erp.picking_reserve(p_id); end if;
+  perform erp.picking_validate(p_id, '{"backorder": true}'::jsonb);
+exception when others then
+  raise notice 'voucher transfer % waits for a person: %', p_id, sqlerrm;
+end $$;
+
+-- Goods on the event's lines. A receipt is valued at what the paper says, with any tax that could not be deducted, so
+-- what the bill left awaited and what the goods bring cancel to the won.
+create or replace function erp.stock_voucher_lines(ev erp.events, p_with_cost boolean) returns jsonb
+language plpgsql as $$
+declare
+  l jsonb; v jsonb; base uuid; uom uuid; q numeric; cost_ numeric;
+  no_deduct boolean := (ev.data -> 'evidence' ->> 'deductible')::boolean is false;
+  out_ jsonb := '[]'::jsonb;
+begin
+  for l in select value from jsonb_array_elements(coalesce(ev.data -> 'lines', '[]'::jsonb)) loop
+    continue when nullif(l ->> 'variant_id', '') is null or erp.num(l -> 'qty') <= 0;
+    v := erp.stock_variant((l ->> 'variant_id')::uuid);
+    continue when v ->> 'type' = 'service';
+    base := (v ->> 'uom_id')::uuid;
+    uom := coalesce(nullif(l ->> 'uom_id', '')::uuid, base);
+    q := erp.num(l -> 'qty');
+    cost_ := case when p_with_cost then (erp.num(l -> 'subtotal') + case when no_deduct then erp.num(l -> 'tax_amount') else 0 end) / q * erp.uom_factor(base, uom) end;
+    out_ := out_ || jsonb_build_object('line_id', l -> 'line_id', 'variant_id', l -> 'variant_id', 'qty', q, 'uom_id', uom, 'name', l -> 'name', 'unit_cost', cost_);
+  end loop;
+  return out_;
+end $$;
+
+-- What the document's correction takes back, from the transfers its original made. An open one is simply cancelled.
+create or replace function erp.stock_voucher_return(ev erp.events, p_origin uuid) returns void
+language plpgsql as $$
+declare
+  want jsonb := '{}'::jsonb;
+  l jsonb; v jsonb; r erp.records; m jsonb; rows_ jsonb; k text; left_ numeric; gone numeric; x numeric; new_id uuid;
+begin
+  for l in select value from jsonb_array_elements(erp.stock_voucher_lines(ev, false)) loop
+    v := erp.stock_variant((l ->> 'variant_id')::uuid);
+    k := l ->> 'variant_id';
+    want := want || jsonb_build_object(k, erp.num(want -> k) + erp.uom_convert(erp.num(l -> 'qty'), (l ->> 'uom_id')::uuid, (v ->> 'uom_id')::uuid));
+  end loop;
+  for r in select * from erp.stock_origin_pickings(p_origin) loop
+    continue when coalesce((r.state ->> 'is_return')::boolean, false) or r.state ->> 'state' = 'cancelled';
+    if r.state ->> 'state' <> 'done' then
+      perform erp.picking_cancel(r.id);
+      continue;
+    end if;
+    new_id := erp.stock_doc_id('voucher-return:' || r.id::text, ev.seq);
+    continue when exists (select 1 from erp.records where id = new_id);
+    rows_ := '[]'::jsonb;
+    for m in select value from jsonb_array_elements(r.state -> 'moves') where value ->> 'state' = 'done' loop
+      k := m ->> 'variant_id';
+      select coalesce(sum(erp.num(x_m -> 'demand')), 0) into gone
+        from erp.records b, jsonb_array_elements(b.state -> 'moves') x_m
+       where b.type = 'picking' and not b.deleted and b.state ->> 'return_of' = r.id::text and b.state ->> 'state' <> 'cancelled'
+         and x_m ->> 'return_move_id' = m ->> 'id' and x_m ->> 'state' <> 'cancelled';
+      left_ := erp.num(m -> 'done') - gone;
+      x := least(left_, erp.num(want -> k));
+      continue when x <= 0;
+      want := want || jsonb_build_object(k, erp.num(want -> k) - x);
+      rows_ := rows_ || jsonb_strip_nulls(jsonb_build_object('id', m -> 'id', 'qty', x, 'lots', m -> 'lots'));
+    end loop;
+    continue when jsonb_array_length(rows_) = 0;
+    perform erp.picking_make_return(new_id, jsonb_build_object('return_of', r.id, 'moves', rows_, 'to_refund', false));
+    perform erp.stock_try_finish(new_id);
+  end loop;
+end $$;
+
+create or replace function erp.stock_on_invoice(ev erp.events) returns void
+language plpgsql as $$
+declare
+  mt text := ev.data ->> 'move_type';
+  refund boolean := mt like '%\_refund';
+  kind text := case when mt in ('in_invoice', 'out_refund') then 'incoming' else 'outgoing' end;
+  goods jsonb;
+  new_id uuid := erp.stock_doc_id('voucher', ev.seq);
+  doc jsonb;
+  rows_ jsonb := '[]'::jsonb;
+  l jsonb;
+begin
+  if not coalesce((ev.data ->> 'stock_reflect')::boolean, false) then return; end if;
+  if ev.event_type <> 'InvoicePosted' then
+    perform erp.stock_voucher_return(ev, ev.stream_id);
+    return;
+  end if;
+  if refund and nullif(ev.data ->> 'reversal_of', '') is not null then
+    perform erp.stock_voucher_return(ev, (ev.data ->> 'reversal_of')::uuid);
+    return;
+  end if;
+  if exists (select 1 from erp.records where id = new_id) then return; end if;
+  goods := erp.stock_voucher_lines(ev, kind = 'incoming' and not refund);
+  if jsonb_array_length(goods) = 0 then return; end if;
+  ev.data := ev.data || jsonb_build_object('warehouse_id', ev.data -> 'stock_warehouse_id');
+  doc := erp.stock_picking_doc(ev, kind);
+  -- A credit note with no original still moves goods, the other way, and comes from or goes to whoever it names.
+  if refund then
+    doc := doc || jsonb_build_object('is_return', true, 'to_refund', false)
+      || case when kind = 'incoming' then jsonb_build_object('location_from', erp.stock_virtual('customer', '고객'))
+              else jsonb_build_object('location_to', erp.stock_virtual('supplier', '공급사')) end;
+  end if;
+  for l in select value from jsonb_array_elements(goods) loop
+    rows_ := rows_ || erp.stock_order_move(ev, kind, l, ev.occurred_at::text);
+  end loop;
+  perform erp.picking_new(new_id, doc || jsonb_build_object('scheduled_date', ev.occurred_at), rows_);
+  perform erp.picking_open(new_id);
+  perform erp.stock_try_finish(new_id);
+  if kind = 'outgoing' then
+    perform erp.reorder_evaluate(array(select (value ->> 'variant_id')::uuid from jsonb_array_elements(goods)));
+  end if;
+end $$;
+
+------------------------------------------------------------------------------------------------
 -- Stock adjustments
 ------------------------------------------------------------------------------------------------
 create or replace function erp.stock_quant_qty(p_variant uuid, p_location uuid, p_lot uuid) returns numeric
@@ -2351,7 +2469,8 @@ select erp.module_put('{
     {"name": "inventory.sales", "handler": "erp.stock_on_order", "since_option": "import_since",
      "events": ["SalesOrderConfirmed", "SalesOrderLineAdded", "SalesOrderLineQtyChanged", "SalesOrderCancelled", "SalesOrderDelivered"]},
     {"name": "inventory.purchase", "handler": "erp.stock_on_purchase",
-     "events": ["PurchaseOrderConfirmed", "PurchaseOrderLineAdded", "PurchaseOrderLineQtyChanged", "PurchaseOrderLinePriceChanged", "PurchaseOrderCancelled", "PurchaseDraftQtyChanged"]}
+     "events": ["PurchaseOrderConfirmed", "PurchaseOrderLineAdded", "PurchaseOrderLineQtyChanged", "PurchaseOrderLinePriceChanged", "PurchaseOrderCancelled", "PurchaseDraftQtyChanged"]},
+    {"name": "inventory.invoice", "handler": "erp.stock_on_invoice", "events": ["InvoicePosted", "InvoiceResetToDraft", "InvoiceCancelled"]}
   ],
   "publishes": [
     {"event": "PickingStateChanged", "fields": ["number", "picking_type", "origin_type", "origin_id", "state", "is_return", "partner_id", "scheduled_date", "lines"]},

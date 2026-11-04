@@ -81,7 +81,7 @@
 | `bank` | `name, bic` |
 | `partner_bank` | `partner_id, acc_number, bank_id, holder_name, trusted`. 새 계좌와 번호를 바꾼 계좌는 믿지 않는다. 명령 `trust`, `untrust` |
 | `saved_search` | `name, report, filters, group_by, is_default, shared, owner_id` |
-| `tax` | `name, scope(sale/purchase/none), amount_type(percent/fixed/division/group), amount, price_include, include_base_amount, is_base_affected, sequence, children_tax_ids, account_id, invoice_repartition[{id, kind(base/tax), factor_percent, account_id, grids}], refund_repartition[{id, kind(base/tax), factor_percent, account_id, grids}], description` |
+| `tax` | `name, scope(sale/purchase/none), amount_type(percent/fixed/division/group), amount, price_include, include_base_amount, is_base_affected, sequence, children_tax_ids, account_id, invoice_repartition[{id, kind(base/tax), factor_percent, account_id, grids}], refund_repartition[{id, kind(base/tax), factor_percent, account_id, grids}], description, vat_class(taxable/zero/exempt)` |
 | `fiscal_position` | `name, sequence, auto_apply, vat_required, country, country_group, zip_from, zip_to, tax_map[{id, from_tax_id, to_tax_id}], account_map[{id, from_account_id, to_account_id}]` |
 | `payment_term` | `name, note, early_discount, discount_percentage, discount_days, discount_mode(included/excluded/mixed), lines[{id, value(percent/fixed), amount, days, delay_type(days_after/days_after_end_of_month/days_after_end_of_next_month/days_end_of_month_on_the), days_next_month}]`. 비율 합은 100, 줄이 없어도 된다 |
 | `attribute` | `name, display_type(pills/color/radio/select/multi), create_variant(always/dynamic/no_variant), values[{id, name, color}]`. `multi` 는 `no_variant` 만. 제품에 쓰인 뒤 `create_variant` 변경 금지 |

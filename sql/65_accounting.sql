@@ -207,6 +207,11 @@ declare
   cr numeric;
   gl jsonb;
 begin
+  if current_setting('erp.books_preview', true) = 'on' then
+    perform set_config('erp.books_preview_rows', (coalesce(nullif(current_setting('erp.books_preview_rows', true), ''), '[]')::jsonb
+      || (select coalesce(jsonb_agg(r order by o), '[]'::jsonb) from jsonb_array_elements(p_rows) with ordinality t(r, o) where erp.num(r -> 'debit') <> 0 or erp.num(r -> 'credit') <> 0))::text, true);
+    return;
+  end if;
   if exists (select 1 from erp.records where id = p_id) then return; end if;
   select coalesce(jsonb_agg(r order by o), '[]'::jsonb), coalesce(sum(erp.num(r -> 'debit')), 0), coalesce(sum(erp.num(r -> 'credit')), 0)
     into rows_, dr, cr
@@ -490,6 +495,36 @@ begin
     when ev.event_type in ('StockAdjusted', 'StockScrapped') then perform erp.books_on_stock_change(ev);
     else null;
   end case;
+end $$;
+
+-- What these facts would book, by the very code that will book them. Facts come in, rows come out, nothing is written.
+-- A voucher screen shows this before saving. Whoever publishes the facts does not know this module exists.
+create or replace function erp.preview_journal_entry(p jsonb) returns jsonb
+language plpgsql as $$
+declare
+  ev erp.events;
+  rows_ jsonb;
+begin
+  if not erp.module_on('accounting') or not erp.has_role(array['accounting']) then return jsonb_build_object('rows', '[]'::jsonb); end if;
+  perform set_config('erp.books_preview', 'on', true);
+  perform set_config('erp.books_preview_rows', '[]', true);
+  ev.seq := 9223372036854775807;
+  ev.occurred_at := erp.now();
+  ev.stream_id := gen_random_uuid();
+  if p -> 'invoice' is not null and jsonb_typeof(p -> 'invoice') = 'object' then
+    ev.stream_type := 'account_move'; ev.event_type := 'InvoicePosted'; ev.data := p -> 'invoice';
+    perform erp.books_on_invoice(ev);
+  end if;
+  if p -> 'payment' is not null and jsonb_typeof(p -> 'payment') = 'object' then
+    ev.stream_type := 'payment'; ev.event_type := 'PaymentPosted'; ev.data := p -> 'payment';
+    perform erp.books_on_payment(ev);
+  end if;
+  rows_ := current_setting('erp.books_preview_rows')::jsonb;
+  perform set_config('erp.books_preview', '', true);
+  perform set_config('erp.books_preview_rows', '', true);
+  return jsonb_build_object('rows', (select coalesce(jsonb_agg(jsonb_build_object('account_id', r -> 'account_id', 'account_name', a.state ->> 'name', 'account_code', a.state ->> 'code',
+      'name', r -> 'name', 'debit', r -> 'debit', 'credit', r -> 'credit') order by o), '[]'::jsonb)
+    from jsonb_array_elements(rows_) with ordinality t(r, o) left join erp.records a on a.id = (r ->> 'account_id')::uuid));
 end $$;
 
 ------------------------------------------------------------------------------------------------

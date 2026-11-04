@@ -208,6 +208,14 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
+| 증빙 한 장을 한 번의 명령으로 게시하고 결제한다 | `voucher.test.mjs` 4<br>`krtax.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 증빙유형이 세액과 공제의 기본값을 정한다 | `voucher.test.mjs` 3<br>`krtax.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 같은 증빙은 두 번 게시되지 않는다 | `voucher.test.mjs` 2<br>`krtax.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 게시 문서는 대변 메모 게시로 상쇄한다 | `voucher.test.mjs` 5<br>`isolation.test.mjs` 1<br>`krtax.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 재고는 이벤트를 구독해 움직인다 | `voucher.test.mjs` 3<br>`isolation.test.mjs` 1<br>`krtax.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 증빙은 게시 뒤에도 적고 주문에서 온 문서도 같은 칸을 갖는다 | `voucher.test.mjs` 2<br>`krtax.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 내려받은 파일이 전표 후보가 된다 | `voucher.test.mjs` 1<br>`krtax.spec.mjs` 1 | SQL, 브라우저 | ◐ |
+| 세금계산서를 인쇄하고 내보내되 발행하지 않는다 | `voucher.test.mjs` 1<br>`krtax.spec.mjs` 1 | SQL, 브라우저 | ✅ |
 | 청구서 초안은 줄마다 금액을 계산한다 | `invoicing.test.mjs` 4 | SQL | ✅ |
 | 게시는 문서를 검사하고 할부와 만기일을 정한다 | `invoicing.test.mjs` 2 | SQL | ✅ |
 | 번호는 게시할 때 붙고 빈 번호가 생기지 않는다 | `invoicing.test.mjs` 5 | SQL | ✅ |
@@ -233,6 +241,20 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 게시한 문서는 되돌리지 않고 정정을 안내한다 | `invoicing.test.mjs` 1<br>`growth.test.mjs` 1<br>`rollback.spec.mjs` 1 | SQL, 브라우저 | ◐ |
 | 쓰기는 회계 역할만 하고 읽는 범위는 역할로 갈린다 | `invoicing.test.mjs` 1 | SQL | ✅ |
 | 다른 모듈 없이 동작하고 꺼지면 데이터만 남는다 | `invoicing.test.mjs` 3<br>`growth.test.mjs` 1<br>`isolation.test.mjs` 2<br>`growth.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+
+### 8-1. 세금 신고 (spec `erp-krtax`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 켜면 과거 이벤트로 다시 집계하고 처음부터 켠 것과 같다 | `krtax.test.mjs` 2 | SQL | ✅ |
+| 전표의 증빙과 세금 구분이 신고서 칸을 정한다 | `krtax.test.mjs` 5<br>`krtax.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 경계일은 회사 시간대의 달력으로 정한다 | `krtax.test.mjs` 1 | SQL | ✅ |
+| 줄을 누르면 그 금액의 전표가 나온다 | `krtax.test.mjs` 2<br>`krtax.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 합계표와 수령 명세를 낸다 | `krtax.test.mjs` 3<br>`krtax.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 세액과 끝수는 근거를 밝히고 전표를 따른다 | `krtax.test.mjs` 1 | SQL | ✅ |
+| 신고 마감은 값을 남기고 기간을 닫는다 | `krtax.test.mjs` 3<br>`krtax.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 신고 조회는 회계 역할만 한다 | `krtax.test.mjs` 1 | SQL | ✅ |
+| 화면은 신고서를 보여 주고 전자신고를 하지 않는다 | `krtax.spec.mjs` 2 | 브라우저 | ✅ |
 
 ### 9. 회계 (spec `erp-accounting`)
 

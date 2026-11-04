@@ -218,6 +218,7 @@ export const NAV: NavModule[] = [
   {
     key: 'invoicing', label: '청구', icon: 'invoicing',
     screens: [
+      { label: '매입매출 전표', route: '/invoicing/voucher', needs: 'account_move', roles: ['accounting'], also: '/invoicing/voucher-import' },
       { label: '청구 대상', route: '/invoicing/targets', needs: 'account_move', roles: ['accounting', 'sales', 'purchase'] },
       {
         type: 'account_move', sections: true, formExtra: loader('InvoiceExtras'), formPanel: loader('InvoicePanel'), readonlyIn: ['posted', 'cancelled'],
@@ -234,7 +235,7 @@ export const NAV: NavModule[] = [
               : [{ name: 'from_sales_order', label: '판매 주문', type: 'ref', ref: 'sales_order', required: true }]),
           },
         },
-        advanced: ['date', 'payment_reference', 'narration', 'incoterm', 'incoterm_place', 'partner_bank', 'should_be_paid', 'fiscal_position_id', 'currency', 'ref', 'auto_post', 'reversal_of', 'reversed_by', 'reversal_reason', 'debit_note_of'],
+        advanced: ['deductible', 'non_deduct_reason', 'card_kind', 'amend_reason', 'original_date', 'original_approval_no', 'stock_reflect', 'stock_warehouse_id', 'date', 'payment_reference', 'narration', 'incoterm', 'incoterm_place', 'partner_bank', 'should_be_paid', 'fiscal_position_id', 'currency', 'ref', 'auto_post', 'reversal_of', 'reversed_by', 'reversal_reason', 'debit_note_of'],
         hideFields: ['installments', 'applied', 'state'],
         hideColumns: { lines: ['product_id'] },
       },
@@ -249,6 +250,10 @@ export const NAV: NavModule[] = [
       { type: 'bank_statement' },
       { type: 'bank_line', hideFields: ['matches', 'booked', 'state'], readonlyIn: ['matched'] },
     ],
+  },
+  {
+    key: 'krtax', label: '세금 신고', icon: 'lock',
+    screens: [{ label: '부가세 신고', route: '/krtax/vat', needs: 'vat_return', roles: ['accounting'] }],
   },
   {
     key: 'accounting', label: '회계', icon: 'accounting',

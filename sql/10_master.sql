@@ -1478,7 +1478,9 @@ select erp.catalog_master('{
       {"name": "account_id", "label": "계정", "type": "ref", "ref": "account", "help": "비우면 그 줄의 계정으로 갑니다"},
       {"name": "grids", "label": "신고 그리드", "type": "tags", "default": []}
     ]},
-    {"name": "description", "label": "설명", "type": "text"}
+    {"name": "description", "label": "설명", "type": "text"},
+    {"name": "vat_class", "label": "부가세 구분", "type": "enum", "help": "세금 신고서의 칸을 정합니다",
+     "options": [{"value": "taxable", "label": "과세"}, {"value": "zero", "label": "영세율"}, {"value": "exempt", "label": "면세"}]}
   ]
 }'::jsonb, '["accounting"]'::jsonb);
 
@@ -1634,7 +1636,7 @@ select erp.catalog_put(d || jsonb_build_object('fields', (
     {"name": "early_discount_gain_account_id", "label": "조기 할인 이익 계정", "type": "ref", "ref": "account"},
     {"name": "early_discount_loss_account_id", "label": "조기 할인 손실 계정", "type": "ref", "ref": "account"},
     {"name": "lock_date_all", "label": "전체 잠금일", "type": "date", "help": "이 날짜까지의 청구서·입금·전표를 게시하거나 되돌릴 수 없습니다"},
-    {"name": "lock_date_tax", "label": "세금 잠금일", "type": "date", "help": "세금이 있는 문서만 막습니다. 세금 신고를 마친 뒤 넣습니다"},
+    {"name": "lock_date_tax", "label": "세금 잠금일", "type": "date", "help": "세금이나 증빙이 있는 문서를 막습니다. 세금 신고를 마친 뒤 넣습니다"},
     {"name": "lock_date_sale", "label": "판매 잠금일", "type": "date", "help": "고객 문서만 막습니다"},
     {"name": "lock_date_purchase", "label": "구매 잠금일", "type": "date", "help": "공급사 문서만 막습니다"},
     {"name": "lock_date_hard", "label": "되돌릴 수 없는 잠금일", "type": "date", "help": "넣은 뒤에는 앞당기거나 지울 수 없습니다"}
@@ -1830,12 +1832,12 @@ begin
   end loop;
 
   for r in select * from (values
-      ('부가세 10% 매출', 'sale', 10, '부가세예수금'), ('부가세 10% 매입', 'purchase', 10, '부가세대급금'),
-      ('영세율 매출', 'sale', 0, '부가세예수금'), ('영세율 매입', 'purchase', 0, '부가세대급금'),
-      ('면세 매출', 'sale', 0, '부가세예수금'), ('면세 매입', 'purchase', 0, '부가세대급금')
-    ) t(name, scope, amount, account) loop
+      ('부가세 10% 매출', 'sale', 10, '부가세예수금', 'taxable'), ('부가세 10% 매입', 'purchase', 10, '부가세대급금', 'taxable'),
+      ('영세율 매출', 'sale', 0, '부가세예수금', 'zero'), ('영세율 매입', 'purchase', 0, '부가세대급금', 'zero'),
+      ('면세 매출', 'sale', 0, '부가세예수금', 'exempt'), ('면세 매입', 'purchase', 0, '부가세대급금', 'exempt')
+    ) t(name, scope, amount, account, vat_class) loop
     perform erp.seed_put('tax', r.name, jsonb_build_object('name', r.name, 'scope', r.scope, 'amount_type', 'percent',
-      'amount', r.amount, 'price_include', false, 'account_id', erp.seed_id(r.account)));
+      'amount', r.amount, 'price_include', false, 'account_id', erp.seed_id(r.account), 'vat_class', r.vat_class));
   end loop;
   sale_tax := erp.seed_id('부가세 10% 매출');
   purchase_tax := erp.seed_id('부가세 10% 매입');

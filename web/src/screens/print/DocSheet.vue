@@ -27,8 +27,12 @@ const title = computed(() => {
   if (type.value === 'sales_order') return ['draft', 'sent'].includes(s.value.state) ? '견적서' : '주문서'
   if (type.value === 'purchase_order') return ['draft', 'sent', 'to_approve'].includes(s.value.state) ? '견적 요청서' : '발주서'
   if (type.value === 'picking') return s.value.picking_type === 'outgoing' ? '납품서' : s.value.picking_type === 'incoming' ? '입고 확인서' : '이동 전표'
+  if (s.value.evidence_type === 'tax_invoice' && String(s.value.move_type).startsWith('out_')) return s.value.move_type === 'out_refund' ? '수정세금계산서' : '세금계산서'
   return TITLES[s.value.move_type] ?? '청구서'
 })
+// 부가가치세법 제32조의 필요적 기재사항이 한 곳에 보이도록. 발행은 홈택스에서 하고 이 종이는 그 내용을 옮겨 적은 것이다.
+const isTaxInvoice = computed(() => type.value === 'account_move' && s.value.evidence_type === 'tax_invoice' && String(s.value.move_type).startsWith('out_'))
+const amendLabel = computed(() => ({ returned: '환입', contract_cancelled: '계약의 해제', amount_changed: '공급가액 변동', local_lc: '내국신용장 사후 개설', wrong_entry: '필요적 기재사항 착오', wrong_other: '필요적 기재사항 착오 외', double_issued: '착오로 이중 발급', not_taxable: '면세 등 발급 대상 아님', wrong_rate: '세율 착오', input_error: '입력 실수' } as Record<string, string>)[String(s.value.amend_reason)] ?? '')
 function address(id: unknown): string {
   const p = props.extras.partners[String(id ?? '')]
   if (!p) return ''
@@ -138,6 +142,17 @@ const note = computed(() => s.value.note ?? s.value.narration)
         <thead><tr><th>만기</th><th class="num">금액</th><th>할인 기한</th><th class="num">할인 후 금액</th></tr></thead>
         <tbody><tr v-for="(p, i) in installments" :key="i" data-testid="doc-installment"><td>{{ fmtDate(p.due_date) }}</td><td class="num">{{ fmtMoney(p.amount) }}</td><td>{{ fmtDate(p.discount_date) }}</td><td class="num">{{ fmtMoney(p.discount_amount) }}</td></tr></tbody>
       </table>
+    </section>
+    <section v-if="isTaxInvoice" class="doc-block" data-testid="doc-tax-invoice">
+      <h2>세금계산서 내용</h2>
+      <table>
+        <tbody>
+          <tr><td>공급자 등록번호</td><td data-testid="doc-supplier-no">{{ extras.company.registration_no || '회사 설정에 없음' }}</td><td>공급받는 자 등록번호</td><td data-testid="doc-buyer-no">{{ extras.partners[String(s.partner_id)]?.tax_id || '거래처에 없음' }}</td></tr>
+          <tr><td>작성 연월일</td><td>{{ fmtDate(s.invoice_date) }}</td><td>승인번호</td><td data-testid="doc-approval">{{ s.approval_no || '없음' }}</td></tr>
+          <tr v-if="s.amend_reason"><td>수정 사유</td><td data-testid="doc-amend">{{ amendLabel }}</td><td>처음 작성일</td><td>{{ fmtDate(s.original_date) }}</td></tr>
+        </tbody>
+      </table>
+      <p class="doc-text" style="margin: 6px 0 0" data-testid="doc-not-issued">이 종이는 국세청에 전송된 전자세금계산서가 아닙니다. 전자 발행은 대행 계약이 있어야 해서 이 앱이 하지 않습니다.</p>
     </section>
     <section v-if="note" class="doc-block"><h2>메모</h2><p class="doc-text" style="margin: 0">{{ note }}</p></section>
     <section v-if="showSignature && s.signed_by" class="doc-block" data-testid="doc-signature">
