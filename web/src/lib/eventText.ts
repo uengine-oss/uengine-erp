@@ -15,6 +15,7 @@ const TYPE_LABELS: Record<string, string> = {
   bom: '자재 명세', manufacturing_order: '제조 지시',
   asset: '고정자산', depreciation_run: '감가상각 실행', fiscal_close: '결산',
   holiday: '공휴일', leave_type: '휴가 유형', leave_policy: '연차 부여 정책', leave_person: '휴가 대상 직원', leave_grant: '휴가 부여', leave_request: '휴가 신청', leave_request_private: '휴가 사유 기록', leave_attendance_month: '근태 마감 사실',
+  vat_entry: '신고 집계', vat_return: '부가세 신고',
   attendance_policy: '근태 기준', attendance_day: '출퇴근 기록', attendance_month: '근태 월 마감', attendance_person: '근태 대상 직원', attendance_leave: '근태에 반영한 휴가',
 }
 
@@ -78,6 +79,13 @@ const EXACT: Record<string, string> = {
   ManufacturingOrderCreated: '제조 지시 생성', ManufacturingOrderChanged: '제조 지시 변경', ManufacturingOrderDeleted: '제조 지시 삭제', ManufacturingReorderLinked: '재주문 요청 연결',
   ManufacturingConfirmed: '제조 확정', ManufacturingStarted: '제조 시작', ManufacturingDone: '제조 완료', ManufacturingCancelled: '제조 취소', ManufacturingResetToDraft: '제조 지시 초안으로',
   ManufacturingReversed: '제조 상쇄', ManufacturingPlanChanged: '제조 계획 수량 변경', ManufacturingStockApplied: '재고 반영',
+  InvoiceVoucherPaid: '전표 지급', InvoiceEvidenceSet: '증빙 적기', InvoiceNumberChanged: '청구서 번호 변경', JournalNumberFormatChanged: '번호 형식 변경',
+  BankLineCreated: '은행 거래 추가', BankLineUpdated: '은행 거래 변경', BankLineDeleted: '은행 거래 삭제', BankLineBooked: '은행 거래 분개', BankLineUnbooked: '은행 거래 분개 취소',
+  BankLineMatched: '은행 거래 대사', BankLineUnmatched: '은행 거래 대사 취소', BankLineStatementSet: '명세서 연결', BankStatementDeleted: '은행 명세서 삭제',
+  PaymentBankMatched: '은행 대사 반영', PaymentBankUnmatched: '은행 대사 취소 반영',
+  LeaveTypeCreated: '휴가 유형 추가', LockExceptionGranted: '잠금 예외 허용', LockExceptionRevoked: '잠금 예외 회수', PartnerBankUntrusted: '거래처 계좌 신뢰 해제',
+  SavedSearchOwned: '저장한 검색 소유', SavedSearchUpdated: '저장한 검색 변경',
+  VatEntryRecorded: '신고 집계 반영', VatEntryWithdrawn: '신고 집계 철회', VatReturnOpened: '부가세 신고 시작', VatFiled: '부가세 신고 마감', VatFilingReopened: '부가세 신고 다시 열기',
 }
 
 // Modules name row events <Type><Column>Added/Changed/Removed/Reordered, so endings cover new ones too.
