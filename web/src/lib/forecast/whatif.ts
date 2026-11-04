@@ -19,6 +19,10 @@ export interface WhatIfOutcome {
 
 const ROUGH_MARGIN = 1.3
 
+// Thresholds were set over a season. Over a year on synthetic companies the direction was always right and the size within 14%, but an
+// 80% band held the truth only 53~80% of the time (experiments/whatif/results-long.json), so it says so rather than look surer than it is.
+const withYear = (w: string[], days?: number): string[] => (days && days > 180 ? [...w, '180일을 넘게 내다보면 방향과 크기는 대체로 맞아도 80% 구간이 실제보다 좁게 나옵니다'] : w)
+
 interface Common {
   days?: number
   runs?: number
@@ -93,7 +97,7 @@ export function whatIfPolicy(p: Panel, input: { changes: PolicyChange[] } & Comm
   replayWarnings(p, warnings)
   const res = comparePaired(ctx, { policy: pol }, input.runs ?? 300, input.seed ?? 99)
   noteBase(ctx, warnings)
-  return done('whatif_policy', 'whatif', input, { base: res.base, scenario: res.scenario, delta: res.delta, base_reliable: ctx.policies.lead.source === 'purchase' }, ev, warnings, verdictOf(res.delta.revenue, '기간 매출', '매출 효과'))
+  return done('whatif_policy', 'whatif', input, { base: res.base, scenario: res.scenario, delta: res.delta, base_reliable: ctx.policies.lead.source === 'purchase' }, ev, withYear(warnings, input.days), verdictOf(res.delta.revenue, '기간 매출', '매출 효과'))
 }
 
 // whatif_realloc: send less to one warehouse and more to another.
@@ -117,7 +121,7 @@ export function whatIfRealloc(p: Panel, input: { variant_id: string; from_wareho
   replayWarnings(p, warnings)
   const res = comparePaired(ctx, { policy: pol }, input.runs ?? 300, input.seed ?? 99)
   noteBase(ctx, warnings)
-  return done('whatif_realloc', 'whatif', input, { base: res.base, scenario: res.scenario, delta: res.delta, base_reliable: ctx.policies.lead.source === 'purchase' }, ev, warnings, verdictOf(res.delta.revenue, '기간 매출', '매출 효과'))
+  return done('whatif_realloc', 'whatif', input, { base: res.base, scenario: res.scenario, delta: res.delta, base_reliable: ctx.policies.lead.source === 'purchase' }, ev, withYear(warnings, input.days), verdictOf(res.delta.revenue, '기간 매출', '매출 효과'))
 }
 
 export interface DropOutcome extends WhatIfOutcome {
@@ -178,7 +182,7 @@ export function whatIfDrop(p: Panel, input: { variant_id: string; substitutes?: 
   return done('whatif_drop', 'whatif', input, {
     base: res.base, scenario: res.scenario, delta: res.delta, base_reliable: ctx.policies.lead.source === 'purchase',
     rates: enough.map((s) => ({ to: p.V[s.to].id, name: p.V[s.to].name, rate: s.rate, episodes: s.episodes, days: s.days, lost_units: s.lostUnits })),
-  }, { ...evidenceBase, have, message: `대체 상품 품절 사례 ${have}건`, cases: { episodes: have } }, warnings, verdictOf(res.delta.revenue, '기간 매출', '매출 효과'))
+  }, { ...evidenceBase, have, message: `대체 상품 품절 사례 ${have}건`, cases: { episodes: have } }, withYear(warnings, input.days), verdictOf(res.delta.revenue, '기간 매출', '매출 효과'))
 }
 
 // Revenue at stake from demand alone. A fit's expected units, or the same stretch last year, with room for a year that runs higher.
@@ -278,7 +282,7 @@ export function whatIfLead(p: Panel, input: { to_days?: number; scale?: number; 
   const res = comparePaired(ctx0, { leadScale: scaleBy }, input.runs ?? 300, input.seed ?? 99)
   const warnings = [...ctx0.warnings]
   replayWarnings(p, warnings)
-  return done('whatif_lead', 'whatif', input, { base: res.base, scenario: res.scenario, delta: res.delta, base_reliable: true, from_mean: mean, to_mean: mean * scale, scale }, ev, warnings, verdictOf(res.delta.stockout_days, '품절일', '품절일 변화', true))
+  return done('whatif_lead', 'whatif', input, { base: res.base, scenario: res.scenario, delta: res.delta, base_reliable: true, from_mean: mean, to_mean: mean * scale, scale }, ev, withYear(warnings, input.days), verdictOf(res.delta.stockout_days, '품절일', '품절일 변화', true))
 }
 
 export interface ReorderRow {

@@ -15,6 +15,8 @@ export const fmtMoneyPlain = money
 export const fmtDelta = (v: number): string => signed(money(v), v)
 export const fmtQtyDelta = (v: number): string => signed(count(v), v)
 export const fmtPercent = (v: number | null | undefined, digits = 0): string => (v === null || v === undefined ? '-' : `${(v * 100).toFixed(digits)}%`)
+/** How likely, without claiming certainty: 200 runs all agreeing is not a promise. */
+export const fmtChance = (v: number): string => (v >= 0.995 ? '99% 이상' : `${Math.round(v * 100)}%`)
 export const fmtDays = (v: number | null | undefined): string => (v === null || v === undefined ? '-' : `${fmtNumber(Math.round(v * 10) / 10)}일`)
 
 export function bandText(b: Band, f: (v: number) => string = count): string {

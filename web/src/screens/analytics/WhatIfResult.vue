@@ -16,7 +16,7 @@ const props = defineProps<{ outcome: Outcome; verdict: Verdict | null; pnlReady?
 const ROWS: { key: keyof Measures; label: string; money: boolean }[] = [
   { key: 'revenue', label: '매출', money: true },
   { key: 'margin', label: '마진', money: true },
-  { key: 'stockout_days', label: '품절일', money: false },
+  { key: 'stockout_days', label: '품절일 (제품·창고별 합)', money: false },
   { key: 'stock_value', label: '재고 금액', money: true },
   { key: 'lost_units', label: '못 판 수량', money: false },
 ]

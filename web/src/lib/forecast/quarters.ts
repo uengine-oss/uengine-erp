@@ -264,7 +264,7 @@ export interface BacktestOutcome { as_of: string; year: number; rows: BacktestRo
 export function quarterBacktest(now: Panel, then: Panel, input: Input = {}): ModelResult<BacktestOutcome> {
   const year = input.year ?? Number(then.data.asOf.slice(0, 4)) + 1
   const out = quarterOutlook(then, { ...input, year, top: 1 })
-  const ev: Evidence = { ...out.evidence, message: `${then.data.asOf} 에 알던 것만으로 계산` }
+  const ev: Evidence = { ...out.evidence, message: `${then.data.asOf}에 알던 것만으로 계산` }
   if (!out.result) return short('quarter_outlook', 'forecast', input, out.evidence)
   const today = now.day0 + now.n - 1
   const rows = out.result.quarters.map((q): BacktestRow => {

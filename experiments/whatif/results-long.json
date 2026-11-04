@@ -1,0 +1,54 @@
+{
+ "seeds": 30,
+ "first_seed": 1,
+ "horizon": 365,
+ "policy": {
+  "n": 30,
+  "truth": 416988000,
+  "predicted": 414170000,
+  "relError": 0.10646431956757038,
+  "absError": 49082500,
+  "coverage": 0.8,
+  "direction": 1,
+  "claimed": 1,
+  "claimedRight": 1,
+  "width": 144773700
+ },
+ "drop": {
+  "n": 30,
+  "truth": -1103080000,
+  "predicted": -1055821500,
+  "relError": 0.0999312153624111,
+  "absError": 101866500,
+  "coverage": 0.7,
+  "direction": 1,
+  "claimed": 1,
+  "claimedRight": 1,
+  "width": 395426400
+ },
+ "lead": {
+  "n": 30,
+  "truth": -891781000,
+  "predicted": -869790000,
+  "relError": 0.13468809197718412,
+  "absError": 118776000,
+  "coverage": 0.5333333333333333,
+  "direction": 1,
+  "claimed": 1,
+  "claimedRight": 1,
+  "width": 251663400
+ },
+ "base": {
+  "n": 30,
+  "truth": 6475953000,
+  "predicted": 6415590000,
+  "relError": 0.04347947893366811,
+  "absError": 291105000,
+  "coverage": 0.5666666666666667,
+  "direction": 1,
+  "claimed": 1,
+  "claimedRight": 1,
+  "width": 569673100
+ },
+ "seconds_per_company": 0.8156776625000001
+}

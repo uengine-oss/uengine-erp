@@ -15,7 +15,7 @@ import { ensureNames, refLabel } from '../../lib/refs'
 import BandBar from './BandBar.vue'
 import ColumnChart from './ColumnChart.vue'
 import ResultFrame from './ResultFrame.vue'
-import { bandText, fmtDays, fmtMoneyPlain, fmtPercent, fmtQty, moneyWithUnit } from './fmt'
+import { bandText, fmtChance, fmtDays, fmtMoneyPlain, fmtPercent, fmtQty, moneyWithUnit } from './fmt'
 
 const props = defineProps<{ id: ModelId }>()
 
@@ -109,7 +109,7 @@ const onTime = (v: number | null) => (v === null ? '-' : fmtPercent(v))
       <!-- Next year, a quarter at a time -->
       <template v-else-if="quarters">
         <dl class="tiles" data-testid="quarter-totals">
-          <div v-if="quarters.best"><dt>가장 많이 팔릴 때</dt><dd>{{ quarters.best.quarter }} {{ quarters.best.name }}</dd><small>{{ bandText(quarters.best.units) }}개. 그 분기 1위일 가능성 {{ fmtPercent(quarters.best.p_top) }}</small></div>
+          <div v-if="quarters.best"><dt>가장 많이 팔릴 때</dt><dd>{{ quarters.best.quarter }} {{ quarters.best.name }}</dd><small>{{ bandText(quarters.best.units) }}개. 그 분기 1위일 가능성 {{ fmtChance(quarters.best.p_top) }}</small></div>
           <div><dt>{{ quarters.year }}년 매출 (80% 구간)</dt><dd>{{ bandText(quarters.revenue, fmtMoneyPlain) }}</dd><small>공급이 지금과 같을 때. 중앙값 {{ moneyWithUnit(quarters.revenue.p50) }}</small></div>
           <div><dt>수요를 다 채우면</dt><dd>{{ bandText(quarters.revenue_if_supplied, fmtMoneyPlain) }}</dd><small>중앙값 {{ moneyWithUnit(quarters.revenue_if_supplied.p50) }}</small></div>
         </dl>
@@ -121,7 +121,7 @@ const onTime = (v: number | null) => (v === null ? '-' : fmtPercent(v))
                 <td>{{ q.quarter }}</td>
                 <td>{{ q.top[0]?.name ?? '-' }}</td>
                 <td class="num">{{ q.top[0] ? bandText(q.top[0].units) : '-' }}</td>
-                <td class="num">{{ q.top[0] ? fmtPercent(q.top[0].p_top) : '-' }}</td>
+                <td class="num">{{ q.top[0] ? fmtChance(q.top[0].p_top) : '-' }}</td>
                 <td class="num">{{ bandText(q.revenue, fmtMoneyPlain) }}</td>
               </tr>
             </tbody>
