@@ -260,6 +260,12 @@ test('with people on, work goes on an employee; named by account it still finds 
     assert.equal(byAccount.state.employee_id, e.id, 'the same person, whichever door')
     const noRecord = await pl.cmd('project_task', null, 'create', { project_id: p.id, name: '외주 작업', member_id: contractor.record })
     assert.equal(noRecord.state.employee_id, null); assert.equal(noRecord.state.person_name, '외주')
+    const moved = await pl.cmd('project_task', noRecord.id, 'update', { member_id: w.record })
+    assert.equal(moved.state.employee_id, e.id, 'changing the account finds its employee')
+    const toOutside = await pl.cmd('project_task', moved.id, 'update', { member_id: contractor.record })
+    assert.equal(toOutside.state.employee_id, null); assert.equal(toOutside.state.person_name, '외주'); assert.equal(toOutside.state.user_id, contractor.id)
+    const cleared = await pl.cmd('project_task', moved.id, 'update', { member_id: null })
+    assert.equal(cleared.state.person_name, null); assert.equal(cleared.state.user_id, null)
     assert.equal((await w.cmd('project_task', t.id, 'to_doing', {})).status, 'doing')
 
     const log = await w.cmd('time_entry', null, 'create', { task_id: t.id, hours: 2, date: '2026-06-01' })

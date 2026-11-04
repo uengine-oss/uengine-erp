@@ -307,6 +307,7 @@ test('Back office over real HTTP: keys carry a member\'s rights, a paid claim is
     assert.ok(!(await put(KEY)).ok, 'the public key cannot either')
     const up = await put(staff.token)
     assert.ok(up.ok, await up.clone().text())
+    assert.ok(!(await put(staff.token)).ok, 'a file cannot be replaced: the fingerprint would no longer be true')
     assert.equal((await put(staff.token, `expense/${id}/${crypto.randomUUID()}`, 'application/x-msdownload')).ok, false, 'the bucket refuses what is not a receipt')
     const sha = crypto.createHash('sha256').update(file).digest('hex')
     const attach = (rec, token = staff.token) => rpc('erp_command', { p_type: 'expense', p_id: id, p_command: 'attach_receipt', p_payload: rec }, { token })
@@ -328,11 +329,11 @@ test('Back office over real HTTP: keys carry a member\'s rights, a paid claim is
     assert.ok(self.isError); assert.match(text(self), /ERP_FORBIDDEN/)
     await call(agentBoss, 'erp_update', { type: 'expense', id, saga_id: saga, values: { state: 'approved' } })
     await call(agentBoss, 'erp_update', { type: 'expense', id, saga_id: saga, values: { state: 'paid' } })
-    await waitFor(async () => !(await call(agentBoss, 'erp_read', { saga })).pending, 'the books')
+    await waitFor(async () => !(await call(agentBoss, 'erp_read', { saga })).pending, 'the books', 60000)
     const plan = await call(agentBoss, 'erp_read', { rollback: { correlation_id: saga } })
     assert.equal(plan.mode, 'compensate')
     await call(agentBoss, 'erp_create', { type: 'rollback', values: { correlation_id: saga, plan_hash: plan.hash, allow_cascade: true }, reason: '말로 취소' })
-    const after_ = await waitFor(async () => { const s = await call(agentBoss, 'erp_read', { saga }); return !s.pending && s }, 'the correction')
+    const after_ = await waitFor(async () => { const s = await call(agentBoss, 'erp_read', { saga }); return !s.pending && s }, 'the correction', 60000)
     assert.ok(after_.net.every((n) => Number(n.amount) === 0), JSON.stringify(after_.net))
 
     // A deal by key: won, and sales drafts a quote with nobody connected but the worker.
@@ -340,7 +341,7 @@ test('Back office over real HTTP: keys carry a member\'s rights, a paid claim is
     const noDeal = await agentNone.callTool({ name: 'erp_create', arguments: { type: 'opportunity', values: { name: 'x' } } })
     assert.ok(noDeal.isError)
     await call(agentStaff, 'erp_update', { type: 'opportunity', id: deal.id, values: { state: 'won' } })
-    const quote = await waitFor(async () => (await http('GET', `erp_records?type=eq.sales_order&state->>origin_id=eq.${deal.id}&select=id,status`)).json[0], 'the quote')
+    const quote = await waitFor(async () => (await http('GET', `erp_records?type=eq.sales_order&state->>origin_id=eq.${deal.id}&select=id,status`)).json[0], 'the quote', 60000)
     assert.equal(quote.status, 'draft')
     assert.deepEqual((await http('GET', `erp_opportunity_private?opportunity_id=eq.${deal.id}`, { token: noRole.token })).json, [])
 

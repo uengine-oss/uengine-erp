@@ -71,6 +71,8 @@ begin
     from erp.api_keys k left join erp.members m on m.user_id = k.user_id);
 end $$;
 
+-- The list of types grows with every module and goes into the agent's context with each tool that carries it, so only reading and
+-- creating do. Updating and deleting name a record the agent already has, and the kernel refuses a wrong type either way.
 create or replace function erp.mcp_tools() returns jsonb
 language sql stable as $$
   with t as (select coalesce(jsonb_agg(d ->> 'type'), '[]'::jsonb) e from jsonb_array_elements(public.erp_catalog()) d
@@ -90,12 +92,12 @@ language sql stable as $$
     jsonb_build_object('name', 'erp_update',
       'description', 'ERP 레코드 수정. 바꿀 필드만 넣는다. 확정 같은 업무 동작은 values.state 를 다음 상태로 바꾼다. 그 밖의 동작은 action 에 schema 의 extra_commands 이름을 넣는다.',
       'inputSchema', jsonb_build_object('type', 'object', 'required', '["type","id","values"]'::jsonb, 'properties', jsonb_build_object(
-        'type', jsonb_build_object('type', 'string', 'enum', t.e), 'id', '{"type":"string"}'::jsonb, 'values', '{"type":"object"}'::jsonb, 'action', '{"type":"string"}'::jsonb,
+        'type', '{"type":"string"}'::jsonb, 'id', '{"type":"string"}'::jsonb, 'values', '{"type":"object"}'::jsonb, 'action', '{"type":"string"}'::jsonb,
         'expected_version', '{"type":"integer"}'::jsonb, 'reason', '{"type":"string"}'::jsonb, 'saga_id', '{"type":"string"}'::jsonb))),
     jsonb_build_object('name', 'erp_delete',
       'description', 'ERP 레코드 삭제. 이력은 원장에 남는다.',
       'inputSchema', jsonb_build_object('type', 'object', 'required', '["type","id"]'::jsonb, 'properties', jsonb_build_object(
-        'type', jsonb_build_object('type', 'string', 'enum', t.e), 'id', '{"type":"string"}'::jsonb,
+        'type', '{"type":"string"}'::jsonb, 'id', '{"type":"string"}'::jsonb,
         'expected_version', '{"type":"integer"}'::jsonb, 'reason', '{"type":"string"}'::jsonb, 'saga_id', '{"type":"string"}'::jsonb)))
   )) from t
 $$;

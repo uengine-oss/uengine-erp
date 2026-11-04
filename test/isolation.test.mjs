@@ -44,6 +44,13 @@ test('analysis reads the ledger, not any module table', () => {
   for (const t of ['erp.quants', 'erp.gl_lines', 'erp.employee_private', 'public.erp_employee_private', 'erp.expense_receipts', 'public.erp_expense_receipts', 'erp.opportunity_private', 'public.erp_opportunity_private']) assert.ok(!a.src.includes(t), t)
 })
 
+test('nobody else reads or writes what a module keeps outside the ledger', () => {
+  for (const [owner, table] of [['crm', /opportunity_private/], ['expense', /expense_receipts/]]) {
+    for (const m of mods) if (m.id !== owner) assert.ok(!table.test(m.src.replace(/'OpportunityPrivate[A-Za-z]*'/g, '')), `${m.id} mentions ${table}`)
+  }
+  for (const id of ['crm', 'expense']) assert.match(mods.find((m) => m.id === id).src, /"subscribes": \[\]/, `${id} hears nobody`)
+})
+
 test('nobody else reads or writes the private table, and its module neither hears nor needs anyone', () => {
   for (const m of mods) {
     if (m.id !== 'hr') assert.ok(!/employee_private/.test(m.src.replace(/'EmployeePrivate[A-Za-z]*'/g, '')), `${m.id} mentions the private table`)

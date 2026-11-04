@@ -601,10 +601,11 @@ end $$;
 create or replace function public.erp_crm_deals(p_as_of timestamptz)
 returns table(id uuid, number text, name text, stage text, reached int, amount numeric, expected_close date, partner_id text, partner_name text, owner_id text, lost_reason text, closed_on date, created_on date)
 language sql stable set search_path = public, pg_temp as $$
-  with ev as (
-    select e.stream_id, e.seq, e.event_type, e.data from public.erp_events e
+  with undone as materialized (select public.erp_undone(p_as_of) as u),
+  ev as (
+    select e.stream_id, e.seq, e.event_type, e.data from public.erp_events e, undone
      where e.stream_type = 'opportunity' and e.event_type in ('OpportunityCreated', 'OpportunityChanged', 'OpportunityStageChanged', 'OpportunityWon', 'OpportunityLost', 'OpportunityReopened', 'OpportunityDeleted')
-       and e.occurred_at <= p_as_of and not e.correlation_id = any (public.erp_undone(p_as_of))
+       and e.occurred_at <= p_as_of and not e.correlation_id = any (undone.u)
   ), newest as (
     select distinct on (stream_id) * from ev order by stream_id, seq desc
   ), level_ as (
@@ -728,7 +729,7 @@ end $$;
 create or replace function public.erp_project_tasks(p_as_of timestamptz)
 returns table(task uuid, name text, project_id text, project_name text, stage text, planned numeric, deadline date, started_on date, done_on date, person text, logged numeric)
 language sql stable set search_path = public, pg_temp as $$
-  with undone as (select public.erp_undone(p_as_of) as u),
+  with undone as materialized (select public.erp_undone(p_as_of) as u),
   ev as (
     select distinct on (e.stream_id) e.stream_id, e.event_type, e.data from public.erp_events e, undone
      where e.stream_type = 'project_task' and e.event_type in ('TaskCreated', 'TaskChanged', 'TaskStageChanged', 'TaskDeleted')

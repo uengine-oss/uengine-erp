@@ -15,10 +15,12 @@ import Icon from '../components/Icon.vue'
 const admin = computed(() => isAdmin())
 const models = ref<ModelInfo[]>([])
 const busyId = ref('')
+let modelsLoaded: Promise<void> = Promise.resolve()
 
 async function load() {
+  modelsLoaded = loadModels().then((list) => { models.value = list })
   await refreshBus()
-  models.value = await loadModels()
+  await modelsLoaded
 }
 onMounted(() => { if (admin.value) void load() })
 watch(admin, (v) => { if (v) void load() })
@@ -65,6 +67,10 @@ const RESUME_FIELD: Field = {
 }
 
 async function enable(m: ModuleDoc) {
+  // The dialog says what this opens, and it does not change once open, so a quick click waits for the list.
+  busyId.value = m.id
+  await modelsLoaded
+  busyId.value = ''
   const again = !!m.enabled_at
   const fields = again ? [RESUME_FIELD] : (m.options ?? [])
   const lines = [unlockText(m), m.not_rebuilt].filter(Boolean).map((t) => String(t).replace(/\.$/, ''))

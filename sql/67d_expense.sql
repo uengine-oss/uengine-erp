@@ -33,7 +33,7 @@ language plpgsql stable as $$
 declare s jsonb := (select state from erp.records where id = p_expense and type = 'expense');
 begin
   if s is null then return false; end if;
-  return erp.has_role(array['hr', 'accounting']) or erp.current_actor()::text in (erp.exp_owner_user(s), s ->> 'approver_user_id');
+  return erp.has_role(array['hr', 'accounting']) or coalesce(erp.current_actor()::text in (erp.exp_owner_user(s), s ->> 'approver_user_id'), false);
 end $$;
 
 -- Row security runs these as the caller, so they carry their own rights and only answer yes or no.

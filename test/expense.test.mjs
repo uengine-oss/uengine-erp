@@ -397,6 +397,7 @@ test('who reads a receipt: the claimant, the approver and the offices. The claim
   const open = await claim(staff)
   assert.equal(await may(staff.id, `expense/${open.id}/${crypto.randomUUID()}`, 'write'), true)
   assert.equal(await may(peer.id, `expense/${open.id}/${crypto.randomUUID()}`, 'write'), false)
+  assert.strictEqual(await may(peer.id, `expense/${open.id}/${crypto.randomUUID()}`, 'read'), false, 'a plain no, also with nobody asked yet')
 
   // The claim's facts are readable by every member because the kernel reads by type. docs/modules/expense.md says so.
   assert.equal((await k.db.asUser(stranger.id, `select state ->> 'title' t from public.erp_records where id = $1`, [e.id])).rows[0].t, '택시비')

@@ -192,7 +192,12 @@ test('S14-P4. 서비스 제품이 프로젝트를 요청하면 주문 확정으�
   await shot(page, 'project-04-product')
   const product = (await sql(`select id, state from erp.records where type = 'product' and name = '설치 용역'`)).rows[0]
   const order = await command(admin, 'sales_order', null, 'create', { partner_id: partner.id, commitment_date: `${daysFrom(20)}T10:00:00+09:00`, lines: [{ variant_id: product.state.variants[0].id, qty: 12 }] })
-  await command(admin, 'sales_order', order.id, 'confirm', {})
+
+  // 확정은 화면에서 누른다. 앱은 명령 뒤에 구독을 바로 재촉한다.
+  await menu(page, 'sales', 'sales_order')
+  await rowOf(page, order.state.number).click()
+  await press(page, '주문 확정')
+  await expect(page.locator('.form-head .pill').filter({ hasText: '주문' }).first()).toBeVisible()
 
   await menu(page, 'project', 'project')
   await expect(async () => {

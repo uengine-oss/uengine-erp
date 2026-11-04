@@ -197,7 +197,8 @@ begin
       vals := erp.validate('project_task', erp.strict_payload('project_task', p - 'project_id', s), false);
       perform erp.task_check_hours(vals);
       if vals ? 'employee_id' or vals ? 'member_id' then
-        who := erp.pj_person(case when vals ? 'employee_id' then vals ->> 'employee_id' else s ->> 'employee_id' end, case when vals ? 'member_id' then vals ->> 'member_id' else s ->> 'member_id' end);
+        -- Whoever was just named. Naming an account alone replaces the employee too, and it finds them again if it is theirs.
+        who := erp.pj_person(vals ->> 'employee_id', vals ->> 'member_id');
         vals := vals || jsonb_build_object('employee_id', null, 'member_id', null, 'person_name', null, 'user_id', null, 'department_name', null) || who;
       end if;
       select coalesce(jsonb_object_agg(key, value), '{}'::jsonb) into changed from jsonb_each(vals) where (s -> key) is distinct from value;

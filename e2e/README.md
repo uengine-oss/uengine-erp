@@ -28,7 +28,7 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | `ERP_TEST_PG` | SQL 시험이 쓸 Postgres. 기본값은 `postgres://postgres:postgres@127.0.0.1:56322/postgres` |
 | `SETUP_CODE` | HTTP 시험이 회사를 만들 때 쓰는 설치 코드 |
 
-브라우저 시험은 한 번에 하나만 돈다(`workers: 1`). 브라우저 시험과 `reset-local`·`install-local` 은 postgres DB 를 초기화하고 :5301 을 쓰므로, 같은 스택을 여러 작업이 함께 쓰면 `lockf /tmp/uengine-erp-e2e.lock <명령>` 으로 감싼다. SQL 시험은 임시 DB 를 쓰므로 잠금이 필요 없다.
+`expense.spec.mjs` 와 `api.e2e.mjs` 는 실제 Storage API 에 파일을 올린다. `supabase/config.toml` 의 `[storage] enabled = true` 로 스택을 띄워야 한다. 브라우저 시험은 한 번에 하나만 돈다(`workers: 1`). 브라우저 시험과 `reset-local`·`install-local` 은 postgres DB 를 초기화하고 :5301 을 쓰므로, 같은 스택을 여러 작업이 함께 쓰면 `lockf /tmp/uengine-erp-e2e.lock <명령>` 으로 감싼다. SQL 시험은 임시 DB 를 쓰므로 잠금이 필요 없다.
 
 ## 테스트 카탈로그
 
@@ -75,6 +75,7 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
 | 새 회사는 판매만 켜진 채로 시작한다 | `growth.test.mjs` 1<br>`modules.spec.mjs` 4<br>`growth.spec.mjs` 1<br>`bus.test.mjs` 1 | SQL, 브라우저 | ✅ |
+| 다른 모듈 없이 일할 수 없는 모듈은 그렇게 밝힌다 | `expense.test.mjs` 1<br>`expense.spec.mjs` 1 | SQL, 브라우저 | ✅ |
 | 켜기 전에 무엇이 열리고 무엇을 다시 만들 수 없는지 알려 준다 | `modules.spec.mjs` 1<br>`growth.spec.mjs` 1<br>`accounting.test.mjs` 1 | SQL, 브라우저 | ✅ |
 | 켠 모듈은 그 뒤의 이벤트부터 받고 고른 만큼만 과거를 읽는다 | `modules.spec.mjs` 1<br>`bus.test.mjs` 5<br>`growth.test.mjs` 2<br>`growth.spec.mjs` 1 | SQL, 브라우저 | ✅ |
 | 모듈 사이의 통로는 원장 이벤트 하나다 | `growth.test.mjs` 1<br>`growth.spec.mjs` 1<br>`bus.test.mjs` 1 | SQL, 브라우저 | ✅ |
@@ -391,20 +392,20 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
-| SQL | `test/*.test.mjs` (28개) | 768 |
-| HTTP | `test/*.e2e.mjs` (2개) | 15 |
-| 브라우저 | `e2e/tests/*.spec.mjs` (15개) | 179 |
-| 합계 | 45개 | 962 |
+| SQL | `test/*.test.mjs` (32개) | 865 |
+| HTTP | `test/*.e2e.mjs` (2개) | 16 |
+| 브라우저 | `e2e/tests/*.spec.mjs` (18개) | 205 |
+| 합계 | 52개 | 1086 |
 
 | 단계 | 파일별 시험 수 |
 |---|---|
-| SQL | `accounting.test.mjs` 27 · `api.test.mjs` 11 · `bus.test.mjs` 18 · `concurrency.test.mjs` 11 · `core.test.mjs` 18 · `demo.test.mjs` 4 · `growth.test.mjs` 11 · `history.test.mjs` 21 · `inventory.test.mjs` 63 · `hr.test.mjs` 42 · `invoicing.test.mjs` 51 · `isolation.test.mjs` 46 · `master.test.mjs` 45 · `models.test.mjs` 36 · `plugin.test.mjs` 8 · `pricing.test.mjs` 145 · `purchase.test.mjs` 30 · `rebuild-gl.test.mjs` 8 · `sales.test.mjs` 51 |
-| HTTP | `api.e2e.mjs` 8 · `stack.e2e.mjs` 7 |
-| 브라우저 | `demo.spec.mjs` 5 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `hr.spec.mjs` 13 · `integration.spec.mjs` 3 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `pages.spec.mjs` 4 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `whatif.spec.mjs` 15 |
+| SQL | `accounting.test.mjs` 27 · `api.test.mjs` 15 · `bank.test.mjs` 18 · `bus.test.mjs` 19 · `concurrency.test.mjs` 11 · `core.test.mjs` 18 · `crm.test.mjs` 20 · `currency.test.mjs` 4 · `demo.test.mjs` 4 · `expense.test.mjs` 30 · `growth.test.mjs` 13 · `history.test.mjs` 21 · `hr.test.mjs` 42 · `import.test.mjs` 9 · `inventory.test.mjs` 63 · `invoicing.test.mjs` 51 · `isolation.test.mjs` 65 · `line-preview.test.mjs` 9 · `locks.test.mjs` 13 · `master.test.mjs` 45 · `models.test.mjs` 36 · `plugin.test.mjs` 8 · `pricing.test.mjs` 145 · `project.test.mjs` 21 · `purchase.test.mjs` 30 · `rebuild-gl.test.mjs` 8 · `reports.test.mjs` 7 · `review-fixes.test.mjs` 31 · `saga.test.mjs` 6 · `sales.test.mjs` 55 · `stock-locks.test.mjs` 4 · `tax-parity.test.mjs` 17 |
+| HTTP | `api.e2e.mjs` 9 · `stack.e2e.mjs` 7 |
+| 브라우저 | `crm.spec.mjs` 8 · `demo.spec.mjs` 5 · `expense.spec.mjs` 10 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `hr.spec.mjs` 13 · `integration.spec.mjs` 3 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `pages.spec.mjs` 4 · `parity-screens.spec.mjs` 36 · `project.spec.mjs` 8 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `whatif.spec.mjs` 15 |
 
-위 표의 합계는 실제로 돌려 센 값이다(SQL `tests 768`, 브라우저 `179 passed`, HTTP `api.e2e.mjs` 8, `stack.e2e.mjs` 7). 파일별 표는 인사를 더하면서 바뀐 파일만 고쳤고, 그 전에 더해진 파일은 아직 빠져 있어 합이 맞지 않는다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 32개는 다섯 모듈의 조합마다 하나씩 생기고, 인사를 더한 조합 5개가 따로 있다.
+SQL 은 파일마다 돌려 센 값이고(`tests 865`), 브라우저 파일별 수는 `playwright test --list`, HTTP 파일별 수는 실행 결과다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 32개는 다섯 모듈의 조합마다 하나씩 생기고, 인사를 더한 조합 5개와 경비·CRM·프로젝트를 더한 조합 15개가 따로 있다.
 
-openspec 명세 13개의 요구사항 230개: 덮음 201 · 일부 29 · 공백 0. 시나리오 673개: 덮음 643 · 일부 12 · 공백 18.
+openspec 명세 16개의 요구사항 274개: 덮음 244 · 일부 30 · 공백 0. 시나리오 769개: 덮음 738 · 일부 13 · 공백 18. `erp-integration` 의 요구사항 1개(「한 업무를 사가로 묶어 한 번에 보상한다」)와 시나리오 11개는 스펙에만 있고 이 표와 그 스펙의 `e2e/README.md` 에 아직 없어 수에서 빠졌다. 이 수를 넣으면 스펙 전체는 요구사항 275개, 시나리오 780개다.
 
 ## 남은 공백
 
