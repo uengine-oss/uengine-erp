@@ -28,6 +28,8 @@
 | `PickingValidated` 고객 → 사내 | 차변 상품 / 대변 상품매출원가 | `date_done` |
 | `PickingValidated` 공급사 → 사내 | 차변 상품 / 대변 미착품 | `date_done` |
 | `PickingValidated` 사내 → 공급사 | 차변 미착품 / 대변 상품 | `date_done` |
+| `PickingValidated` 사내 → 생산 | 차변 재공품 / 대변 상품 | `date_done` |
+| `PickingValidated` 생산 → 사내 | 차변 상품 / 대변 재공품. `production_value` 가 그 금액과 다르면 차이를 제조원가차이와 재공품 사이에 적어 재공품을 0 으로 맞춘다. 반품이면 부호가 반대다 | `date_done` |
 | `StockAdjusted` | 늘면 차변 상품 / 대변 재고자산감모손실, 줄면 반대 | 이벤트 시각 |
 | `StockScrapped` | 차변 재고자산감모손실 / 대변 상품 | 이벤트 시각 |
 | `BankLineBooked` | 들어온 돈이면 차변 분개장 계정 / 대변 고른 계정, 나간 돈이면 반대 | 거래일 |
@@ -52,7 +54,7 @@
 
 `재고 모듈이 켜져 있었음`은 지금 상태가 아니라 그 모듈의 원장 스트림을 그 시점까지 읽어서 판단한다. 등록되지 않은 모듈은 꺼진 것으로 본다.
 
-새 시드 계정 `미착품`(코드 147, `asset_current`)은 이 파일이 `erp.default_seeds` 로 넣고, 이미 설치된 회사에는 설치 스크립트를 다시 돌릴 때 넣는다.
+새 시드 계정 `미착품`(코드 147, `asset_current`)은 이 파일이 `erp.default_seeds` 로 넣고, 이미 설치된 회사에는 설치 스크립트를 다시 돌릴 때 넣는다. `재공품`(169, `asset_current`)과 `제조원가차이`(459, `expense`)는 기초데이터(`erp.seed_production`)가 같은 방식으로 넣는다. 제조가 만든 것을 회계가 위치 용도로만 알아보므로 회계는 제조를 모른다(`docs/modules/mrp.md`).
 
 ### 이벤트가 맞지 않을 때
 

@@ -21,6 +21,8 @@ source scripts/local-env.sh && npm run test:e2e -- modules.spec.mjs growth.spec.
 | 모듈 정보를 읽지 못해도 안내하고 카드는 그려진다 | `modules.spec.mjs › 모듈 정보를 읽지 못하면 오류와 다시 시도를 보여 주고, 예측 목록이 실패해도 카드는 그려진다` | 브라우저 | ✅ |
 | 관리자가 아니면 모듈 메뉴와 배너가 없다 | `modules.spec.mjs › 비관리자에게는 모듈 메뉴와 배너가 없고, 주소로 와도 안내만 나오며, 재촉은 그대로 돈다` | 브라우저 | ✅ |
 | 카드가 켜면 열리는 예측을 알려 준다 | `modules.spec.mjs › 켜면 열리는 예측과 what-if 는 erp_models 에서 읽고, 다른 모듈이 더 필요한 것은 말하지 않는다` | 브라우저 | ✅ |
+| 필요한 모듈이 꺼져 있으면 말해 준다 | `mrp.test.mjs › it starts off, needs stock on, and comes and goes with its menu and commands`<br>`mrp.test.mjs › a company with no stock module among those it asks for cannot get manufacturing at the start either`<br>`mrp.spec.mjs › S15-0. 제조를 켜기 전` | SQL, 브라우저 | ✅ |
+| 나중에 끄는 것은 된다 | `mrp.test.mjs › stock turned off: orders still finish, and turning it back on works through what piled up, or skips it if asked` | SQL | ✅ |
 | 회계를 켤 때 다시 만들 수 없는 것을 밝힌다 | `growth.spec.mjs › S5. 회계를 켜면 지난 청구서와 입금으로 전표가 만들어지고, 보고서의 차변과 대변이 맞는다`<br>`accounting.test.mjs › setup seeds the account and leaves the module off, and the module card says what cannot be rebuilt` | SQL, 브라우저 | ✅ |
 | 옵션을 비워 켜면 과거를 읽지 않는다 | `modules.spec.mjs › 옵션을 비워 켜면 과거를 읽지 않고, 메뉴가 바로 바뀌고, 켠 뒤의 이벤트부터 받는다`<br>`bus.test.mjs › turning a module on starts from now, not from the past` | SQL, 브라우저 | ✅ |
 | 날짜를 고르면 그 뒤의 과거만 읽는다 | `growth.test.mjs › S2. inventory turned on later: it hears sales without sales knowing it exists`<br>`growth.spec.mjs › S2. 재고를 켠다: 메뉴가 바뀌고, 옛 주문을 가져오고, 기초 재고를 넣는다` | SQL, 브라우저 | ✅ |

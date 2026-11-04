@@ -82,6 +82,7 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 구독자가 실패해도 다른 일은 멈추지 않는다 | `growth.test.mjs` 1<br>`modules.spec.mjs` 2<br>`bus.test.mjs` 3 | SQL, 브라우저 | ✅ |
 | 전달은 재촉과 정기 실행으로 이어지고 순서를 지킨다 | `modules.spec.mjs` 2<br>`api.e2e.mjs` 1<br>`bus.test.mjs` 2 | SQL, HTTP, 브라우저 | ✅ |
 | 끄면 막히되 데이터는 남고 다시 켤 때 밀린 일을 고른다 | `modules.spec.mjs` 1<br>`growth.spec.mjs` 1<br>`bus.test.mjs` 1 | SQL, 브라우저 | ✅ |
+| 다른 모듈의 이벤트로 일하는 모듈은 그 모듈이 켜져 있어야 켜진다 | `mrp.test.mjs` 3<br>`isolation.test.mjs` 1<br>`mrp.spec.mjs` 1 | SQL, 브라우저 | ✅ |
 | 플러그인은 SQL 한 파일로 붙고 떨어진다 | `plugin.test.mjs` 8<br>`growth.test.mjs` 1 | SQL | ✅ |
 | 모듈과 버스 화면은 작은 화면과 어두운 테마에서도 읽힌다 | `modules.spec.mjs` 2 | 브라우저 | ✅ |
 
@@ -174,6 +175,8 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 동시에 일해도 재고 수량과 원가가 정확하다 | `inventory.test.mjs` 5 | SQL | ✅ |
 | 재고 합계는 원장과 일치하고 재설치로 잃지 않는다 | `inventory.test.mjs` 2 | SQL | ✅ |
 | 재고가 얽힌 되돌리기는 재고가 음수가 되면 거부한다 | `inventory.test.mjs` 2 | SQL | ✅ |
+| 제조 이벤트를 듣고 자재를 줄이고 완제품을 늘린다 | `mrp.test.mjs` 6 | SQL | ✅ |
+| 재주문 규칙은 구매가 아닌 보충 방식을 이벤트에 실어 보낸다 | `mrp.test.mjs` 2 | SQL | ✅ |
 
 ### 7. 구매 (spec `erp-purchase`)
 
@@ -330,24 +333,47 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | REST 와 MCP 는 카탈로그에서 저절로 나온다 | `hr.test.mjs` 3<br>`api.e2e.mjs` 1 | SQL, HTTP | ✅ |
 | 가상 회사에 직원이 더해져도 다른 수치는 그대로다 | `hr.test.mjs` 3 | SQL | ✅ |
 
+### 14. 제조 (spec `erp-mrp`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 제조는 꺼진 채 시작하고 재고가 있어야 켜진다 | `mrp.test.mjs` 3<br>`isolation.test.mjs` 7<br>`mrp.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 모듈 경계를 정적으로 지킨다 | `isolation.test.mjs` 4 | SQL | ✅ |
+| 자재 명세는 완제품과 자재와 수량을 담고 잘못된 것은 받지 않는다 | `mrp.test.mjs` 4<br>`mrp.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 순환하는 자재 명세를 막는다 | `mrp.test.mjs` 2<br>`mrp.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 다단계는 읽을 때 펼치고 각 단계는 자기 지시로 만든다 | `mrp.test.mjs` 1 | SQL | ◐ |
+| 제조 지시는 자재를 계산하고 상태를 한 방향으로 간다 | `mrp.test.mjs` 6<br>`mrp.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 자재가 부족해도 막지 않고 먼저 보여 준다 | `mrp.test.mjs` 2<br>`mrp.spec.mjs` 3 | SQL, 브라우저 | ✅ |
+| 실제가 계획과 다르면 명세가 정한 대로 한다 | `mrp.test.mjs` 2<br>`mrp.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 완료하면 재고 모듈이 듣고 자재를 줄이고 완제품을 늘린다 | `mrp.test.mjs` 3<br>`mrp.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 재고가 멈추거나 꺼져도 제조 기록은 남고 고치면 이어 간다 | `mrp.test.mjs` 2<br>`mrp.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 재주문 규칙이 제조로 이어지고 계획이 예측에 들어간다 | `mrp.test.mjs` 6<br>`mrp.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 원가는 자재비로 정하고 재고 평가와 맞는다 | `mrp.test.mjs` 3<br>`mrp.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 회계가 켜져 있으면 재공품을 거쳐 전표가 되고 늦게 켜도 같다 | `mrp.test.mjs` 5<br>`rebuild-gl.test.mjs` 1<br>`mrp.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 되돌리면 재고도 돌아가고 팔렸으면 막는다 | `mrp.test.mjs` 4<br>`mrp.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 사가는 되돌리거나 실제 반품으로 상쇄한다 | `mrp.test.mjs` 4 | SQL | ✅ |
+| MCP 로 명세와 지시를 다루고 권한을 지킨다 | `mrp.test.mjs` 3<br>`api.e2e.mjs` 1 | SQL, HTTP | ✅ |
+| 제조 기간, 자재 소요, 생산량 변경은 세 상태로 보이고 원장만 읽는다 | `mrp.test.mjs` 7<br>`mrp.spec.mjs` 3 | SQL, 브라우저 | ✅ |
+| 가상 회사에 제조가 더해져도 다른 수치는 그대로다 | `mrp.test.mjs` 2<br>`hr.test.mjs` 1 | SQL | ✅ |
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
-| SQL | `test/*.test.mjs` (28개) | 768 |
-| HTTP | `test/*.e2e.mjs` (2개) | 15 |
-| 브라우저 | `e2e/tests/*.spec.mjs` (15개) | 179 |
-| 합계 | 45개 | 962 |
+| SQL | `test/*.test.mjs` (30개) | 848 |
+| HTTP | `test/*.e2e.mjs` (2개) | 16 |
+| 브라우저 | `e2e/tests/*.spec.mjs` (16개) | 194 |
+| 합계 | 48개 | 1058 |
 
 | 단계 | 파일별 시험 수 |
 |---|---|
-| SQL | `accounting.test.mjs` 27 · `api.test.mjs` 11 · `bus.test.mjs` 18 · `concurrency.test.mjs` 11 · `core.test.mjs` 18 · `demo.test.mjs` 4 · `growth.test.mjs` 11 · `history.test.mjs` 21 · `inventory.test.mjs` 63 · `hr.test.mjs` 42 · `invoicing.test.mjs` 51 · `isolation.test.mjs` 46 · `master.test.mjs` 45 · `models.test.mjs` 36 · `plugin.test.mjs` 8 · `pricing.test.mjs` 145 · `purchase.test.mjs` 30 · `rebuild-gl.test.mjs` 8 · `sales.test.mjs` 51 |
-| HTTP | `api.e2e.mjs` 8 · `stack.e2e.mjs` 7 |
-| 브라우저 | `demo.spec.mjs` 5 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `hr.spec.mjs` 13 · `integration.spec.mjs` 3 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `pages.spec.mjs` 4 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `whatif.spec.mjs` 15 |
+| SQL | `accounting.test.mjs` 27 · `api.test.mjs` 11 · `bus.test.mjs` 18 · `concurrency.test.mjs` 11 · `core.test.mjs` 18 · `demo.test.mjs` 4 · `growth.test.mjs` 11 · `history.test.mjs` 21 · `inventory.test.mjs` 63 · `hr.test.mjs` 42 · `invoicing.test.mjs` 51 · `isolation.test.mjs` 56 · `master.test.mjs` 45 · `models.test.mjs` 36 · `mrp.test.mjs` 63 · `plugin.test.mjs` 8 · `pricing.test.mjs` 145 · `purchase.test.mjs` 30 · `rebuild-gl.test.mjs` 8 · `sales.test.mjs` 51 |
+| HTTP | `api.e2e.mjs` 9 · `stack.e2e.mjs` 7 |
+| 브라우저 | `demo.spec.mjs` 5 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `hr.spec.mjs` 13 · `integration.spec.mjs` 3 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `mrp.spec.mjs` 15 · `pages.spec.mjs` 4 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `whatif.spec.mjs` 15 |
 
-위 표의 합계는 실제로 돌려 센 값이다(SQL `tests 768`, 브라우저 `179 passed`, HTTP `api.e2e.mjs` 8, `stack.e2e.mjs` 7). 파일별 표는 인사를 더하면서 바뀐 파일만 고쳤고, 그 전에 더해진 파일은 아직 빠져 있어 합이 맞지 않는다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 32개는 다섯 모듈의 조합마다 하나씩 생기고, 인사를 더한 조합 5개가 따로 있다.
+위 표의 합계는 실제로 돌려 센 값이다(SQL `tests 848`, 브라우저 `194 passed`, HTTP `api.e2e.mjs` 9, `stack.e2e.mjs` 7). 파일별 표는 인사와 제조를 더하면서 바뀐 파일만 고쳤고, 그 전에 더해진 파일은 아직 빠져 있어 합이 맞지 않는다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 32개는 다섯 모듈의 조합마다 하나씩 생기고, 인사를 더한 조합 5개와 제조를 더한 조합 6개가 따로 있다.
 
-openspec 명세 13개의 요구사항 230개: 덮음 201 · 일부 29 · 공백 0. 시나리오 673개: 덮음 643 · 일부 12 · 공백 18.
+openspec 명세 14개의 요구사항 253개: 덮음 222 · 일부 30 · 공백 0 · 위 표에 없음 1. 시나리오 740개: 덮음 698 · 일부 13 · 공백 18 · 증거 표에 없음 11. 표에 없는 것은 제조 전부터 있던 `erp-integration` 의 되돌리기 5개와 사가 6개다(사가 요구사항은 위 표에도 없다). 이 줄의 앞선 값은 그 둘을 세지 않았다.
 
 ## 남은 공백
 

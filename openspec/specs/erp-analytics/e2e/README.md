@@ -14,7 +14,7 @@ source scripts/local-env.sh && npm run test:e2e -- whatif.spec.mjs growth.spec.m
 
 | 스펙 시나리오 | 시험 | 단계 | |
 |---|---|---|---|
-| 첫 화면은 15개 모델을 세 상태로 보여 준다 | `whatif.spec.mjs › 첫 화면은 모델을 세 상태로 보여 주고, 각자 무엇을 기다리는지 말한다` | 브라우저 | ✅ |
+| 첫 화면은 18개 모델을 세 상태로 보여 준다 | `whatif.spec.mjs › 첫 화면은 모델을 세 상태로 보여 주고, 각자 무엇을 기다리는지 말한다` | 브라우저 | ✅ |
 | 어떤 모듈도 켜기 전에는 모두 잠겨 있다 | `models.test.mjs › nothing is open before any module is on` | SQL | ✅ |
 | 판매만 켠 회사는 통계만 열리고 수요 예측은 근거를 기다린다 | `models.test.mjs › S1: with sales alone, the sales forecast is short of history and the corrected one is locked`<br>`growth.test.mjs › S1. a new company starts with sales alone`<br>`growth.spec.mjs › S1. 판매만 켜진 회사: 메뉴에는 판매뿐이고, 견적을 보내고 주문으로 확정한다`<br>`whatif.spec.mjs › 첫 화면은 모델을 세 상태로 보여 주고, 각자 무엇을 기다리는지 말한다` | SQL, 브라우저 | ✅ |
 | 어떤 모듈 조합에서도 세 상태 중 하나로 답한다 | `isolation.test.mjs › modules [none] work together with nothing stuck`<br>`isolation.test.mjs › modules [sales, inventory, purchase, invoicing, accounting] work together with nothing stuck` | SQL | ✅ |

@@ -575,6 +575,42 @@
 - **THEN** 이벤트 수, 재고, 구독 위치, 모듈, 카탈로그, 기본 데이터가 전과 같다
 - **AND** 회사 항목의 `annual_count_month` 는 하나뿐이다
 
+### Requirement: 제조 이벤트를 듣고 자재를 줄이고 완제품을 늘린다
+
+시스템은 `ManufacturingDone` 을 들으면 재고 → 생산, 생산 → 재고 전표를 만들어 바로 처리해야 한다(SHALL). 재고는 제조의 함수와 표를 부르지 않고 이벤트 이름 셋만 안다. 제조를 쓰지 않는 회사의 재고는 달라지지 않는다. 자세한 동작은 `erp-mrp` 스펙이 정한다.
+
+#### Scenario: 일반 전표와 같은 규칙을 탄다
+
+- **WHEN** 제조 완료 이벤트를 듣는다
+- **THEN** 전표 둘이 완료 상태이고 `origin_type` 이 `manufacturing_order`, `picking_type` 이 `internal` 이며 위치 한쪽이 용도 `production` 이다
+- **AND** 재고가 모자라면 음수가 되고, 다른 전표의 예약은 최근 것부터 풀린다
+- **AND** 날짜는 이벤트의 완료일이고, 사람이 전표 처리에 날짜를 넣어도 무시한다
+
+#### Scenario: 원가
+
+- **WHEN** 완제품이 평균 원가다
+- **THEN** 자재비 합계 ÷ 수량으로 들어와 평균을 옮긴다. 표준 원가면 표준으로 들어온다
+
+#### Scenario: 계획 수량이 예측에 들어간다
+
+- **WHEN** `ManufacturingPlanChanged` 를 듣는다
+- **THEN** 양수는 오는 양, 음수는 나갈 양으로 초안 구매 수량과 같은 합계에 들고, 요청에 답하며, 음수 줄의 자동 규칙을 평가한다
+
+#### Scenario: 상쇄는 실제 반품이다
+
+- **WHEN** `ManufacturingReversed` 를 듣는다
+- **THEN** 완제품, 자재 순으로 반품 전표를 만들어 처리하고 평균도 되돌린다. 두 번 들어도 한 번이다
+
+### Requirement: 재주문 규칙은 구매가 아닌 보충 방식을 이벤트에 실어 보낸다
+
+시스템은 규칙의 `replenish_by` 가 `buy` 가 아니면 공급사를 묻지 않고 그 값을 `ReorderRequested` 에 실어야 한다(SHALL). 그때 `vendor_id` 는 비운다. 재고는 그 값의 뜻을 모른다.
+
+#### Scenario: 구매가 아닌 규칙
+
+- **WHEN** 보충 방식이 제조인 규칙을 공급사 없이 실행한다
+- **THEN** 요청이 나가고 `replenish_by` 가 `make` 이며 `vendor_id` 는 `null` 이다
+- **AND** 규칙에 공급사를 적어 두어도 `null` 이다. 구매 규칙은 전처럼 공급사가 없으면 거부한다
+
 ### Requirement: 재고가 얽힌 되돌리기는 재고가 음수가 되면 거부한다
 
 시스템은 되돌리기로 재고가 음수가 되면 미리보기의 `blocked` 에 사유를 보이고 `erp_rollback_apply` 를 `ERP_ROLLBACK_BLOCKED` 로 거부해야 한다(MUST). 일상 운영의 음수와 재고 조정의 `revert` 는 막지 않는다. 물건이 실제로 움직인 `PickingValidated` 를 되돌릴 때는 `warnings` 로 알린다. 되돌린 이동은 이동 내역에서 빠지고, 전달되기 전에 되돌린 주문은 전표가 되지 않는다.

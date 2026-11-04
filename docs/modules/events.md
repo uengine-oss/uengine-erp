@@ -54,9 +54,11 @@
 | `PickingValidated` | `number, picking_type, origin_type, origin_id, is_return, to_refund, partner_id, warehouse_id, date_done, moves:[{move_id, origin_line_id, product_id, variant_id, name, qty_done, uom_id, location_from, location_to, lot_id, unit_cost, cost_method}]` |
 | `StockAdjusted` | `variant_id, product_id, location_id, warehouse_id, lot_id, delta, unit_cost, counted_qty, accounting_date` |
 | `StockScrapped` | `variant_id, product_id, location_id, warehouse_id, lot_id, qty, unit_cost` |
-| `ReorderRequested` | 요청별 문서 스트림(되돌릴 때 같은 제품의 다른 요청이 끌려오지 않게). `rule_id, variant_id, product_id, location_id, warehouse_id, qty, uom_id, vendor_id, origin` |
+| `ReorderRequested` | 요청별 문서 스트림(되돌릴 때 같은 제품의 다른 요청이 끌려오지 않게). `rule_id, variant_id, product_id, location_id, warehouse_id, qty, uom_id, vendor_id, origin, replenish_by`. `replenish_by` 는 구매면 `buy` 이고 `vendor_id` 가 있다. 그 밖의 값은 재고가 뜻을 모른 채 싣는 말이고 `vendor_id` 는 `null` 이다. 듣는 모듈이 자기 값만 처리한다 |
 
 재고 수량 변화는 전부 `data.effects.quant = [{variant_id, location_id, lot_id, qty, reserved}]` 에 실린다. 분석은 이것을 읽는다.
+
+제조에서 온 전표는 `origin_type` 이 `manufacturing_order` 이고 `picking_type` 이 `internal` 이며 위치 한쪽이 용도 `production` 이다. 완제품 쪽 전표의 `PickingValidated` 에는 `production_value`(자재비 합계)가 더 있고 그 이동의 `origin_line_id` 는 `finished` 다.
 
 ## 청구가 내는 것
 
@@ -104,6 +106,21 @@
 
 연락처, 생년월일, 계좌 같은 개인정보는 어떤 이벤트에도 없다. 원장은 지울 수 없기 때문이다. 필요한 모듈은 패턴을 따른다(`docs/modules/hr.md`). **이름과 입퇴사일은 원장에 남고 지워지지 않는다.**
 
+## 제조가 내는 것
+
+지시 이벤트의 공통 사실: `number, variant_id, product_id, name, qty, uom_id, warehouse_id, bom_id, origin, date_planned, components:[{line_id, variant_id, product_id, name, qty, qty_done, uom_id}]`. 지시 ID 는 `ev.stream_id` 다. `qty` 는 계획이고 `qty_done` 은 실제다. 수량은 각자의 `uom_id` 단위다.
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `BomCreated`, `BomChanged` | `name, variant_id, product_id, output_qty, uom_id, lines:[{line_id, variant_id, product_id, name, qty, uom_id}]`. 줄이 `output_qty` 만큼 만드는 데 드는 양이다 |
+| `ManufacturingOrderCreated`, `ManufacturingOrderChanged`, `ManufacturingConfirmed`, `ManufacturingResetToDraft` | 공통 사실 |
+| `ManufacturingStarted` | `date_started` + 공통 사실 |
+| `ManufacturingDone` | `qty_done, date_done, date_confirmed, date_started` + 공통 사실. **재고가 듣고 자재를 줄이고 완제품을 늘린다.** 효과를 싣지 않는다 |
+| `ManufacturingCancelled` | `was` + 공통 사실 |
+| `ManufacturingReversed` | 공통 사실. 사가가 완료한 지시를 상쇄할 때. 재고가 듣고 실제 반품으로 되돌린다 |
+| `ManufacturingPlanChanged` | `number, warehouse_id, lines:[{line_id, variant_id, product_id, name, qty, uom_id}], requests:[요청 ID]`. 수량은 제품 기준 단위이고 지금 열린 전체다. 완제품은 양수(`line_id: "finished"`), 자재는 음수이며 끝나면 빈 목록이다. 초안에는 자재가 없다 |
+| `ManufacturingStockApplied` | `number, picking_id, picking_number, is_return`. 재고가 움직였음을 지시에 남긴 것 |
+
 ## 기초데이터가 내는 것
 
 | 이벤트 | `data` 의 사실 |
@@ -119,6 +136,9 @@
 |---|---|---|
 | 재고 | `SalesOrderConfirmed`, `SalesOrderLineAdded`, `SalesOrderLineQtyChanged`, `SalesOrderCancelled`, `SalesOrderDelivered`(`manual` 만) | 출고 전표. 손으로 납품한 만큼 열린 전표가 줄고, 남은 것이 없으면 취소된다 |
 | 재고 | `PurchaseOrderConfirmed`, `PurchaseOrderLineAdded`, `PurchaseOrderLineQtyChanged`, `PurchaseOrderLinePriceChanged`, `PurchaseOrderCancelled`, `PurchaseDraftQtyChanged` | 입고 전표, 예측 |
+| 재고 | `ManufacturingPlanChanged`, `ManufacturingDone`, `ManufacturingReversed` | 예측 합계와 요청 응답, 자재와 완제품 전표, 반품. 제조는 이것을 모른다 |
+| 제조 | `ReorderRequested`(`replenish_by` 가 `make` 인 것만) | 지시 초안 |
+| 제조 | `PickingValidated`(`origin_type` 이 `manufacturing_order` 인 것만) | 재고 반영 여부, 자재비, 완제품 단가 |
 | 판매 | `PickingStateChanged`, `PickingValidated` | 납품 상태, `qty_delivered` |
 | 판매 | `InvoiceDrafted`, `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled` | 청구 상태, `qty_invoiced` |
 | 판매 | `ModuleEnabled` | 재고·청구가 켜진 시점을 기록해 그 뒤의 주문만 추적 대상으로 본다 |
