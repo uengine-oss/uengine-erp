@@ -6,6 +6,7 @@ import { onDataChanged } from '../../lib/commands'
 import { fmtDay, fmtInteger, fmtMoney } from '../../lib/format'
 import { useLoad } from '../../lib/load'
 import { timeView } from '../../lib/mode'
+import { catalogOf } from '../../lib/session'
 import EmptyState from '../../components/EmptyState.vue'
 import LoadError from '../../components/LoadError.vue'
 import ReviewNotice from '../../components/ReviewNotice.vue'
@@ -24,6 +25,7 @@ onDataChanged(() => { void load() })
 const rows = computed(() => data.value?.rows ?? [])
 const KIND: Record<string, string> = { sale: '매출', purchase: '매입' }
 const hasEvidence = computed(() => rows.value.some((r) => r.evidence_type))
+const evidenceLabel = (v: string | null | undefined) => catalogOf('account_move')?.fields.find((f) => f.name === 'evidence_type')?.options?.find((o) => o.value === v)?.label ?? v ?? ''
 </script>
 
 <template>
@@ -58,7 +60,7 @@ const hasEvidence = computed(() => rows.value.some((r) => r.evidence_type))
         <div class="scroll-x">
           <table v-if="rows.length" class="tbl" data-testid="spb-table">
             <thead><tr><th>일자</th><th>구분</th><th>번호</th><th>거래처</th><th v-if="hasEvidence">증빙</th><th class="num">공급가액</th><th class="num">세액</th><th class="num">합계</th></tr></thead>
-            <tbody><tr v-for="r in rows" :key="r.number + r.date" class="clickable" tabindex="0" data-testid="spb-row" @click="$router.push({ name: 'record', params: { type: 'account_move', id: r.document_id } })" @keydown.enter="$router.push({ name: 'record', params: { type: 'account_move', id: r.document_id } })"><td>{{ r.date }}</td><td>{{ KIND[r.kind] }}<span v-if="r.move_type.endsWith('_refund')" class="small dim"> 대변 메모</span></td><td>{{ r.number }}</td><td>{{ r.partner_name }}</td><td v-if="hasEvidence">{{ r.evidence_type }}</td><td class="num">{{ fmtMoney(r.untaxed) }}</td><td class="num">{{ fmtMoney(r.tax) }}</td><td class="num">{{ fmtMoney(r.total) }}</td></tr></tbody>
+            <tbody><tr v-for="r in rows" :key="r.number + r.date" class="clickable" tabindex="0" data-testid="spb-row" @click="$router.push({ name: 'record', params: { type: 'account_move', id: r.document_id } })" @keydown.enter="$router.push({ name: 'record', params: { type: 'account_move', id: r.document_id } })"><td>{{ r.date }}</td><td>{{ KIND[r.kind] }}<span v-if="r.move_type.endsWith('_refund')" class="small dim"> 대변 메모</span></td><td>{{ r.number }}</td><td>{{ r.partner_name }}</td><td v-if="hasEvidence">{{ evidenceLabel(r.evidence_type) }}</td><td class="num">{{ fmtMoney(r.untaxed) }}</td><td class="num">{{ fmtMoney(r.tax) }}</td><td class="num">{{ fmtMoney(r.total) }}</td></tr></tbody>
           </table>
           <EmptyState v-else-if="!loading" title="이 기간에 게시한 청구서가 없습니다" text="청구서를 게시하면 회계 모듈이 전표를 만들고 여기에 나타납니다." />
         </div>

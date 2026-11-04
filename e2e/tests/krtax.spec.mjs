@@ -9,7 +9,9 @@ test.describe.configure({ mode: 'serial', timeout: 240_000 })
 
 const human = (page, ms = 250) => page.waitForTimeout(ms)
 const pad = (n) => String(n).padStart(2, '0')
-const now = new Date(Date.now() + 9 * 3600 * 1000)
+// A return can be closed only once its period is over, so the story happens in the last half-year that has ended.
+const real = new Date(Date.now() + 9 * 3600 * 1000)
+const now = real.getUTCMonth() < 6 ? new Date(Date.UTC(real.getUTCFullYear() - 1, 11, 15)) : new Date(Date.UTC(real.getUTCFullYear(), 5, 15))
 const YEAR = now.getUTCFullYear()
 const MONTH = now.getUTCMonth() + 1
 const TODAY = `${YEAR}-${pad(MONTH)}-${pad(now.getUTCDate())}`

@@ -464,6 +464,10 @@ begin
       if k = 'preliminary' and erp.krtax_filed(y, t, 'final') is not null then
         perform erp.fail('ERP_INVALID', '확정 신고를 마감한 기수의 예정 신고는 마감할 수 없습니다');
       end if;
+      -- A return closes the tax lock up to its last day, so filing early would shut out the rest of the period.
+      if erp.today() <= (erp.krtax_period(y, t, k)).to_ then
+        perform erp.fail('ERP_INVALID', format('신고 기간이 %s 에 끝납니다. 기간이 끝난 뒤에 마감하세요', (erp.krtax_period(y, t, k)).to_));
+      end if;
       rep := erp.krtax_compute(y, t, k);
       if (rep ->> 'pending')::boolean then
         perform erp.fail('ERP_VAT_PENDING', '아직 집계하지 못한 전표가 있습니다. 잠시 뒤 다시 하세요');

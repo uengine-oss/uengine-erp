@@ -264,7 +264,7 @@ test('S13-6. 지급한 경비를 취소하면 전표가 지워지고 원장에�
   await expect(page.locator('.pill').filter({ hasText: '취소' }).first()).toBeVisible()
   await expect(page.locator('[data-field="cancel_reason"]'), '사유는 이 경비를 볼 수 있는 사람에게 보이고').toContainText('이중 지급 정정')
   expect((await sql(`select count(*)::int n from erp.events where reason = $1 or data::text like $2`, ['이중 지급 정정', '%이중 지급 정정%'])).rows[0].n, '원장에는 없다').toBe(0)
-  await expect.poll(async () => Number((await sql(`select coalesce(sum(debit - credit), 0)::numeric n from erp.gl_lines where account_id = erp.seed_id('미지급금')`)).rows[0].n), { timeout: 20_000 }).toBe(0)
+  await expect.poll(async () => Number((await sql(`select coalesce(sum(debit - credit), 0)::numeric n from erp.gl_lines where account_id = erp.seed_id('잡비')`)).rows[0].n), { timeout: 20_000 }).toBe(0)
   const trail = (await sql(`select event_type from erp.events where stream_id = $1 order by version`, [claimId])).rows.map((r) => r.event_type)
   expect(trail).toEqual(expect.arrayContaining(['ExpenseApproved', 'ExpensePaid', 'ExpenseCancelled']))
 })
