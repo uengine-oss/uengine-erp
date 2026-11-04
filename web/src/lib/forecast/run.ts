@@ -5,6 +5,8 @@ import { demandSales, demandTrue } from './forecast.ts'
 import { leadTime } from './lead.ts'
 import type { Panel } from './panel.ts'
 import { pnlOutlook } from './pnl.ts'
+import { whatIfPrice } from './price.ts'
+import { quarterOutlook } from './quarters.ts'
 import type { LedgerData, ModelId, ModelResult } from './types.ts'
 import { reorderPlan, stockoutRisk, whatIfDrop, whatIfLead, whatIfPolicy, whatIfRealloc } from './whatif.ts'
 
@@ -14,6 +16,8 @@ export function runModel(panel: Panel, id: ModelId, rawInput: Record<string, unk
   switch (id) {
     case 'demand_sales': return demandSales(panel, input)
     case 'demand_true': return demandTrue(panel, input)
+    case 'quarter_outlook': return quarterOutlook(panel, input)
+    case 'whatif_price': return whatIfPrice(panel, input as Parameters<typeof whatIfPrice>[1])
     case 'stockout_risk': return stockoutRisk(panel, input)
     case 'lead_time': return leadTime(panel, input)
     case 'reorder_plan': return reorderPlan(panel, input)

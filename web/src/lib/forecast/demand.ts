@@ -268,18 +268,21 @@ const SIGMA_CEIL = 0.6
 // How wrong was this same method at earlier dates, on what it could not have seen? Each past origin gives one
 // out-of-sample error per variant. Pooling across variants and origins is what makes the width usable:
 // one origin and one variant, as a first attempt did, gave bands that were often far too narrow.
-export function surpriseScale(panel: Panel, opt: FitOptions, h: number): ScaleEstimate {
-  const key = `scale:${opt.mode}:${opt.cut ?? panel.n}:${h}:${opt.harmonics ?? 3}:${opt.gapFilter ?? ''}:${opt.censorEm ?? ''}`
+// `lead` asks the same of a window that starts that many days after the forecast is made: next year's third quarter is
+// further from anything seen than next week, and only the company's own past can say how much worse that is.
+export function surpriseScale(panel: Panel, opt: FitOptions, h: number, lead = 0): ScaleEstimate {
+  const key = `scale:${opt.mode}:${opt.cut ?? panel.n}:${h}:${lead}:${opt.harmonics ?? 3}:${opt.gapFilter ?? ''}:${opt.censorEm ?? ''}`
   const hit = panel.cache.get(key) as ScaleEstimate | undefined
   if (hit) return hit
   const cut = opt.cut ?? panel.n
   let start = Infinity
   for (const a of panel.first) for (let r = 0; r < a.length; r++) if (a[r] >= 0 && a[r] < start) start = a[r]
   const origins: number[] = []
-  for (const back of [91, 182, 273, 365]) {
+  const backs = lead > 0 ? [0, 91, 182, 273].map((x) => lead + h + x) : [91, 182, 273, 365]
+  for (const back of backs) {
     const o = cut - back
     if (o - h < 0) continue
-    if (o + h > cut) {
+    if (o + lead + h > cut) {
       // A horizon that runs past today cannot be scored in full; use it only when most of it is known.
       if (cut - o < h * 0.75) continue
     }
@@ -287,8 +290,11 @@ export function surpriseScale(panel: Panel, opt: FitOptions, h: number): ScaleEs
   }
   let sum = 0, cases = 0
   for (const o of origins) {
-    const f = fitDemand(panel, { ...opt, cut: o, exclude: opt.exclude })
-    const end = Math.min(cut, o + h)
+    // Quarters a year apart ask about the same past dates, so one fit serves them all.
+    const fitKey = `scalefit:${opt.mode}:${o}:${opt.harmonics ?? 3}:${opt.gapFilter ?? ''}:${opt.censorEm ?? ''}`
+    const f = (panel.cache.get(fitKey) as DemandFit | undefined) ?? fitDemand(panel, { ...opt, cut: o, exclude: opt.exclude })
+    panel.cache.set(fitKey, f)
+    const end = Math.min(cut, o + lead + h)
     for (let v = 0; v < panel.V.length; v++) {
       if (!f.fits[v]) continue
       let A = 0, F = 0
@@ -296,7 +302,7 @@ export function surpriseScale(panel: Panel, opt: FitOptions, h: number): ScaleEs
       let meanMu = 0
       for (let r = 0; r < panel.R.length; r++) {
         if (panel.first[v][r] < 0 || panel.first[v][r] >= o) continue
-        for (let d = o; d < end; d++) {
+        for (let d = o + lead; d < end; d++) {
           if (!f.usable(v, r, d)) continue
           if (opt.exclude?.(v, r, d)) continue
           const mu = f.lambda(v, r, d)
@@ -325,19 +331,22 @@ export function surpriseScale(panel: Panel, opt: FitOptions, h: number): ScaleEs
 // The same past checks on the company's total. Adding up per-product errors would need an assumption about how much
 // products move together; asking the record directly does not. The callers scale the curve to the recent level before
 // using it, so the check does too; otherwise it would charge them for a level error they do not make.
-export function totalSurprise(panel: Panel, h: number, levelDays: number, floor: number, cut = panel.n): ScaleEstimate {
-  const key = `totalScale:${cut}:${h}:${levelDays}:${floor}`
+export function totalSurprise(panel: Panel, h: number, levelDays: number, floor: number, cut = panel.n, lead = 0): ScaleEstimate {
+  const key = `totalScale:${cut}:${h}:${levelDays}:${floor}:${lead}`
   const hit = panel.cache.get(key) as ScaleEstimate | undefined
   if (hit) return hit
   let start = Infinity
   for (const a of panel.first) for (let r = 0; r < a.length; r++) if (a[r] >= 0 && a[r] < start) start = a[r]
   const errors: number[] = []
-  for (const back of [91, 182, 273, 365]) {
+  const backs = lead > 0 ? [0, 91, 182, 273].map((x) => lead + h + x) : [91, 182, 273, 365]
+  for (const back of backs) {
     const o = cut - back
     if (o - start < 365) continue
-    if (cut - o < h * 0.75) continue
-    const f = fitDemand(panel, { mode: 'sales', cut: o, gapFilter: false })
-    const end = Math.min(cut, o + h)
+    if (cut - o - lead < h * 0.75) continue
+    const fitKey = `totalfit:${o}`
+    const f = (panel.cache.get(fitKey) as DemandFit | undefined) ?? fitDemand(panel, { mode: 'sales', cut: o, gapFilter: false })
+    panel.cache.set(fitKey, f)
+    const end = Math.min(cut, o + lead + h)
     let A = 0, F = 0, A0 = 0, F0 = 0
     for (let v = 0; v < panel.V.length; v++) {
       if (!f.fits[v]) continue
@@ -346,7 +355,7 @@ export function totalSurprise(panel: Panel, h: number, levelDays: number, floor:
         if (panel.first[v][r] < 0) continue
         const y = panel.sales[v][r]
         for (let d = Math.max(0, o - levelDays); d < o; d++) { A0 += y[d] * price; F0 += f.lambda(v, r, d) * price }
-        for (let d = o; d < end; d++) { A += y[d] * price; F += f.lambda(v, r, d) * price }
+        for (let d = o + lead; d < end; d++) { A += y[d] * price; F += f.lambda(v, r, d) * price }
       }
     }
     if (A > 0 && F > 0 && A0 > 0 && F0 > 0) errors.push(Math.log(A / (F * (A0 / F0))))
@@ -370,6 +379,8 @@ export function forecastTotals(fit: DemandFit, scale: ScaleEstimate, from: numbe
   cells: ForecastCell[]
   byVariant: Band[]
   total: Band
+  /** Every run's units per variant, [variant * runs + run], for questions a band cannot answer: which product comes first. */
+  draws: Float64Array
 } {
   const r = makeRng(seed)
   const { panel, nr, p, table: tb, cut } = fit
@@ -415,5 +426,5 @@ export function forecastTotals(fit: DemandFit, scale: ScaleEstimate, from: numbe
       cells.push({ variant: v, region: g, total: band(cellDraw.subarray((v * nr + g) * runs, (v * nr + g + 1) * runs)), mean: m })
     }
   }
-  return { cells, byVariant, total: band(totDraw) }
+  return { cells, byVariant, total: band(totDraw), draws: varDraw }
 }

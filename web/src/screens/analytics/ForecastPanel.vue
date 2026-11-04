@@ -7,6 +7,7 @@ import type { CashOutcome } from '../../lib/forecast/cash.ts'
 import type { DemandOutcome } from '../../lib/forecast/forecast.ts'
 import type { LeadOutcome } from '../../lib/forecast/lead.ts'
 import type { PnlOutcome } from '../../lib/forecast/pnl.ts'
+import type { QuarterOutcome } from '../../lib/forecast/quarters.ts'
 import type { ModelId } from '../../lib/forecast/types.ts'
 import type { ReorderRow, StockoutRow } from '../../lib/forecast/whatif.ts'
 import { timeView } from '../../lib/mode'
@@ -30,6 +31,7 @@ function input(): object {
     case 'pnl_outlook': return { months: months.value }
     case 'depreciation_outlook': return { months: months.value }
     case 'lead_time': return {}
+    case 'quarter_outlook': return {}
     case 'reorder_plan': return { days: days.value, cover_days: cover.value }
     default: return { days: days.value }
   }
@@ -40,7 +42,7 @@ runOnLedger(go)
 watch(() => timeView.at, clear)
 watch([days, months, cover], go)
 
-const hasDays = computed(() => !['lead_time', 'pnl_outlook', 'depreciation_outlook'].includes(props.id))
+const hasDays = computed(() => !['lead_time', 'pnl_outlook', 'depreciation_outlook', 'quarter_outlook'].includes(props.id))
 const hasMonths = computed(() => ['pnl_outlook', 'depreciation_outlook'].includes(props.id))
 const MONTHS = computed(() => (props.id === 'depreciation_outlook' ? [6, 12, 24] : [1, 3, 6]))
 const warehouseName = (id: string | null) => ledger.meta?.warehouses.find((w) => w.id === id)?.name ?? id ?? '-'
@@ -53,6 +55,7 @@ watch(result, (r) => {
 
 const demand = computed(() => (props.id === 'demand_sales' || props.id === 'demand_true' ? (result.value?.result as DemandOutcome | null) : null))
 const demandMax = computed(() => (demand.value ? demand.value.by_variant.reduce((m, v) => Math.max(m, v.units.p90), 1) : 1))
+const quarters = computed(() => (props.id === 'quarter_outlook' ? (result.value?.result as QuarterOutcome | null) : null))
 const stockouts = computed(() => (props.id === 'stockout_risk' ? (result.value?.result as { rows: StockoutRow[]; days: number } | null) : null))
 const lead = computed(() => (props.id === 'lead_time' ? (result.value?.result as LeadOutcome | null) : null))
 const reorder = computed(() => (props.id === 'reorder_plan' ? (result.value?.result as { rows: ReorderRow[] } | null) : null))
@@ -98,6 +101,38 @@ const onTime = (v: number | null) => (v === null ? '-' : fmtPercent(v))
             <table class="tbl" data-testid="demand-by-region">
               <thead><tr><th>제품</th><th>지역</th><th class="num">수량 P10</th><th class="num">P50</th><th class="num">P90</th><th class="num">매출 P50</th></tr></thead>
               <tbody><tr v-for="r in demand.rows" :key="`${r.variant_id}|${r.region}`"><td>{{ r.name }}</td><td>{{ r.region || '지역 없음' }}</td><td class="num">{{ fmtQty(r.units.p10) }}</td><td class="num">{{ fmtQty(r.units.p50) }}</td><td class="num">{{ fmtQty(r.units.p90) }}</td><td class="num">{{ fmtMoneyPlain(r.revenue.p50) }}</td></tr></tbody>
+            </table>
+          </div>
+        </details>
+      </template>
+
+      <!-- Next year, a quarter at a time -->
+      <template v-else-if="quarters">
+        <dl class="tiles" data-testid="quarter-totals">
+          <div v-if="quarters.best"><dt>가장 많이 팔릴 때</dt><dd>{{ quarters.best.quarter }} {{ quarters.best.name }}</dd><small>{{ bandText(quarters.best.units) }}개. 그 분기 1위일 가능성 {{ fmtPercent(quarters.best.p_top) }}</small></div>
+          <div><dt>{{ quarters.year }}년 매출 (80% 구간)</dt><dd>{{ bandText(quarters.revenue, fmtMoneyPlain) }}</dd><small>공급이 지금과 같을 때. 중앙값 {{ moneyWithUnit(quarters.revenue.p50) }}</small></div>
+          <div><dt>수요를 다 채우면</dt><dd>{{ bandText(quarters.revenue_if_supplied, fmtMoneyPlain) }}</dd><small>중앙값 {{ moneyWithUnit(quarters.revenue_if_supplied.p50) }}</small></div>
+        </dl>
+        <div class="tbl-wrap">
+          <table class="tbl" data-testid="quarter-table">
+            <thead><tr><th>분기</th><th>1위 제품</th><th class="num">1위 수량 (80% 구간)</th><th class="num">1위일 가능성</th><th class="num">매출 (80% 구간)</th></tr></thead>
+            <tbody>
+              <tr v-for="q in quarters.quarters" :key="q.quarter" :data-quarter="q.quarter">
+                <td>{{ q.quarter }}</td>
+                <td>{{ q.top[0]?.name ?? '-' }}</td>
+                <td class="num">{{ q.top[0] ? bandText(q.top[0].units) : '-' }}</td>
+                <td class="num">{{ q.top[0] ? fmtPercent(q.top[0].p_top) : '-' }}</td>
+                <td class="num">{{ bandText(q.revenue, fmtMoneyPlain) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <details class="more" v-if="quarters.stockout_gaps.length">
+          <summary>품절 때문에 낮게 읽히는 제품</summary>
+          <div class="tbl-wrap">
+            <table class="tbl" data-testid="quarter-gaps">
+              <thead><tr><th>제품</th><th>분기</th><th class="num">판매 기록만 볼 때</th><th class="num">품절을 보정하면</th><th class="num">지난 1년 품절일</th></tr></thead>
+              <tbody><tr v-for="g in quarters.stockout_gaps" :key="g.variant_id"><td>{{ g.name }}</td><td>{{ g.quarter }}</td><td class="num">{{ fmtQty(g.sales_only) }}</td><td class="num">{{ fmtQty(g.corrected) }}</td><td class="num">{{ fmtQty(g.stockout_days) }}</td></tr></tbody>
             </table>
           </div>
         </details>

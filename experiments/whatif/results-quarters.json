@@ -1,0 +1,67 @@
+{
+ "seeds": 60,
+ "first_seed": 1,
+ "cutoff": "2025-11-04",
+ "year": 2026,
+ "all": {
+  "n": 240,
+  "revenue_error": 0.06562251340206675,
+  "revenue_cover": 0.9083333333333333,
+  "full_revenue_error": 0.07406509230170742,
+  "full_revenue_cover": 0.8791666666666667,
+  "product_band_cover": 0.7715277777777778,
+  "top_is_real_top_sold": 0.6916666666666667,
+  "top_is_real_top_demand": 0.75,
+  "p_top": 0.78,
+  "sigma": 0.1999968556781401
+ },
+ "Q1": {
+  "n": 60,
+  "revenue_error": 0.052083895516742654,
+  "revenue_cover": 0.8166666666666667,
+  "full_revenue_error": 0.05849437166545972,
+  "full_revenue_cover": 0.7833333333333333,
+  "product_band_cover": 0.6527777777777778,
+  "top_is_real_top_sold": 0.5666666666666667,
+  "top_is_real_top_demand": 0.8166666666666667,
+  "p_top": 0.78,
+  "sigma": 0.1485317232745322
+ },
+ "Q2": {
+  "n": 60,
+  "revenue_error": 0.05356841867613898,
+  "revenue_cover": 0.8166666666666667,
+  "full_revenue_error": 0.06566588746773586,
+  "full_revenue_cover": 0.7333333333333333,
+  "product_band_cover": 0.6999999999999998,
+  "top_is_real_top_sold": 0.6666666666666666,
+  "top_is_real_top_demand": 0.7333333333333333,
+  "p_top": 0.815,
+  "sigma": 0.16643249676744895
+ },
+ "Q3": {
+  "n": 60,
+  "revenue_error": 0.08686246750719774,
+  "revenue_cover": 1,
+  "full_revenue_error": 0.09087742577181236,
+  "full_revenue_cover": 1,
+  "product_band_cover": 0.7944444444444444,
+  "top_is_real_top_sold": 0.9833333333333333,
+  "top_is_real_top_demand": 0.9833333333333333,
+  "p_top": 0.98,
+  "sigma": 0.21497743422289528
+ },
+ "Q4": {
+  "n": 60,
+  "revenue_error": 0.07246121537615974,
+  "revenue_cover": 1,
+  "full_revenue_error": 0.08410504488433068,
+  "full_revenue_cover": 1,
+  "product_band_cover": 0.938888888888889,
+  "top_is_real_top_sold": 0.55,
+  "top_is_real_top_demand": 0.4666666666666667,
+  "p_top": 0.435,
+  "sigma": 0.3
+ },
+ "seconds_per_company": 0.31479041041666667
+}

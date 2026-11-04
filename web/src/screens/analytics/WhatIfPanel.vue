@@ -3,6 +3,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ensureLedger, fetchModels, ledger, useModelRun } from '../../lib/analytics'
 import type { TermsOutcome } from '../../lib/forecast/cash.ts'
+import type { PriceOutcome } from '../../lib/forecast/price.ts'
 import type { ModelId } from '../../lib/forecast/types.ts'
 import type { DropOutcome, LeadOutcome, WhatIfOutcome } from '../../lib/forecast/whatif.ts'
 import { timeView } from '../../lib/mode'
@@ -45,6 +46,9 @@ const substitutes = ref<string[]>([])
 // Lead
 const toDays = ref<number | null>(7)
 const vendor = ref('')
+// Price
+const pricePct = ref(10)
+const elasticity = ref<number | null>(null)
 // Terms
 const fromDays = ref<string>('')
 const toTermDays = ref<number | null>(15)
@@ -55,6 +59,7 @@ const canRun = computed(() => {
     case 'whatif_policy': return changes.some((c) => c.variant_id)
     case 'whatif_realloc': return !!variant.value && !!fromWarehouse.value && !!toWarehouse.value && fromWarehouse.value !== toWarehouse.value
     case 'whatif_drop': return !!variant.value
+    case 'whatif_price': return !!variant.value && !!pricePct.value
     case 'whatif_lead': return !!toDays.value && toDays.value > 0
     case 'whatif_terms': return toTermDays.value !== null && toTermDays.value >= 0
     default: return false
@@ -71,13 +76,16 @@ function input(): object {
       return { days: days.value, variant_id: variant.value, substitutes: substitutes.value.length ? [...substitutes.value] : undefined }
     case 'whatif_lead':
       return { days: days.value, to_days: toDays.value, vendor_id: vendor.value || undefined }
+    case 'whatif_price':
+      return { variant_id: variant.value, pct: pricePct.value, assume_elasticity: elasticity.value }
     default:
       return { days: days.value, to_days: toTermDays.value, from_days: fromDays.value === '' ? undefined : Number(fromDays.value) }
   }
 }
 const go = () => { void run(input()) }
 
-const outcome = computed(() => (props.id === 'whatif_terms' ? null : (result.value?.result as WhatIfOutcome | null)))
+const outcome = computed(() => (props.id === 'whatif_terms' || props.id === 'whatif_price' ? null : (result.value?.result as WhatIfOutcome | null)))
+const price = computed(() => (props.id === 'whatif_price' ? (result.value?.result as PriceOutcome | null) : null))
 const drop = computed(() => (props.id === 'whatif_drop' ? (result.value?.result as DropOutcome | null) : null))
 const lead = computed(() => (props.id === 'whatif_lead' ? (result.value?.result as LeadOutcome | null) : null))
 const termsOut = computed(() => (props.id === 'whatif_terms' ? (result.value?.result as TermsOutcome | null) : null))
@@ -149,6 +157,16 @@ watch(result, async (r) => {
         </div>
       </template>
 
+      <!-- Price -->
+      <template v-else-if="id === 'whatif_price'">
+        <p class="small dim">판매가를 바꾸면 어떻게 될지 봅니다. 고객이 얼마나 떠나는지는 기록에서 읽지 않으므로, 판매량이 그대로일 때와 손익이 같아지는 지점을 먼저 보여 줍니다.</p>
+        <div class="grid">
+          <label class="f">제품<select v-model="variant" class="select" data-testid="price-variant"><option value="">고르세요</option><option v-for="v in variants" :key="v.id" :value="v.id">{{ v.name }}</option></select></label>
+          <label class="f short">바꿀 폭(%)<input v-model.number="pricePct" class="input num" type="number" step="1" data-testid="price-pct" /></label>
+          <label class="f short">가정할 탄력성 (선택)<input v-model.number="elasticity" class="input num" type="number" step="0.1" max="0" data-testid="price-elasticity" /></label>
+        </div>
+      </template>
+
       <!-- Payment terms -->
       <template v-else-if="id === 'whatif_terms'">
         <p class="small dim">결제 조건을 바꾸면 들어오는 돈이 어떻게 달라질지 봅니다. 고객이 얼마나 따를지는 조건이 바뀐 적 있는 거래처만 말해 줍니다.</p>
@@ -159,7 +177,7 @@ watch(result, async (r) => {
       </template>
 
       <div class="form-foot">
-        <label class="f short">앞으로
+        <label v-if="id !== 'whatif_price'" class="f short">앞으로
           <select v-model.number="days" class="select" data-testid="whatif-days"><option v-for="d in [30, 60, 92, 180]" :key="d" :value="d">{{ d }}일</option></select>
         </label>
         <button type="submit" class="btn btn-primary" :disabled="!canRun" data-testid="whatif-run">{{ running ? '계산하는 중…' : '시험해 보기' }}</button>
@@ -185,6 +203,21 @@ watch(result, async (r) => {
           </table>
         </div>
         <p class="small dim">고객이 조건 변화를 따르는 정도: {{ bandText(termsOut.pass_through, (v) => fmtPercent(v)) }} (조건이 바뀐 거래처 {{ termsOut.cases }}곳에서 잼)</p>
+      </div>
+
+      <div v-else-if="price" class="answer" data-testid="whatif-result" :data-verdict="result?.verdict?.code">
+        <div class="verdict verdict-none" role="status"><Icon name="info" /><div><strong>{{ result?.verdict?.text }}</strong></div></div>
+        <div class="tbl-wrap">
+          <table class="tbl" data-testid="price-table">
+            <thead><tr><th>앞으로 {{ price.days }}일 {{ price.name }}</th><th class="num">판매가</th><th class="num">매출 (80% 구간)</th><th class="num">매출총이익 (80% 구간)</th></tr></thead>
+            <tbody>
+              <tr><td>지금</td><td class="num">{{ fmtMoneyPlain(price.price) }}</td><td class="num">{{ bandText(price.base.revenue, fmtMoneyPlain) }}</td><td class="num">{{ bandText(price.base.margin, fmtMoneyPlain) }}</td></tr>
+              <tr><td>판매량이 그대로면</td><td class="num">{{ fmtMoneyPlain(price.new_price) }}</td><td class="num">{{ bandText(price.held.revenue, fmtMoneyPlain) }}</td><td class="num">{{ bandText(price.held.margin, fmtMoneyPlain) }}</td></tr>
+              <tr v-if="price.assumed"><td>탄력성 {{ price.assumed.elasticity }} 을 가정하면</td><td class="num">{{ fmtMoneyPlain(price.new_price) }}</td><td class="num">{{ bandText(price.assumed.revenue, fmtMoneyPlain) }}</td><td class="num">{{ bandText(price.assumed.margin, fmtMoneyPlain) }}</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="small dim" data-testid="price-breakeven">판매량이 {{ fmtPercent(price.breakeven.revenue, 1) }} 변하면 매출이 지금과 같고<template v-if="price.breakeven.margin !== null">, {{ fmtPercent(price.breakeven.margin, 1) }} 변하면 매출총이익이 지금과 같습니다</template>.</p>
       </div>
 
       <template v-else-if="outcome">

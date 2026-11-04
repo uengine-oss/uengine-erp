@@ -5,6 +5,8 @@ export const NEED = {
   demand_sales_months: 15,
   demand_true_days: 30,
   demand_true_sales_months: 12,
+  quarter_outlook_months: 24,
+  whatif_price_months: 9,
   stockout_days: 30,
   whatif_sales_months: 9,
   whatif_policy_days: 270,

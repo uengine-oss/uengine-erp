@@ -1133,10 +1133,12 @@ begin
       ('quote_conversion', 'stat', '견적 전환율', array['sales'], false, array['sales_order']),
       ('demand_sales', 'forecast', '판매 기준 수요 예측', array['sales'], false, array['sales_order']),
       ('demand_true', 'forecast', '품절 보정 수요 예측', array['sales', 'inventory'], false, array['sales_order', 'picking']),
+      ('quarter_outlook', 'forecast', '내년 분기 전망', array['sales'], false, array['sales_order']),
       ('stockout_risk', 'forecast', '품절 예상일', array['sales', 'inventory'], true, array['sales_order', 'picking']),
       ('whatif_policy', 'whatif', '발주 정책 변경', array['sales', 'inventory'], true, array['sales_order', 'picking']),
       ('whatif_realloc', 'whatif', '창고 재배치', array['sales', 'inventory'], true, array['sales_order', 'picking']),
       ('whatif_drop', 'whatif', '단종', array['sales'], false, array['sales_order']),
+      ('whatif_price', 'whatif', '판매가 변경', array['sales'], false, array['sales_order']),
       ('lead_time', 'forecast', '실측 납기', array['purchase', 'inventory'], false, array['purchase_order', 'picking']),
       ('whatif_lead', 'whatif', '납기·공급사 변경', array['sales', 'inventory', 'purchase'], true, array['sales_order', 'picking', 'purchase_order']),
       ('reorder_plan', 'forecast', '발주 필요 예측', array['sales', 'inventory', 'purchase'], true, array['sales_order', 'picking', 'purchase_order']),
@@ -1171,6 +1173,8 @@ begin
       when 'quote_conversion' then have := quotes; need := 40; unit_ := '건'; since_ := first_sale; msg := '견적';
       when 'demand_sales' then have := sales_months; need := 15; unit_ := '개월'; since_ := first_sale; msg := '판매';
       when 'demand_true' then have := stock_days; need := 30; unit_ := '일'; since_ := stock_first; msg := '재고 이력';
+      when 'quarter_outlook' then have := sales_months; need := 24; unit_ := '개월'; since_ := first_sale; msg := '판매';
+      when 'whatif_price' then have := sales_months; need := 9; unit_ := '개월'; since_ := first_sale; msg := '판매';
       when 'stockout_risk' then have := stock_days; need := 30; unit_ := '일'; since_ := stock_first; msg := '재고 이력';
       when 'whatif_policy' then
         -- Order dates and lead times on record shorten this a lot: without them the reorder point is only a guess from receipts.

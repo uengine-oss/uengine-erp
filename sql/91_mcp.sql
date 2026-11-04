@@ -81,7 +81,7 @@ language sql stable as $$
       'inputSchema', jsonb_build_object('type', 'object', 'properties', jsonb_build_object(
         'type', jsonb_build_object('type', 'string', 'enum', t.e), 'id', '{"type":"string"}'::jsonb, 'schema', '{"type":"boolean"}'::jsonb,
         'history', '{"type":"boolean"}'::jsonb, 'filter', '{"type":"object"}'::jsonb, 'search', '{"type":"string"}'::jsonb,
-        'as_of', '{"type":"string"}'::jsonb, 'saga', '{"type":"string"}'::jsonb, 'rollback', '{"type":"object"}'::jsonb, 'limit', '{"type":"integer"}'::jsonb, 'offset', '{"type":"integer"}'::jsonb))),
+        'as_of', '{"type":"string"}'::jsonb, 'saga', '{"type":"string"}'::jsonb, 'rollback', '{"type":"object"}'::jsonb, 'analytics', '{"type":"object"}'::jsonb, 'limit', '{"type":"integer"}'::jsonb, 'offset', '{"type":"integer"}'::jsonb))),
     jsonb_build_object('name', 'erp_create',
       'description', 'ERP 레코드 생성. 필드는 erp_read 의 schema 로 확인한다. saga_id 를 주면 같은 업무로 묶인다. type=rollback 은 되돌리기 실행: values={correlation_id, plan_hash, allow_cascade}, reason 필수.',
       'inputSchema', jsonb_build_object('type', 'object', 'required', '["type","values"]'::jsonb, 'properties', jsonb_build_object(
@@ -102,6 +102,55 @@ $$;
 
 -- The list of types appears once, on erp_read: every module adds to it, and an agent reads this on every turn.
 
+-- The facts the forecast and what-if models read, for an agent's host to run the same models the screens run. One stretch of time per call, as
+-- the screens do. On a screen these functions read under the caller's row security. Here they run with the owner's rights, which skip it, so each
+-- names the document it reads and answers as row security would: a member who may not read that document gets nothing, and the model says so.
+create or replace function erp.mcp_analytics(a jsonb) returns jsonb
+language plpgsql stable as $$
+declare
+  fn text := a ->> 'fn';
+  p jsonb := coalesce(a -> 'args', '{}'::jsonb);
+  f date := nullif(p ->> 'p_from', '')::date;
+  t date := nullif(p ->> 'p_to', '')::date;
+  o timestamptz := nullif(p ->> 'p_as_of', '')::timestamptz;
+  may text[] := erp.readable_types();
+  need text := case fn
+    when 'erp_sales_daily' then 'sales_order'
+    when 'erp_stock_daily' then 'picking'
+    when 'erp_stockout_days' then 'picking'
+    when 'erp_receipts_daily' then 'picking'
+    when 'erp_lead_times' then 'purchase_order'
+    when 'erp_payment_delays' then 'account_move'
+    when 'erp_journal_monthly' then 'journal_entry'
+    when 'erp_reorder_rules' then 'reorder_rule'
+    when 'erp_asset_history' then 'asset'
+  end;
+  out_ jsonb;
+begin
+  if fn = 'erp_analytics_context' then
+    out_ := public.erp_analytics_context(o);
+    if not 'product' = any (may) then out_ := jsonb_set(out_, '{variants}', '[]'::jsonb); end if;
+    if not 'warehouse' = any (may) then out_ := jsonb_set(out_, '{warehouses}', '[]'::jsonb); end if;
+    if not 'sales_order' = any (may) then out_ := jsonb_set(out_, '{extent}', '{"first_day":null,"last_day":null}'::jsonb); end if;
+    return out_;
+  end if;
+  if need is null then perform erp.fail('ERP_INVALID', format('analytics 로 읽을 수 없는 함수입니다: %s', fn)); end if;
+  if not need = any (may) then
+    return case when fn = 'erp_asset_history' then '{"decimals":0,"assets":[]}'::jsonb else '[]'::jsonb end;
+  end if;
+  case fn
+    when 'erp_sales_daily' then return public.erp_sales_daily(f, t, o);
+    when 'erp_stock_daily' then return public.erp_stock_daily(f, t, o);
+    when 'erp_stockout_days' then return public.erp_stockout_days(f, t, o);
+    when 'erp_receipts_daily' then return public.erp_receipts_daily(f, t, o);
+    when 'erp_lead_times' then return public.erp_lead_times(f, t, o);
+    when 'erp_payment_delays' then return public.erp_payment_delays(f, t, o);
+    when 'erp_journal_monthly' then return public.erp_journal_monthly(f, t, o);
+    when 'erp_reorder_rules' then return public.erp_reorder_rules(o);
+    else return public.erp_asset_history(o);
+  end case;
+end $$;
+
 -- This runs with the owner's rights, which skip row security, so every read names what the caller may see.
 create or replace function erp.mcp_read(a jsonb) returns jsonb
 language plpgsql stable as $$
@@ -115,6 +164,7 @@ declare
   out_ jsonb;
 begin
   if a ? 'saga' then return public.erp_saga_status((a ->> 'saga')::uuid); end if;
+  if a ? 'analytics' then return erp.mcp_analytics(a -> 'analytics'); end if;
   if a ? 'rollback' then
     if coalesce(a -> 'rollback' ->> 'kind', 'correlation') = 'correlation' then
       return public.erp_saga_plan((a -> 'rollback' ->> 'correlation_id')::uuid);

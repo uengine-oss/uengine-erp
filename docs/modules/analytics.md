@@ -37,10 +37,7 @@ SQL 은 사실을 돌려주고, 계산은 브라우저에서 한다. 모든 함�
 
 `잠김`은 필요한 모듈이 한 번도 켜진 적 없을 때다. 켰다가 끈 경우는 모델마다 다르다.
 
-- 이력만 읽는 모델(`stat_sales`, `quote_conversion`, `demand_sales`, `demand_true`, `whatif_drop`, `lead_time`, `pnl_outlook`, `stat_headcount`, `payroll_cost`, `whatif_headcount`)은 쌓인 이력으로 계속 계산하고 `stale_modules` 에 그 모듈을 적는다(M8).
-- 이력만 읽는 모델(`stat_sales`, `quote_conversion`, `demand_sales`, `demand_true`, `whatif_drop`, `lead_time`, `pnl_outlook`, `depreciation_outlook`)은 쌓인 이력으로 계속 계산하고 `stale_modules` 에 그 모듈을 적는다(M8).
-- 지금 재고나 미결 청구서가 있어야 하는 모델(`stockout_risk`, `whatif_policy`, `whatif_realloc`, `whatif_lead`, `reorder_plan`, `cash_in`, `whatif_terms`)은 잠긴다.
-- 이력만 읽는 모델(`stat_sales`, `quote_conversion`, `demand_sales`, `demand_true`, `whatif_drop`, `lead_time`, `pnl_outlook`, `stat_headcount`, `mrp_lead_time`)은 쌓인 이력으로 계속 계산하고 `stale_modules` 에 그 모듈을 적는다(M8).
+- 이력만 읽는 모델(`stat_sales`, `quote_conversion`, `demand_sales`, `demand_true`, `quarter_outlook`, `whatif_drop`, `whatif_price`, `lead_time`, `pnl_outlook`, `depreciation_outlook`, `stat_headcount`, `payroll_cost`, `whatif_headcount`, `mrp_lead_time`)은 쌓인 이력으로 계속 계산하고 `stale_modules` 에 그 모듈을 적는다(M8).
 - 지금 재고나 미결 청구서가 있어야 하는 모델(`stockout_risk`, `whatif_policy`, `whatif_realloc`, `whatif_lead`, `reorder_plan`, `cash_in`, `whatif_terms`, `mrp_materials`, `whatif_production`)은 잠긴다.
 
 문서를 읽을 권한이 없는 사람에게 그 문서로 계산하는 모델은 `state: locked, forbidden: true` 이고 건수도 0 이다.
@@ -64,6 +61,9 @@ const panel = buildPanel(data)
 | `leadTime(panel)` | | `{all, by_vendor:[{vendor_id, received, open, median_days, p90_days, mean_days:Band, on_time}]}` |
 | `reorderPlan(panel, {days, cover_days})` | | `{rows:[{variant_id, name, warehouse_id, stock, on_order, order_by, need_now, out_in_days_p10, lead_p90, suggest_qty}]}` |
 | `cashIn(panel, {days})` | | `{from, days, total:Band, from_open, from_new, weekly:Band[], open_total, overdue_total, late_median, late_p90}` |
+| `quarterOutlook(panel, {year?, runs, seed, top})` | S19 내년 분기 | `{year, mode, quarters:[{quarter, from, to, units:Band, revenue:Band, margin:Band, revenue_if_supplied:Band, top:[{variant_id, name, units, revenue, p_top, seen_months}], top_revenue, sigma}], best, revenue, margin, revenue_if_supplied, gross_margin_rate, products:[{variant_id, name, units, revenue, quarters, peak}], left_out, stockout_gaps}` |
+| `quarterBacktest(now, then, {year?})` | S19 "믿어도 돼?" | `{as_of, year, rows:[{quarter, complete, predicted_revenue, actual_revenue, within, predicted_top, actual_top, actual_units}], within, top_right, complete}`. `then` 은 `loadLedger(rpc, {asOf})` 로 읽은 그때의 원장 |
+| `whatIfPrice(panel, {variant_id, pct, assume_elasticity?, days?})` | S19 가격 | `{variant_id, name, days, pct, price, new_price, cost, units, base, held, breakeven:{revenue, margin}, assumed, price_moves}` |
 | `whatIfTerms(panel, {from_days?, to_days, partner_ids?, days})` | S8 결제 조건 | `{from_days, to_days, base, scenario, delta:Band, pass_through:Band, cases}` |
 | `pnlOutlook(panel, {months, whatif?:{margin:Band}})` | 손익, what-if 환산 | `{months:[{month, revenue, profit}], revenue, cogs, opex, profit, profit_with_whatif, gross_margin_rate, opex_per_month, history_months}` |
 
@@ -95,6 +95,38 @@ const panel = buildPanel(data)
 | `simulate.ts`, `context.ts` | 같은 수요·같은 납기로 원안과 변경안을 나란히 돌림 |
 | `whatif.ts`, `forecast.ts`, `lead.ts`, `cash.ts`, `pnl.ts` | 모델 |
 | `thresholds.ts` | 근거 임계값. SQL 과 같은 값이어야 하며 시험이 확인한다 |
+
+## 에이전트가 쓰는 길 (S19)
+
+계산은 호출하는 쪽에서 한다. SQL 은 사실만 돌려준다. 화면은 브라우저에서, 에이전트는 자기 서버에서 같은 코드를 돌린다. `node scripts/build-forecast.mjs` 가 만드는 `dist-forecast/forecast.mjs` 하나가 그 코드다.
+
+`erp_read {analytics:{fn, args}}` 가 위 표의 사실 함수를 MCP 로 내준다. MCP 는 소유자 권한으로 돌아 행 보안을 건너뛰므로, 함수마다 읽는 문서를 지정해 권한이 없으면 화면이 받는 것과 같은 빈 답을 돌려준다.
+
+```js
+const rpc = (fn, args) => mcp('erp_read', { analytics: { fn, args } })
+const panel = buildPanel(await loadLedger(rpc))
+quarterOutlook(panel)                                    // 내년 분기별 1위와 매출
+quarterBacktest(panel, buildPanel(await loadLedger(rpc, { asOf })))  // 그때 알던 것으로 같은 계산
+```
+
+왜 이벤트 소싱이어야 하는지가 여기서 드러난다. 어제까지의 재고가 며칠 0이었는지, 1년 전에 시스템이 무엇을 알았는지는 현재 값만 저장하는 표에 남지 않는다.
+
+### 내년 분기 전망을 잰 값
+
+**가상 회사 60곳(시드 1~60), 2025-11-04 까지의 원장으로 2026년 네 분기를 예측해 잰 값이다. 생성기와 추정기가 가정을 공유하므로 실제 회사는 이보다 나쁠 것으로 보아야 한다.** 다시 재는 명령은 `node experiments/whatif/quarters.mjs`, 결과는 `experiments/whatif/results-quarters.json` 이다.
+
+| | 전체 | 1분기 | 2분기 | 3분기 | 4분기 |
+|---|---|---|---|---|---|
+| 분기 매출 오차(중앙값) | 6.6% | 5.2% | 5.4% | 8.7% | 7.2% |
+| 80% 구간이 실제 매출을 담은 비율 | 91% | 82% | 82% | 100% | 100% |
+| 제품별 80% 구간이 실제 수요를 담은 비율 | 77% | 65% | 70% | 79% | 94% |
+| 1위 제품이 실제 수요 1위인 비율 | 75% | 82% | 73% | 98% | 47% |
+| 1위 제품이 실제 판매 1위인 비율 | 69% | 57% | 67% | 98% | 55% |
+| 모델이 말한 1위 가능성(중앙값) | 78% | 78% | 82% | 98% | 44% |
+
+모델이 말한 가능성과 실제 적중률이 대체로 맞는다. 4분기처럼 두 제품이 비슷하면 44% 라고 말하고 실제로 절반쯤 맞는다. 첫 시도는 제품별 구간을 그대로 더해 회사 전체 매출 구간이 25% 밖에 담지 못했다. 품절로 못 판 수요까지 매출로 읽었고, 제품이 함께 움직인다는 사실을 무시했기 때문이다. 지금은 팔린 곡선과 회사 전체의 과거 대조로 매출을 구하고, 재고 이력이 말하는 수요는 따로 보여 준다.
+
+"가격을 바꾸면"은 아직 재지 않았다. 실제 판매가가 움직인 달을 세어 보여 주기만 한다. 기록에서 탄력성을 읽는 일은 하지 않으므로 방향을 말하지 않는다.
 
 ## 추정 방법과 고친 것
 
