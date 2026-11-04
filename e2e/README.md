@@ -369,6 +369,8 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | HTTP | `api.e2e.mjs` 8 · `stack.e2e.mjs` 7 |
 | 브라우저 | `demo.spec.mjs` 5 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `hr.spec.mjs` 13 · `integration.spec.mjs` 3 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `pages.spec.mjs` 4 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `whatif.spec.mjs` 15 |
 
+**실패 중인 시험 하나.** `api.e2e.mjs › MCP over HTTP with a login token` 의 `tools/list` 4,000 바이트 검사가 실패한다. 지금 4,569 바이트이고, 급여 유형 6개를 빼고 재면 4,153 바이트라 급여 전에도 넘는다. 유형 이름이 도구 4개에 반복되는 것이 원인이어서 모듈이 늘수록 커진다. 한도를 올릴지, `enum` 을 `erp_read` 에만 둘지는 정하지 않았다.
+
 위 표의 합계는 인사까지의 값이다. 급여가 `payroll.test.mjs` 43, `isolation.test.mjs` 7, `payroll.spec.mjs` 17 을 더한다. 인사까지의 합계는 실제로 돌려 센 값이다(SQL `tests 768`, 브라우저 `179 passed`, HTTP `api.e2e.mjs` 8, `stack.e2e.mjs` 7). 파일별 표는 인사를 더하면서 바뀐 파일만 고쳤고, 그 전에 더해진 파일은 아직 빠져 있어 합이 맞지 않는다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 32개는 다섯 모듈의 조합마다 하나씩 생기고, 인사를 더한 조합 5개가 따로 있다.
 
 openspec 명세 13개의 요구사항 230개: 덮음 201 · 일부 29 · 공백 0. 시나리오 673개: 덮음 643 · 일부 12 · 공백 18.
