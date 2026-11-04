@@ -425,6 +425,42 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 ### 시험 목록에 더해진 파일
 
 `test/assets.test.mjs`, `test/books.test.mjs`, `e2e/tests/books.spec.mjs`. `books.spec.mjs` 는 모든 입력을 사람 속도(단계마다 1초)로 넣는 직렬 시험이라 하나만 따로 돌리지 않는다. 날짜에 기대는 한 시험(감가상각비 전망의 근거 부족)은 2027-01 부터 건너뛴다.
+### 14. 휴가 (spec `erp-timeoff`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 휴가는 꺼진 채 시작하고 인사가 있어야 켜진다 | `timeoff.test.mjs` 1<br>`timeoff.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 켜면 재직 직원의 일수를 정책대로 계산하고 확인 못 한 것은 밝힌다 | `timeoff.test.mjs` 1<br>`timeoff.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 연차 일수는 근로기준법 제60조를 따른다 | `timeoff.test.mjs` 5 | SQL | ✅ |
+| 출근율 80% 는 마감된 근태로만 판정한다 | `timeoff.test.mjs` 5 | SQL | ✅ |
+| 회계연도 기준은 고용노동부 안내를 따르고 부족분을 밝힌다 | `timeoff.test.mjs` 3 | SQL | ✅ |
+| 법보다 적게 주는 정책은 법 적용을 끄기 전에는 저장되지 않는다 | `timeoff.test.mjs` 1<br>`timeoff.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 구성원은 자기 일수를 보고 신청하고 주말과 공휴일은 빠진다 | `timeoff.test.mjs` 6<br>`timeoff.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 승인자는 상사이고 없으면 인사 담당자다 | `timeoff.test.mjs` 2<br>`timeoff.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 승인, 반려, 취소 | `timeoff.test.mjs` 3<br>`timeoff.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 사유는 원장에 남지 않고 본인, 상사, 인사 담당자만 읽는다 | `timeoff.test.mjs` 4<br>`isolation.test.mjs` 1<br>`timeoff.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 팀 달력에는 이름과 날짜만 나온다 | `timeoff.test.mjs` 1<br>`timeoff.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 되돌리면 잔여도 돌아오고 사유는 함께 돌아오지 않는다 | `timeoff.test.mjs` 3<br>`timeoff.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 에이전트의 신청도 같은 규칙을 지나고 사가로 돌아간다 | `timeoff.test.mjs` 3<br>`timeoff.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 소진 전망과 정책 what-if 는 원장만 읽는다 | `attendance.test.mjs` 1<br>`timeoff.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 근태 없이도 근태와 함께도 동작한다 | `isolation.test.mjs` 8 | SQL | ✅ |
+| REST 와 MCP 는 카탈로그에서 저절로 나온다 | `timeoff.test.mjs` 2 | SQL | ✅ |
+| 가상 회사에 휴가와 근태가 더해져도 다른 수치는 그대로다 | `attendance.test.mjs` 2<br>`hr.test.mjs` 1 | SQL | ✅ |
+
+### 15. 근태 (spec `erp-attendance`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 근태는 꺼진 채 시작하고 인사가 있어야 켜지며 휴가는 필요 없다 | `attendance.test.mjs` 1<br>`attendance.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 출퇴근은 본인이 서버 시각으로 찍는다 | `attendance.test.mjs` 2<br>`attendance.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 정정은 사유가 필수이고 원래 값이 원장에 남는다 | `attendance.test.mjs` 1<br>`attendance.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 본인은 자기 근태를 보고 남의 근태는 볼 수 없다 | `attendance.test.mjs` 1<br>`attendance.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 주 52시간은 그 주 전체 근로시간으로 보고 끝나기 전에 알린다 | `attendance.test.mjs` 3<br>`attendance.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 승인된 휴가 날은 결근이 아니다 | `attendance.test.mjs` 3<br>`attendance.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 월 마감 뒤에는 고칠 수 없고 사실을 이벤트로 낸다 | `attendance.test.mjs` 2<br>`attendance.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 끄면 기록은 남고 다시 켜면 밀린 휴가를 받는다 | `attendance.test.mjs` 1 | SQL | ✅ |
+| 위험과 추이는 원장만 읽는다 | `attendance.test.mjs` 1<br>`attendance.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 업무 수치를 흔들지 않고 어떤 조합에서도 동작한다 | `isolation.test.mjs` 8 | SQL | ✅ |
 
 ## 단계별 시험 수
 
@@ -461,6 +497,19 @@ openspec 명세 14개의 요구사항 253개: 덮음 222 · 일부 30 · 공백 
 SQL 은 `node --test` 의 `tests 819`, 브라우저는 파일마다 돌린 수를 더해 176 으로 세었다. 파일별 표는 전체를 마지막으로 센 때의 값에 이번에 바뀐 파일만 고친 것이라 합이 맞지 않는다. HTTP 는 초기화한 스택이 있어야 돌므로 소스의 `test()` 를 세었다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 64개는 여섯 모듈의 조합마다 하나씩 생긴다.
 
 openspec 명세 13개의 요구사항 229개: 덮음 200 · 일부 29 · 공백 0. 시나리오 694개: 덮음 664 · 일부 12 · 공백 18.
+| HTTP | `test/*.e2e.mjs` (2개) | 15 |
+| 브라우저 | `e2e/tests/*.spec.mjs` (17개) | 198 |
+| 합계 | 49개 | 1061 |
+
+| 단계 | 파일별 시험 수 |
+|---|---|
+| SQL | `accounting.test.mjs` 27 · `api.test.mjs` 11 · `attendance.test.mjs` 18 · `bus.test.mjs` 18 · `concurrency.test.mjs` 11 · `core.test.mjs` 18 · `demo.test.mjs` 4 · `growth.test.mjs` 11 · `history.test.mjs` 21 · `inventory.test.mjs` 63 · `hr.test.mjs` 42 · `invoicing.test.mjs` 51 · `isolation.test.mjs` 56 · `master.test.mjs` 45 · `models.test.mjs` 36 · `plugin.test.mjs` 8 · `pricing.test.mjs` 145 · `purchase.test.mjs` 30 · `rebuild-gl.test.mjs` 8 · `sales.test.mjs` 51 · `timeoff.test.mjs` 45 |
+| HTTP | `api.e2e.mjs` 8 · `stack.e2e.mjs` 7 |
+| 브라우저 | `attendance.spec.mjs` 8 · `demo.spec.mjs` 5 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `hr.spec.mjs` 13 · `integration.spec.mjs` 3 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `pages.spec.mjs` 4 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `timeoff.spec.mjs` 11 · `whatif.spec.mjs` 15 |
+
+위 표의 합계는 실제로 돌려 센 값이다(SQL `tests 848`, 브라우저 `198 passed`, HTTP `api.e2e.mjs` 8, `stack.e2e.mjs` 7). 파일별 표는 휴가와 근태를 더하면서 바뀐 파일만 고쳤고, 그 전에 더해진 파일은 아직 빠져 있어 합이 맞지 않는다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 32개는 다섯 모듈의 조합마다 하나씩 생기고, 인사를 더한 조합 5개와 휴가·근태를 더한 조합 6개가 따로 있다. 로컬 Postgres 의 디버거 확장(`pldbgapi2`)이 가끔 시험 하나를 떨어뜨린다. 그 파일만 다시 돌리면 통과한다.
+
+openspec 명세 15개의 요구사항 260개, 시나리오 721개. 이번에 더한 요구사항 28개와 시나리오 37개는 모두 덮었다. 그 앞의 분류는 요구사항 230개 기준으로 덮음 201 · 일부 29 · 공백 0, 시나리오 673개 기준으로 덮음 643 · 일부 12 · 공백 18 이고 다시 세지 않았다.
 
 ## 남은 공백
 

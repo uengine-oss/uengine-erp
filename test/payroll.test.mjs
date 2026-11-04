@@ -534,7 +534,10 @@ const everywhere = async (k, text) => {
   const tables = await q(k, `select table_name from information_schema.tables where table_schema = 'erp' and table_type = 'BASE TABLE'`)
   const hits = []
   for (const { table_name } of tables) {
-    const n = (await q(k, `select count(*)::int n from erp.${table_name} t where t::text like $1`, [`%${text}%`]))[0].n
+    // A short amount turns up inside ids and clock readings by chance, so a number has to stand alone to count.
+    const n = /^\d+$/.test(text)
+      ? (await q(k, `select count(*)::int n from erp.${table_name} t where t::text ~ $1`, [`(^|[^0-9a-fA-F:.-])${text}(\\.0+)?([^0-9a-fA-F:.-]|$)`]))[0].n
+      : (await q(k, `select count(*)::int n from erp.${table_name} t where t::text like $1`, [`%${text}%`]))[0].n
     if (n) hits.push(table_name)
   }
   return hits

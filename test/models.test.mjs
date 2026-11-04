@@ -41,7 +41,7 @@ describe('SQL: what the ledger says', () => {
 
   test('nothing is open before any module is on', async () => {
     const m = await models('2024-01-01T00:00:00+09:00')
-    assert.equal(Object.keys(m).length, 21)
+    assert.equal(Object.keys(m).length, 25)
     for (const x of Object.values(m)) {
       assert.equal(x.state, 'locked')
       assert.ok(x.missing_modules.length > 0)

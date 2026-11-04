@@ -7,6 +7,7 @@ export type ModelId =
   | 'reorder_plan' | 'cash_in' | 'whatif_terms' | 'pnl_outlook' | 'stat_headcount'
   | 'mrp_lead_time' | 'mrp_materials' | 'whatif_production'
   | 'depreciation_outlook'
+  | 'leave_burn' | 'whatif_leave_policy' | 'overtime_risk' | 'stat_overtime'
 export type ModelKind = 'stat' | 'forecast' | 'whatif'
 export type ModelState = 'locked' | 'insufficient' | 'ready'
 

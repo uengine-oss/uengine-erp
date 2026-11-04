@@ -26,6 +26,7 @@ onMounted(() => { if (admin.value) void load() })
 watch(admin, (v) => { if (v) void load() })
 
 const enabledIds = computed(() => new Set(bus.modules.filter((m) => m.enabled).map((m) => m.id)))
+const missingRequired = (m: ModuleDoc) => (m.requires ?? []).filter((id) => !enabledIds.value.has(id)).map((id) => bus.modules.find((x) => x.id === id)?.label ?? id)
 const subsOf = (m: ModuleDoc): BusSubscription[] => bus.subs.filter((s) => s.module === m.id)
 const stallsOf = (m: ModuleDoc): BusSubscription[] => subsOf(m).filter(isStalled)
 
@@ -157,7 +158,10 @@ async function afterChange() {
             </div>
             <footer class="card-foot">
               <button v-if="m.enabled" type="button" class="btn" :disabled="!!writeBlock || busyId === m.id" :title="writeBlockMessage" data-testid="module-disable" @click="disable(m)">끄기</button>
-              <button v-else type="button" class="btn btn-primary" :disabled="!!writeBlock || busyId === m.id" :title="writeBlockMessage" data-testid="module-enable" @click="enable(m)">켜기</button>
+              <template v-else>
+                <span v-if="missingRequired(m).length" class="small dim" data-testid="module-requires">{{ missingRequired(m).join(', ') }} 모듈을 먼저 켜야 합니다</span>
+                <button type="button" class="btn btn-primary" :disabled="!!writeBlock || busyId === m.id || missingRequired(m).length > 0" :title="writeBlockMessage" data-testid="module-enable" @click="enable(m)">켜기</button>
+              </template>
             </footer>
           </article>
         </div>

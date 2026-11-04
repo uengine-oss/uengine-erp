@@ -15,7 +15,10 @@
    "test/hr.test.mjs",
    "test/mrp.test.mjs",
    "test/assets.test.mjs",
-   "test/books.test.mjs"
+   "test/books.test.mjs",
+   "test/hr.test.mjs",
+   "test/timeoff.test.mjs",
+   "test/attendance.test.mjs"
   ],
   "e2e": [
    "test/api.e2e.mjs"
@@ -73,6 +76,7 @@
    "id": "erp-krtax"
   },
   {
+   "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
    "id": "erp-assets"
   },
   {
@@ -94,6 +98,14 @@
   {
    "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
    "id": "erp-mrp"
+  },
+  {
+   "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
+   "id": "erp-timeoff"
+  },
+  {
+   "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
+   "id": "erp-attendance"
   }
  ],
  "videos": [

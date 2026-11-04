@@ -112,7 +112,7 @@ test('MCP over HTTP with a login token: CRUD with the official SDK', async () =>
   assert.deepEqual(tools.map((t) => t.name), ['erp_read', 'erp_create', 'erp_update', 'erp_delete'])
   const size = Buffer.byteLength(JSON.stringify(tools))
   console.log(`  tools/list: ${tools.length} tools, ${size} bytes`)
-  // Every type's name appears once per tool, so each new module spends a little of this.
+  // The list of types appears once, on erp_read, so a new module spends little of this.
   assert.ok(size < 4000, `${size} bytes`)
   const types = JSON.parse(text(await c.callTool({ name: 'erp_read', arguments: {} })))
   assert.ok(types.some((t) => t.type === 'partner'))

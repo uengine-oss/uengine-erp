@@ -14,6 +14,8 @@ const TYPE_LABELS: Record<string, string> = {
   withholding_filing: '원천세 마감', payroll_profile: '직원 급여 정보 기록', payroll_audit: '명세서 변경 기록',
   bom: '자재 명세', manufacturing_order: '제조 지시',
   asset: '고정자산', depreciation_run: '감가상각 실행', fiscal_close: '결산',
+  holiday: '공휴일', leave_type: '휴가 유형', leave_policy: '연차 부여 정책', leave_person: '휴가 대상 직원', leave_grant: '휴가 부여', leave_request: '휴가 신청', leave_request_private: '휴가 사유 기록', leave_attendance_month: '근태 마감 사실',
+  attendance_policy: '근태 기준', attendance_day: '출퇴근 기록', attendance_month: '근태 월 마감', attendance_person: '근태 대상 직원', attendance_leave: '근태에 반영한 휴가',
 }
 
 /** A type's name for people, also when its module is off. A type nobody here has heard of is still a document. */
@@ -66,6 +68,11 @@ const EXACT: Record<string, string> = {
   PayrollTransferExported: '이체 파일 내보냄', PayrollSlipChanged: '명세서 칸 변경', PayrollSlipAdded: '대장에 직원 넣음', PayrollSlipRemoved: '대장에서 직원 뺌', PayrollSlipErased: '명세서 지움',
   PayrollProfileChanged: '급여 정보 변경', PayrollProfileErased: '급여 정보 지움', PayrollTaxTableCreated: '간이세액표 넣음', PayrollTaxTableDeleted: '간이세액표 삭제', PayrollRatesCreated: '요율 자료 넣음', PayrollRatesUpdated: '요율 자료 변경',
   WithholdingFiled: '원천세 마감', WithholdingReopened: '원천세 마감 해제',
+  LeaveRequested: '휴가 신청', LeaveApproved: '휴가 승인', LeaveRejected: '휴가 반려', LeaveCancelled: '휴가 취소', LeaveReasonErased: '휴가 사유 지움',
+  LeaveGranted: '휴가 부여', LeaveGrantAdjusted: '휴가 부여 조정', LeaveGrantUsedBefore: '켜기 전 사용 일수', LeaveGrantVoided: '휴가 부여 취소',
+  LeavePolicySet: '연차 정책 설정', LeavePolicyChanged: '연차 정책 변경', LeavePersonSynced: '휴가 대상 반영', LeavePersonAutoGrantChanged: '자동 부여 변경', LeaveAttendanceNoted: '근태 마감 반영',
+  AttendanceCheckedIn: '출근', AttendanceCheckedOut: '퇴근', AttendanceEntered: '근태 입력', AttendanceCorrected: '근태 정정', AttendanceClosed: '근태 월 마감',
+  AttendanceLeaveNoted: '휴가 반영', AttendanceLeaveCleared: '휴가 반영 해제', AttendancePolicySet: '근태 기준 설정', AttendancePolicyChanged: '근태 기준 변경', AttendancePersonSynced: '근태 대상 반영',
   DepartmentCreated: '부서 생성', DepartmentChanged: '부서 변경', DepartmentArchived: '부서 보관', DepartmentUnarchived: '부서 보관 해제', DepartmentDeleted: '부서 삭제',
   BomCreated: '자재 명세 생성', BomChanged: '자재 명세 변경', BomArchived: '자재 명세 보관', BomUnarchived: '자재 명세 보관 해제', BomDeleted: '자재 명세 삭제',
   ManufacturingOrderCreated: '제조 지시 생성', ManufacturingOrderChanged: '제조 지시 변경', ManufacturingOrderDeleted: '제조 지시 삭제', ManufacturingReorderLinked: '재주문 요청 연결',

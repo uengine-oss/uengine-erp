@@ -122,7 +122,8 @@ begin
     return public.erp_rollback_preview(a -> 'rollback' ->> 'kind', (a -> 'rollback') - 'kind');
   end if;
   if i is not null and not coalesce((a ->> 'schema')::boolean, false) then perform erp.require_readable(i); end if;
-  if t is not null and not t = any (readable) then perform erp.fail('ERP_FORBIDDEN', format('%s 를 볼 권한이 없습니다', t)); end if;
+  -- A type's shape is not its records: someone may be allowed to write what they cannot browse, such as their own leave.
+  if t is not null and not t = any (readable) and not coalesce((a ->> 'schema')::boolean, false) then perform erp.fail('ERP_FORBIDDEN', format('%s 를 볼 권한이 없습니다', t)); end if;
   if coalesce((a ->> 'history')::boolean, false) then
     select coalesce(jsonb_agg(jsonb_build_object('seq', seq, 'version', version, 'event', event_type, 'source', source, 'actor', actor_name, 'reason', reason, 'at', occurred_at, 'correlation_id', correlation_id) order by seq), '[]'::jsonb)
       into out_ from erp.events where stream_id = i;
