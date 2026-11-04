@@ -3,7 +3,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { messageOf, rpc } from '../../lib/api'
 import { onDataChanged, sendCommand } from '../../lib/commands'
-import { writeBlock } from '../../lib/mode'
+import { timeView, writeBlock } from '../../lib/mode'
 import type { Field } from '../../lib/types'
 import { ask, toast } from '../../lib/ui'
 import Icon from '../../components/Icon.vue'
@@ -93,6 +93,7 @@ async function close() {
     </div>
     <div v-if="error" class="banner banner-error banner-flush" role="alert" data-testid="close-error"><Icon name="alert" /><span class="grow">{{ error }}</span></div>
     <div class="page-body page-pad">
+      <p v-if="timeView.at" class="small dim" data-testid="now-only">지난 시점을 보는 중이어도 이 화면은 지금 기준입니다.</p>
       <LawNotice kind="attendance" />
       <p v-if="data?.late_leave_changes" class="banner banner-warn" role="status" data-testid="close-late"><Icon name="alert" /><span class="grow">마감 뒤에 이 달의 휴가가 {{ data.late_leave_changes }}건 바뀌었습니다. 마감한 값은 그대로입니다. 고치려면 마감을 되돌리세요.</span></p>
       <section v-if="data?.open_days.length" class="panel" data-testid="close-open">

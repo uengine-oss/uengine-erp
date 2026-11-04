@@ -128,8 +128,11 @@ test('S12. a correction needs a reason, and the old values stay in the ledger', 
   assert.ok(fix.data.to.check_out)
   const second = await hr.cmd('attendance_day', id, 'correct', { check_in: '2026-09-08T10:00', break_minutes: 0 }, { reason: '늦은 출근 확인' })
   assert.deepEqual([Number(second.state.break_minutes), Number(second.state.worked_minutes)], [0, 480])
+  const third = await hr.cmd('attendance_day', id, 'correct', { check_out: '2026-09-08T18:30' }, { reason: '시각만 다시' })
+  assert.deepEqual([Number(third.state.break_minutes), Number(third.state.worked_minutes)], [0, 510], 'a break someone stated stays stated')
+  await hr.cmd('attendance_day', id, 'correct', { check_out: '2026-09-08T18:00' }, { reason: '되돌림' })
   const again = (await q(c, `select data from erp.events where stream_id = $1 order by version desc limit 1`, [id]))[0]
-  assert.equal(Number(again.data.from.worked_minutes), 480, 'the value before this correction')
+  assert.equal(Number(again.data.from.worked_minutes), 510, 'the value before this correction')
   // A day with no stamps at all can be entered the same way, for someone else.
   const entered = await hr.cmd('attendance_day', null, 'correct', { employee_id: peerEmp, date: '2026-09-07', check_in: '2026-09-07T09:00', check_out: '2026-09-07T18:00' }, { reason: '단말 고장' })
   assert.equal((await c.events(entered.id))[0].event_type, 'AttendanceEntered')
@@ -265,6 +268,7 @@ test('S12. a day of approved leave is not an absence, with leave on; turned on l
     // The events on the attendance side carry no leave type and no words.
     const noted = await q(k, `select data from erp.events where stream_type = 'attendance_leave' order by seq`)
     assert.ok(noted.every((e) => !JSON.stringify(e.data).includes('병가')), 'it does not know which kind')
+    assert.deepEqual((await k.list('attendance_leave')).map((r) => r.state.attendance_treatment).sort(), ['attended', 'attended', 'attended', 'suspended'], 'only how the Act test treats it')
 
     // A wrong approval undone: the day goes back to absent, and no stamp is touched.
     const { plan, applied } = await undoCorrelation(k, appr.correlation_id)
@@ -349,6 +353,7 @@ test('S12. closing a month: not while it is running or with stamps missing; afte
     assert.equal(row.scheduled_days, 22)
     assert.equal(row.worked_days, 2)
     assert.equal(row.not_attended_dates.length, 20)
+    assert.deepEqual(row.suspended_dates, [])
     assert.equal(row.worked_minutes, 540 + 480)
     assert.equal(row.daily_over_minutes, 60)
     // Locked: a correction, a stamp on that month, and a rollback of one day.
@@ -395,6 +400,39 @@ test('the month a module came on covers only the days it knew; leave changed aft
     assert.equal(month.closed, true)
     assert.equal(month.late_leave_changes, 1)
     assert.ok((await q(k, `select event_type from erp.events where event_type = 'AttendanceClosed'`)).length === 1, 'the close was not rewritten')
+  } finally { await k.close() }
+})
+
+test('a closed month says which days a leave took out of the count, against which it counted, and leave hears both', async () => {
+  const k = await company({ modules: ['hr', 'timeoff', 'attendance'], clock: '2026-08-01T09:00:00+09:00' })
+  try {
+    await clock(k, '2026-09-01')
+    const d = await k.admin('department', null, 'create', { name: '영업' })
+    const m = await k.addMember('달 마감', ['viewer'])
+    const e = await hireOn(k.admin, '달 마감', '2024-03-04', d.id, { member_id: m.record })
+    await k.settle()
+    const type = async (code) => (await q(k, `select erp.seed_id('leave_type:' || $1) id`, [code]))[0].id
+    const ask = async (code, date) => {
+      const r = await m.cmd('leave_request', null, 'create', { leave_type_id: await type(code), date_from: date })
+      await k.admin('leave_request', r.id, 'approve', {})
+    }
+    await k.admin('leave_type', await type('family'), 'update', { attendance_treatment: 'absent' })
+    await ask('annual', '2026-09-07') // counts as attended
+    await ask('sick', '2026-09-08') // comes out of the count
+    await ask('family', '2026-09-09') // set above to count against
+    await k.settle()
+    await clock(k, '2026-10-05')
+    const closed = await k.admin('attendance_month', null, 'close', { period: '2026-09' })
+    await k.settle()
+    const row = (await k.events(closed.id)).at(-1).data.employees.find((x) => x.employee_id === e)
+    assert.ok(!row.not_attended_dates.includes('2026-09-07'))
+    assert.ok(!row.not_attended_dates.includes('2026-09-08'))
+    assert.ok(row.not_attended_dates.includes('2026-09-09'))
+    assert.ok(row.not_attended_dates.includes('2026-09-10'), 'a day with nothing on it')
+    assert.deepEqual(row.suspended_dates, ['2026-09-08'])
+    assert.equal(row.leave_days, 3)
+    const facts = (await q(k, `select state from erp.records where type = 'leave_attendance_month'`))[0].state
+    assert.deepEqual(facts.employees[e].suspended_dates, ['2026-09-08'])
   } finally { await k.close() }
 })
 
@@ -493,7 +531,9 @@ test('M8. the models go locked, short, ready; answers come from the ledger and s
     assert.equal(same.indistinguishable, true, 'no change, no effect to speak of')
     await rejects(k.db.asUser(k.adminId, `select public.erp_leave_whatif('{"basis":"fiscal_year"}'::jsonb, '2026-07-03'::date, null)`), 'ERP_INVALID')
     const before_ = (await q(k, `select count(*)::int n from erp.events`))[0].n
+    await call(k, k.adminId, 'erp_leave_whatif', JSON.stringify({ max_days: 30 }), '2026-07-03', null)
     assert.equal(before_, (await q(k, `select count(*)::int n from erp.events`))[0].n, 'asking changes nothing')
+    await rejects(call(k, plain.id, 'erp_leave_whatif', JSON.stringify({ base_days: 20 }), '2026-07-03', null), 'ERP_FORBIDDEN')
 
     // Attendance: enough days at the clock, then a heavy week.
     for (let i = 0; i < 4; i++) {

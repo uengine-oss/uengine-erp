@@ -5,7 +5,7 @@ import { computed, onMounted, ref } from 'vue'
 import { messageOf, rpc } from '../../lib/api'
 import { onDataChanged, sendCommand } from '../../lib/commands'
 import { db } from '../../lib/conn'
-import { writeBlock } from '../../lib/mode'
+import { timeView, writeBlock } from '../../lib/mode'
 import { ask, toast } from '../../lib/ui'
 import Icon from '../../components/Icon.vue'
 import LawNotice from '../docs/LawNotice.vue'
@@ -97,6 +97,7 @@ async function eraseReason(r: Request) {
     <div class="page-head"><h1>내 휴가</h1></div>
     <div v-if="error" class="banner banner-error banner-flush" role="alert" data-testid="my-leave-error"><Icon name="alert" /><span class="grow">{{ error }}</span><button type="button" class="btn btn-sm" @click="load">다시 시도</button></div>
     <div class="page-body page-pad">
+      <p v-if="timeView.at" class="small dim" data-testid="now-only">지난 시점을 보는 중이어도 이 화면은 지금 기준입니다.</p>
       <LawNotice kind="leave" />
       <section v-if="data && !data.linked" class="panel" data-testid="my-leave-unlinked">
         <p>이 계정에 연결된 직원이 없습니다. 인사 담당자에게 직원 정보에 ERP 구성원을 연결해 달라고 요청하세요.</p>
@@ -131,8 +132,8 @@ async function eraseReason(r: Request) {
             </div>
             <div class="field"><label class="field-label" for="lv-reason">사유 <span class="muted">(적지 않아도 됩니다)</span></label>
               <textarea id="lv-reason" v-model="form.reason" class="input" rows="2" maxlength="500" data-testid="leave-reason"></textarea>
-              <p class="small dim" data-testid="leave-reason-note">사유는 원장 밖에 따로 저장합니다. 나와 상사, 인사 담당자만 볼 수 있고 나중에 지울 수 있습니다. 팀 달력에는 이름과 날짜만 나옵니다. 주말과 공휴일은 일수에서 뺍니다.</p>
             </div>
+            <p class="small dim note" data-testid="leave-reason-note">사유는 원장 밖에 따로 저장합니다. 나와 상사, 인사 담당자만 볼 수 있고 나중에 지울 수 있습니다. 팀 달력에는 이름과 날짜만 나옵니다. 주말과 공휴일은 일수에서 뺍니다.</p>
             <p v-if="formError" class="err-text small" role="alert" data-testid="leave-form-error">{{ formError }}</p>
             <button type="submit" class="btn btn-primary" :disabled="busy || !!writeBlock || !form.date_from || !form.leave_type_id" data-testid="leave-submit">{{ busy ? '신청 중…' : '신청' }}</button>
           </form>
@@ -191,5 +192,6 @@ dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 .acts { white-space: nowrap; text-align: right; }
 .acts .btn + .btn { margin-left: 4px; }
 form .field { margin-bottom: 8px; }
+form .note { margin: 0 0 10px; }
 textarea.input { width: 100%; }
 </style>

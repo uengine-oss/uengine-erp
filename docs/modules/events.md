@@ -104,6 +104,36 @@
 
 연락처, 생년월일, 계좌 같은 개인정보는 어떤 이벤트에도 없다. 원장은 지울 수 없기 때문이다. 필요한 모듈은 패턴을 따른다(`docs/modules/hr.md`). **이름과 입퇴사일은 원장에 남고 지워지지 않는다.**
 
+## 휴가가 내는 것
+
+신청 공통 사실: `number, employee_id, employee_no, employee_name, department_id, department_name, leave_type_id, leave_type_code, leave_type_name, paid, attendance_treatment, date_from, date_to, half_day, dates, days, allocations:[{grant_id, days}], shortfall, has_reason`. 신청 ID 는 `ev.stream_id` 다. `dates` 는 주말과 공휴일을 뺀 날들이다. `half_day` 는 `am`, `pm`, `null` 이다. `attendance_treatment` 는 연차 출근율에서의 처리로 `attended`, `suspended`(소정근로일에서 뺌), `absent` 다.
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `LeaveRequested` | 공통 사실 |
+| `LeaveApproved` | `approver_role`(`manager`, `hr`, `admin`, `self`), `approver_name` + 공통 사실 |
+| `LeaveRejected` | `approver_role, approver_name, has_reject_reason` + 공통 사실 |
+| `LeaveCancelled` | `was`(`pending`, `approved`), 퇴사로 취소되면 `by_leaving: true` + 공통 사실 |
+| `LeaveGranted`, `LeaveGrantAdjusted`, `LeaveGrantUsedBefore`, `LeaveGrantVoided` | 부여 스트림. `employee_id, employee_name, department_id, department_name, leave_type_id, leave_type_code, kind, days, delta, used_before, granted_on, valid_from, valid_to, period_from, period_to, rule, attendance_status, attendance_rate, grant_state` |
+| `LeavePolicySet`, `LeavePolicyChanged` | `policy:{statutory, basis, fiscal_start, base_days, step_years, step_days, max_days, monthly_days}`, 변경이면 `changed` |
+| `LeaveReasonErased` | `request_id, number, erased_at`. 까닭은 이벤트의 `reason` 이다 |
+
+**휴가 사유와 반려 사유의 글은 어떤 이벤트에도 없다.** 이벤트의 `reason` 에도 없다. 명령의 사유로 보내면 거부한다. 그래서 지울 수 있다(`docs/modules/timeoff.md`). 언제 어떤 유형을 썼는지는 원장에 남고 `hr`, `admin` 만 읽는다.
+
+## 근태가 내는 것
+
+하루 공통 사실: `employee_id, employee_no, employee_name, department_id, department_name, date, is_workday, check_in, check_out, break_minutes, worked_minutes, overtime_minutes`. 시각은 절대 시각이고 `date` 는 시작한 날이다. `overtime_minutes` 는 하루 기준을 넘긴 분이다.
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `AttendanceCheckedIn`, `AttendanceCheckedOut`, `AttendanceEntered` | 하루 공통 사실 |
+| `AttendanceCorrected` | `from:{check_in, check_out, break_minutes, worked_minutes}`, `to:{...}` + 하루 공통 사실. 사유는 이벤트의 `reason` 이다 |
+| `AttendanceClosed` | `period, date_from, date_to, employees:[{employee_id, employee_no, name, department_id, department_name, from, to, scheduled_days, worked_days, leave_days, absent_days, not_attended_dates, suspended_dates, worked_minutes, nonworking_minutes, daily_over_minutes, overtime_minutes, weeks_over_limit}]` |
+| `AttendanceLeaveNoted`, `AttendanceLeaveCleared` | 자기 스트림. `employee_id, dates`, 앞것은 `half_day` |
+| `AttendancePolicySet`, `AttendancePolicyChanged` | `policy:{applies_limit, daily_standard_minutes, weekly_standard_minutes, weekly_overtime_minutes, week_start, break_mode}`, 변경이면 `changed` |
+
+`AttendanceClosed` 의 `from, to` 는 이 달에서 그 사람에 대해 말할 수 있는 날짜다. 입사, 퇴사, 모듈을 켠 날로 좁혀진다. 듣는 쪽은 그 밖의 날을 알 수 없다고 봐야 한다. `not_attended_dates` 는 소정근로일 중 일한 기록이 없고 출근으로 치거나 소정근로일에서 빼는 휴가도 아닌 날이다. `suspended_dates` 는 근로 의무가 정지된 휴가의 날이다. `overtime_minutes` 는 그 달에 끝나는 주의 합이며, 주마다 하루 8시간 초과의 합과 40시간 초과 중 큰 값이다.
+
 ## 기초데이터가 내는 것
 
 | 이벤트 | `data` 의 사실 |
@@ -128,4 +158,9 @@
 | 회계 | `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled`, `PaymentPosted`, `PaymentCancelled`, `BankLineBooked`, `BankLineUnbooked` | 분개(처음부터 다시 읽는다) |
 | 회계 | `PickingValidated`, `StockAdjusted`, `StockScrapped` | 재고 평가 분개(처음부터 다시 읽는다) |
 | 인사 | 없음 | 아무 이벤트도 듣지 않는다 |
+| 휴가 | `EmployeeHired`, `EmployeeChanged`, `EmployeeLeft` | 자기 복사본, 연차 부여. 퇴사면 대기 신청을 취소한다. 처음부터 다시 읽는다 |
+| 휴가 | `AttendanceClosed` | 출근율을 확인하고 부여를 고친다. 처음부터 다시 읽는다 |
+| 휴가 | `Reverted` | 자기가 남긴 것은 함께 돌아왔으므로 다시 계산만 한다 |
+| 근태 | `EmployeeHired`, `EmployeeChanged`, `EmployeeLeft` | 자기 복사본. 처음부터 다시 읽는다 |
+| 근태 | `LeaveApproved`, `LeaveCancelled` | 그 날들을 결근으로 잡지 않는다. 처음부터 다시 읽는다 |
 | 분석 | 원장 전체 | 구독하지 않고 직접 읽는다 |

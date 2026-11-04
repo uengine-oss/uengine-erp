@@ -4,7 +4,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { messageOf, rpc } from '../../lib/api'
 import { onDataChanged, sendCommand } from '../../lib/commands'
-import { writeBlock } from '../../lib/mode'
+import { timeView, writeBlock } from '../../lib/mode'
 import { toast } from '../../lib/ui'
 import Icon from '../../components/Icon.vue'
 import LawNotice from '../docs/LawNotice.vue'
@@ -63,6 +63,7 @@ async function accrue() {
     </div>
     <div v-if="error" class="banner banner-error banner-flush" role="alert"><Icon name="alert" /><span class="grow">{{ error }}</span></div>
     <div class="page-body page-pad">
+      <p v-if="timeView.at" class="small dim" data-testid="now-only">지난 시점을 보는 중이어도 이 화면은 지금 기준입니다.</p>
       <LawNotice kind="leave" />
       <p v-if="data?.statutory === false" class="small dim" data-testid="balances-off">회사가 제60조 적용을 껐습니다. 자동 부여가 멈춰 있습니다.</p>
       <p v-if="anyUnverified" class="small dim" data-testid="balances-unverified">출근율을 확인하지 못한 사람이 있습니다. 마감된 근태가 없으면 80% 판정을 할 수 없어 법이 정한 일수를 그대로 부여하고 그렇다고 표시합니다.</p>

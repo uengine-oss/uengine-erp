@@ -325,7 +325,7 @@ test('types without a balance take no days, and overlapping any request is refus
   const sick = await typeId(c, 'sick')
   const r = await other.cmd('leave_request', null, 'create', { leave_type_id: sick, date_from: '2026-11-03', date_to: '2026-11-04' })
   assert.deepEqual(r.state.allocations, [])
-  assert.equal(r.state.counts_as_attended, false)
+  assert.equal(r.state.attendance_treatment, 'suspended')
   assert.equal(Number((await balance(c, other.id)).remaining), 15)
   await rejects(ask(other, '2026-11-04'), 'ERP_DUPLICATE')
   await other.cmd('leave_request', r.id, 'cancel', {})
@@ -393,6 +393,18 @@ test('a one-person company: with nobody else to ask, the owner decides their own
     await k.admin('leave_request', r.id, 'approve', {})
     assert.equal((await k.rec(r.id)).state.decided_role, 'self')
   } finally { await k.close() }
+})
+
+test('a boss can see what they approved for their people, to take it back after it has started', async () => {
+  const r = await ask(peer, '2026-11-24')
+  await c.cmd(boss.id, 'leave_request', r.id, 'approve', {})
+  const seen = await call(c, boss.id, 'erp_leave_reports')
+  assert.ok(seen.some((x) => x.id === r.id))
+  assert.ok(seen.every((x) => x.reason === undefined), 'no reason in this list')
+  assert.deepEqual(await call(c, other.id, 'erp_leave_reports'), [], 'nobody reports to them')
+  assert.deepEqual(await call(c, viewer.id, 'erp_leave_reports'), [])
+  await c.cmd(boss.id, 'leave_request', r.id, 'cancel', {})
+  assert.ok(!(await call(c, boss.id, 'erp_leave_reports')).some((x) => x.id === r.id))
 })
 
 test('cancelling: yours until it starts, after that someone else says so; nobody else\'s unless they decide for you', async () => {
@@ -660,6 +672,25 @@ test('policy: the Act is a floor until the company says it does not apply, and d
   } finally { await k.close() }
 })
 
+test('a grant taken back by a rollback is given again when it is still due, and shows up', async () => {
+  const k = await company({ modules: ['hr', 'timeoff'] })
+  try {
+    await clock(k, '2026-11-02')
+    const d = await k.admin('department', null, 'create', { name: '영업' })
+    await hireOn(k, k.admin, '다시 부여', '2026-09-01', d.id)
+    await k.settle()
+    assert.equal((await k.list('leave_grant')).length, 2)
+    await clock(k, '2026-12-02')
+    const res = await k.admin('leave_policy', null, 'accrue', {})
+    assert.equal((await k.list('leave_grant')).length, 3)
+    assert.ok((await undoCorrelation(k, res.correlation_id)).applied)
+    assert.equal((await k.list('leave_grant')).length, 2)
+    await k.admin('leave_policy', null, 'accrue', {})
+    assert.equal((await k.list('leave_grant')).length, 3)
+    assert.deepEqual(await k.verifyProjection(), [])
+  } finally { await k.close() }
+})
+
 test('a person can be taken out of automatic grants and given days by hand; what was used before the module goes on the grant', async () => {
   const k = await company({ modules: ['hr', 'timeoff'] })
   try {
@@ -677,10 +708,13 @@ test('a person can be taken out of automatic grants and given days by hand; what
     assert.equal((await k.list('leave_grant')).length, 1, 'no more automatic days')
     const t = await annualId(k)
     await rejects(k.admin('leave_grant', null, 'create', { employee_id: e, leave_type_id: t, days: 5, valid_from: '2026-12-01', valid_to: '2027-11-30' }), 'ERP_REQUIRED')
+    await rejects(k.admin('leave_grant', null, 'create', { employee_id: e, leave_type_id: t, days: 5, valid_from: '2026-12-01', valid_to: '2027-11-30', rule: '번호 900101-1234567' }), 'ERP_INVALID')
+    await rejects(k.admin('leave_grant', null, 'create', { employee_id: e, leave_type_id: t, days: 5, valid_from: '2026-12-01', valid_to: '2027-11-30', rule: '근거', note: 'x' }), 'ERP_UNKNOWN_FIELD')
     await rejects(k.admin('leave_grant', null, 'create', { employee_id: e, leave_type_id: t, days: -5, valid_from: '2026-12-01', valid_to: '2027-11-30' }, { reason: '수동' }), 'ERP_INVALID')
     const sick = await typeId(k, 'sick')
     await rejects(k.admin('leave_grant', null, 'create', { employee_id: e, leave_type_id: sick, days: 5, valid_from: '2026-12-01', valid_to: '2027-11-30' }, { reason: '수동' }), 'ERP_INVALID')
-    const g = await k.admin('leave_grant', null, 'create', { employee_id: e, leave_type_id: t, days: 5, valid_from: '2026-12-01', valid_to: '2027-11-30' }, { reason: '근로계약서 기준 비례' })
+    const g = await k.admin('leave_grant', null, 'create', { employee_id: e, leave_type_id: t, days: 5, valid_from: '2026-12-01', valid_to: '2027-11-30', rule: '근로계약서 기준 비례' })
+    assert.equal(g.state.rule, '근로계약서 기준 비례')
     assert.equal(Number((await balance(k, m.id)).remaining), 6)
     await k.admin('leave_grant', g.id, 'used_before', { used_before: 2 })
     assert.equal(Number((await balance(k, m.id)).remaining), 4)
@@ -696,9 +730,9 @@ test('a person can be taken out of automatic grants and given days by hand; what
 /* ---------- Article 60's attendance test ---------- */
 
 // Attendance is another module, so the facts arrive the only way they can: as its event. Each month states who it covers and which days did not count.
-const closeMonth = (k, period, emp, from, to, misses = []) => k.db.query(
+const closeMonth = (k, period, emp, from, to, misses = [], suspended = []) => k.db.query(
   `select set_config('erp.correlation_id', gen_random_uuid()::text, false), erp.emit('attendance_month', erp.seed_id('attendance_month:' || $1), 'AttendanceClosed', $2::jsonb)`,
-  [period, JSON.stringify({ set: { name: period, period, state: 'closed' }, period, employees: [{ employee_id: emp, from, to, not_attended_dates: misses }] })])
+  [period, JSON.stringify({ set: { name: period, period, state: 'closed' }, period, employees: [{ employee_id: emp, from, to, not_attended_dates: misses, suspended_dates: suspended }] })])
 const YEAR = [['2024-03', '2024-03-04', '2024-03-31'], ['2024-04', '2024-04-01', '2024-04-30'], ['2024-05', '2024-05-01', '2024-05-31'], ['2024-06', '2024-06-01', '2024-06-30'], ['2024-07', '2024-07-01', '2024-07-31'], ['2024-08', '2024-08-01', '2024-08-31'],
   ['2024-09', '2024-09-01', '2024-09-30'], ['2024-10', '2024-10-01', '2024-10-31'], ['2024-11', '2024-11-01', '2024-11-30'], ['2024-12', '2024-12-01', '2024-12-31'], ['2025-01', '2025-01-01', '2025-01-31'], ['2025-02', '2025-02-01', '2025-02-28'], ['2025-03', '2025-03-01', '2025-03-31']]
 
@@ -752,7 +786,68 @@ test('Article 60(2): just under 80 percent it falls to a day for each full month
   assert.equal(Number(g.state.days), 9)
 })
 
-test('the first year: a month with an absence earns no day, and it says which; one with leave counted as attended still does', async () => {
+// The ministry's own worked examples: a 250-day year, with a suspension of the duty to work taken out of the count.
+// Eleven holidays late in the year turn 261 weekdays into 250, and leave the first months' dates easy to work out by hand.
+async function suspensionCase(suspendedCount, missCount) {
+  const k = await company({ modules: ['hr', 'timeoff', 'attendance'], clock: '2024-01-01T09:00:00+09:00' })
+  try {
+    await clock(k, '2025-04-15')
+    const d = await k.admin('department', null, 'create', { name: '영업' })
+    const off = ['2024-10-07', '2024-10-08', '2024-10-09', '2024-10-10', '2024-10-11', '2024-11-11', '2024-11-12', '2024-11-13', '2024-11-14', '2024-11-15', '2024-12-02']
+    for (const date of off) await k.admin('holiday', null, 'create', { date, name: `회사 휴일 ${date}`, source: '시험' })
+    const e = await hireOn(k, k.admin, '휴직 시험', '2024-03-04', d.id)
+    await k.settle()
+    const days = weekdays('2024-03-04', '2025-03-03').filter((x) => !off.includes(x))
+    assert.equal(days.length, 250)
+    const suspended = days.slice(0, suspendedCount)
+    const misses = days.slice(suspendedCount, suspendedCount + missCount)
+    for (const [p, from, to] of YEAR) await closeMonth(k, p, e, from, to, misses.filter((x) => x >= from && x <= to), suspended.filter((x) => x >= from && x <= to))
+    await k.settle()
+    return (await k.list('leave_grant')).find((x) => x.state.granted_on === '2025-03-04').state
+  } finally { await k.close() }
+}
+
+test('a suspension of the duty to work comes out of the count: the ministry\'s examples, line by line', async () => {
+  // Sick leave 15 days, 177 attended of the 235 left: 75.3 percent, so a day for each full month. The first 73 working days reach Wednesday 2024-06-12,
+  // which touches the months from 03-04, 04-04, 05-04 and 06-04. Eight stay whole.
+  const one = await suspensionCase(15, 58)
+  assert.equal(Number(one.attendance_rate), 0.7532)
+  assert.equal(Number(one.days), 8)
+  // Off 150 days, 85 attended of the 100 left: 85 percent, but 34 percent of the year, so 15 x 100/250 = 6.
+  const two = await suspensionCase(150, 15)
+  assert.equal(Number(two.attendance_rate), 0.85)
+  assert.equal(Number(two.attendance_detail.rate_of_year), 0.34)
+  assert.equal(Number(two.days), 6)
+  // Off 90 days and every other day attended: 100 percent, and 160/250 = 64 percent of the year, so 15 x 160/250 = 9.6.
+  const three = await suspensionCase(90, 0)
+  assert.equal(Number(three.attendance_rate), 1)
+  assert.equal(Number(three.days), 9.6)
+  // Off 40 days and every other day attended: 210/250 = 84 percent even of the whole year, so it is not reduced at all.
+  const four = await suspensionCase(40, 0)
+  assert.equal(Number(four.attendance_detail.rate_of_year), 0.84)
+  assert.equal(Number(four.days), 15)
+})
+
+test('the Act\'s fifteen days wait for the day after the year: leaving on the last day of it brings none, a day later brings them', async () => {
+  // Hired 2025-03-01: the year ends 2026-02-28, and the ministry reads the right as arising on 2026-03-01, the 366th day, if the employment still stands.
+  for (const [last, annual_, months] of [['2026-02-28', 0, 11], ['2026-03-01', 1, 11]]) {
+    const k = await company({ modules: ['hr', 'timeoff'] })
+    try {
+      await clock(k, '2026-06-01')
+      const d = await k.admin('department', null, 'create', { name: '영업' })
+      const e = await hireOn(k, k.admin, '일년 근무', '2025-03-01', d.id)
+      await k.settle()
+      await k.admin('employee', e, 'leave', { leave_date: last })
+      await k.settle()
+      const active = (await k.list('leave_grant')).filter((g) => g.status === 'active')
+      assert.equal(active.filter((g) => g.state.kind === 'annual').length, annual_, last)
+      assert.equal(active.filter((g) => g.state.kind === 'monthly').length, months, last)
+      if (annual_) assert.equal(Number(active.find((g) => g.state.kind === 'annual').state.days), 15)
+    } finally { await k.close() }
+  }
+})
+
+test('the first year: a month with an absence earns no day, and it says which', async () => {
   const k = await company({ modules: ['hr', 'timeoff', 'attendance'], clock: '2024-01-01T09:00:00+09:00' })
   try {
     await clock(k, '2026-04-10')
@@ -846,6 +941,7 @@ test('MCP: the tools name the new types with no change to them; a colleague\'s d
   assert.ok(!cat.includes('leave_request') && !cat.includes('leave_grant'), 'not listed for someone who cannot read them')
   assert.ok((await tool(c, hr.id, 'erp_read', {})).json.some((x) => x.type === 'leave_request'))
   const schema = (await tool(c, viewer.id, 'erp_read', { type: 'leave_request', schema: true })).json
+  assert.equal((await tool(c, viewer.id, 'erp_read', { type: 'leave_person' })).isError, true, 'the copy of people is for people staff')
   assert.ok(schema.fields.every((f) => f.name !== 'reason'), 'the words have no field')
 
   const r = await ask(park, '2027-02-03', '2027-02-03', { reason: '에이전트가 못 볼 사유' })

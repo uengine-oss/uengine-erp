@@ -142,7 +142,7 @@ language sql stable as $$
   select coalesce(jsonb_agg(jsonb_build_object('date', dd.d, 'id', rec.id, 'is_workday', wk.d is not null,
       'check_in', rec.state -> 'check_in', 'check_out', rec.state -> 'check_out', 'worked_minutes', rec.state -> 'worked_minutes', 'break_minutes', rec.state -> 'break_minutes',
       'overtime_minutes', rec.state -> 'overtime_minutes', 'corrected', rec.state -> 'corrected', 'version', null,
-      'leave', lv.d is not null, 'half_day', lv.s -> 'half_day', 'counts_as_attended', lv.s -> 'counts_as_attended',
+      'leave', lv.d is not null, 'half_day', lv.s -> 'half_day', 'attendance_treatment', lv.s -> 'attendance_treatment',
       'status', case
         when rec.id is not null and rec.status = 'open' and dd.d < erp.today() then 'missing_out'
         when rec.id is not null and rec.status = 'open' then 'open'
@@ -225,10 +225,13 @@ begin
     'scheduled_days', (select count(*) from jsonb_array_elements(rows_) x where (x ->> 'is_workday')::boolean),
     'worked_days', (select count(*) from jsonb_array_elements(rows_) x where (x ->> 'is_workday')::boolean and x ->> 'status' = 'worked'),
     'leave_days', (select count(*) from jsonb_array_elements(rows_) x where (x ->> 'is_workday')::boolean and (x ->> 'leave')::boolean),
-    -- Not attended is what Article 60's test will count against them: nothing worked, and no leave that counts as attended.
+    -- Not attended is what Article 60's test will count against them: nothing worked, and no leave that says otherwise.
     'not_attended_dates', (select coalesce(jsonb_agg(x -> 'date' order by x ->> 'date'), '[]'::jsonb) from jsonb_array_elements(rows_) x
                             where (x ->> 'is_workday')::boolean and x ->> 'worked_minutes' is null and x ->> 'status' <> 'open'
-                              and not ((x ->> 'leave')::boolean and coalesce((x ->> 'counts_as_attended')::boolean, false))),
+                              and not ((x ->> 'leave')::boolean and x ->> 'attendance_treatment' in ('attended', 'suspended'))),
+    -- Leave that suspended the duty to work: these days come out of the count rather than against the person.
+    'suspended_dates', (select coalesce(jsonb_agg(x -> 'date' order by x ->> 'date'), '[]'::jsonb) from jsonb_array_elements(rows_) x
+                         where (x ->> 'is_workday')::boolean and x ->> 'worked_minutes' is null and (x ->> 'leave')::boolean and x ->> 'attendance_treatment' = 'suspended'),
     'absent_days', (select count(*) from jsonb_array_elements(rows_) x where x ->> 'status' = 'absent'),
     'worked_minutes', (select coalesce(sum((x ->> 'worked_minutes')::int), 0) from jsonb_array_elements(rows_) x),
     'nonworking_minutes', (select coalesce(sum((x ->> 'worked_minutes')::int), 0) from jsonb_array_elements(rows_) x where not (x ->> 'is_workday')::boolean),
@@ -311,8 +314,10 @@ begin
   if out_ is not null and out_ > erp.now() then perform erp.fail('ERP_INVALID', '앞날의 시각은 적을 수 없습니다'); end if;
   brk := case when p ? 'break_minutes' and jsonb_typeof(p -> 'break_minutes') <> 'null' and nullif(p ->> 'break_minutes', '') is not null then erp.num(p -> 'break_minutes', null)::int end;
   if brk is not null and brk < 0 then perform erp.fail('ERP_INVALID', '휴게 시간은 0 이상이어야 합니다'); end if;
+  -- A break someone stated stays stated when a later correction only moves a time.
+  if brk is null and coalesce((rec.state ->> 'break_stated')::boolean, false) then brk := (rec.state ->> 'break_minutes')::int; end if;
   calc := erp.attendance_compute(in_, out_, brk, pol);
-  set_ := jsonb_build_object('employee_id', emp, 'employee_no', person -> 'employee_no', 'employee_name', person -> 'name', 'department_id', person -> 'department_id', 'department_name', person -> 'department_name',
+  set_ := jsonb_build_object('break_stated', brk is not null, 'employee_id', emp, 'employee_no', person -> 'employee_no', 'employee_name', person -> 'name', 'department_id', person -> 'department_id', 'department_name', person -> 'department_name',
     'date', day_, 'is_workday', erp.is_workday(day_), 'check_in', in_, 'check_out', out_, 'state', case when out_ is null then 'open' else 'done' end,
     'corrected', true, 'name', format('%s %s', person ->> 'name', day_), 'active', true, 'deleted', false) || calc;
   if rec.id is null or rec.deleted then
@@ -468,7 +473,7 @@ begin
   if ev.event_type = 'LeaveApproved' then
     perform erp.emit('attendance_leave', id_, 'AttendanceLeaveNoted', jsonb_build_object('set', jsonb_build_object(
       'employee_id', ev.data -> 'employee_id', 'employee_name', ev.data -> 'employee_name', 'dates', ev.data -> 'dates', 'half_day', ev.data -> 'half_day',
-      'counts_as_attended', ev.data -> 'counts_as_attended', 'number', ev.data -> 'number', 'state', 'active', 'active', true, 'deleted', false),
+      'attendance_treatment', ev.data -> 'attendance_treatment', 'number', ev.data -> 'number', 'state', 'active', 'active', true, 'deleted', false),
       'employee_id', ev.data -> 'employee_id', 'dates', ev.data -> 'dates', 'half_day', ev.data -> 'half_day'));
   elsif ev.event_type = 'LeaveCancelled' and ev.data ->> 'was' = 'approved' and exists (select 1 from erp.records where id = id_) then
     perform erp.emit('attendance_leave', id_, 'AttendanceLeaveCleared', jsonb_build_object('set', '{"state": "cleared"}'::jsonb, 'employee_id', ev.data -> 'employee_id', 'dates', ev.data -> 'dates'));

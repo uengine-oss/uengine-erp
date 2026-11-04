@@ -3,6 +3,7 @@
 import { onMounted, ref, watch } from 'vue'
 import { messageOf, rpc } from '../../lib/api'
 import { onDataChanged } from '../../lib/commands'
+import { timeView } from '../../lib/mode'
 import Icon from '../../components/Icon.vue'
 import LawNotice from '../docs/LawNotice.vue'
 import { WEEK_COLOR, WEEK_STATUS, fmtMinutes } from './fmt'
@@ -38,6 +39,7 @@ watch(on, load)
     </div>
     <div v-if="error" class="banner banner-error banner-flush" role="alert"><Icon name="alert" /><span class="grow">{{ error }}</span></div>
     <div class="page-body page-pad">
+      <p v-if="timeView.at" class="small dim" data-testid="now-only">지난 시점을 보는 중이어도 이 화면은 지금 기준입니다.</p>
       <LawNotice kind="attendance" />
       <p class="small dim">주 52시간은 그 주 전체 근로시간으로 봅니다(대법원 2020도15393). 하루 8시간 초과분을 합한 값은 연장근로 수당을 볼 때 쓰며 이 한도와 다릅니다.</p>
       <p v-if="data && !data.applies_limit" class="small dim" data-testid="week-off">회사가 주 52시간 확인을 껐습니다.</p>

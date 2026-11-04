@@ -674,6 +674,8 @@ declare
   avg_people numeric; left_people int; attr numeric;
   low_ numeric; high_ numeric;
 begin
+  -- Row security hides nothing here, since it is worked out from people and a policy anyone may read. It still names what each person would get.
+  if not erp.has_role(array['hr']) then raise exception 'ERP_FORBIDDEN: 인사 담당자만 볼 수 있습니다' using errcode = 'PT403'; end if;
   if next_ ->> 'basis' <> cur ->> 'basis' then raise exception 'ERP_INVALID: 부여 기준 전환의 일수는 계산하지 않습니다. 전환 정산 규칙을 정한 뒤에 보세요'; end if;
   with p as (select * from public.erp_people(asof) x where x.leave_date is null or x.leave_date >= on_),
   y as (

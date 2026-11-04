@@ -139,10 +139,10 @@ begin
     perform erp.emit('leave_policy', erp.timeoff_policy_id(), 'LeavePolicySet', jsonb_build_object('set', p, 'policy', erp.timeoff_policy_facts(p)));
   end if;
   for t in select * from jsonb_array_elements('[
-    {"code": "annual", "name": "연차", "tracks_balance": true, "paid": true, "counts_as_attended": true, "allow_half_day": true},
-    {"code": "sick", "name": "병가", "tracks_balance": false, "paid": false, "counts_as_attended": false, "allow_half_day": true},
-    {"code": "family", "name": "경조", "tracks_balance": false, "paid": true, "counts_as_attended": true, "allow_half_day": false},
-    {"code": "unpaid", "name": "무급", "tracks_balance": false, "paid": false, "counts_as_attended": false, "allow_half_day": true}]'::jsonb) loop
+    {"code": "annual", "name": "연차", "tracks_balance": true, "paid": true, "attendance_treatment": "attended", "allow_half_day": true},
+    {"code": "sick", "name": "병가", "tracks_balance": false, "paid": false, "attendance_treatment": "suspended", "allow_half_day": true},
+    {"code": "family", "name": "경조", "tracks_balance": false, "paid": true, "attendance_treatment": "attended", "allow_half_day": false},
+    {"code": "unpaid", "name": "무급", "tracks_balance": false, "paid": false, "attendance_treatment": "suspended", "allow_half_day": true}]'::jsonb) loop
     if not exists (select 1 from erp.records where id = erp.seed_id('leave_type:' || (t ->> 'code'))) then
       perform erp.emit('leave_type', erp.seed_id('leave_type:' || (t ->> 'code')), 'LeaveTypeCreated',
         jsonb_build_object('set', t || '{"allow_negative": false, "max_negative": 0, "active": true}'::jsonb));
@@ -166,7 +166,7 @@ begin
   if p_id = erp.timeoff_annual_type() then
     if p_command in ('archive', 'delete') then perform erp.fail('ERP_IN_USE', '연차 유형은 보관하거나 삭제할 수 없습니다. 자동 부여가 이 유형에 쌓입니다'); end if;
     if p ? 'tracks_balance' and (p ->> 'tracks_balance')::boolean is distinct from true then perform erp.fail('ERP_INVALID', '연차 유형은 잔여를 관리해야 합니다'); end if;
-    if p ? 'counts_as_attended' and (p ->> 'counts_as_attended')::boolean is distinct from true then perform erp.fail('ERP_INVALID', '연차를 쓴 날은 출근으로 봅니다'); end if;
+    if p ? 'attendance_treatment' and p ->> 'attendance_treatment' <> 'attended' then perform erp.fail('ERP_INVALID', '연차를 쓴 날은 출근으로 봅니다'); end if;
   end if;
   if p_command in ('create', 'update') and p ? 'max_negative' and erp.num(p -> 'max_negative') < 0 then
     perform erp.fail('ERP_INVALID', '허용하는 마이너스 일수 항목은 0 이상이어야 합니다');
@@ -245,6 +245,7 @@ declare
   rec jsonb;
   who jsonb;
   misses date[] := '{}';
+  stopped date[] := '{}';
 begin
   if p_from is null or p_to is null or p_from > p_to then return null; end if;
   m := date_trunc('month', p_from)::date;
@@ -255,21 +256,28 @@ begin
     -- Attendance says from which day it has anything to say about this person.
     if who is null or (who ->> 'from')::date > greatest(p_from, m) or (who ->> 'to')::date < least(p_to, (m + interval '1 month - 1 day')::date) then return null; end if;
     misses := misses || array(select (x)::date from jsonb_array_elements_text(who -> 'not_attended_dates') x where (x)::date between p_from and p_to);
+    stopped := stopped || array(select (x)::date from jsonb_array_elements_text(coalesce(who -> 'suspended_dates', '[]'::jsonb)) x where (x)::date between p_from and p_to);
     m := (m + interval '1 month')::date;
   end loop;
-  return jsonb_build_object('not_attended', to_jsonb(misses));
+  return jsonb_build_object('not_attended', to_jsonb(misses), 'suspended', to_jsonb(stopped));
 end $$;
 
 -- What a scheduled entry comes to once attendance has its say. Article 60(1) asks 80 percent over the year, and at 80 exactly
 -- it is met; under it, (2) gives a day for each full month. Without closed months nothing can be checked, so the Act's days are given and the record says it could not check.
+-- Days an approved leave suspended the duty to work come out of the count altogether, as the ministry reads it since 2021 (임금근로시간과-1736):
+-- the rate is measured on what is left. If it is 80 percent of the whole year as well, nothing changes; if only of what is left, the days shrink in proportion.
 create or replace function erp.timeoff_judge(p_employee uuid, p_kind text, p_from date, p_to date, p_days numeric)
 returns jsonb language plpgsql stable as $$
 declare
   ev jsonb;
   sched date[];
   misses date[];
-  n int;
+  stopped date[];
+  total_ int;
+  real_ int;
+  attended int;
   rate_ numeric;
+  whole_ numeric;
   sub_from date; sub_to date;
   full_months int := 0;
   monthly_ numeric := coalesce((erp.timeoff_policy() ->> 'monthly_days')::numeric, 1);
@@ -279,23 +287,37 @@ begin
   ev := erp.timeoff_attendance_in(p_employee, p_from, p_to);
   if ev is null then return jsonb_build_object('days', p_days, 'status', 'unverified', 'rate', null); end if;
   sched := erp.workdays(p_from, p_to);
-  n := coalesce(array_length(sched, 1), 0);
-  if n = 0 then return jsonb_build_object('days', p_days, 'status', 'unverified', 'rate', null); end if;
+  total_ := coalesce(array_length(sched, 1), 0);
+  if total_ = 0 then return jsonb_build_object('days', p_days, 'status', 'unverified', 'rate', null); end if;
   select array(select (x)::date from jsonb_array_elements_text(ev -> 'not_attended') x where (x)::date = any (sched)) into misses;
-  rate_ := (n - coalesce(array_length(misses, 1), 0))::numeric / n;
+  select array(select (x)::date from jsonb_array_elements_text(ev -> 'suspended') x where (x)::date = any (sched)) into stopped;
+  real_ := total_ - coalesce(array_length(stopped, 1), 0);
+  attended := real_ - coalesce(array_length(misses, 1), 0);
+  if real_ <= 0 then
+    return jsonb_build_object('days', 0, 'status', 'verified', 'rate', null, 'scheduled_days', total_, 'working_days', 0, 'attended_days', 0);
+  end if;
+  rate_ := attended::numeric / real_;
+  whole_ := attended::numeric / total_;
   if p_kind = 'monthly' then
     return jsonb_build_object('days', case when coalesce(array_length(misses, 1), 0) = 0 then p_days else 0 end, 'status', 'verified', 'rate', round(rate_, 4),
       'not_attended', to_jsonb(misses));
   end if;
-  if rate_ >= 0.8 then return jsonb_build_object('days', p_days, 'status', 'verified', 'rate', round(rate_, 4)); end if;
-  -- Under 80 percent: a day for each full month of that year, with no years-of-service days on top.
+  if rate_ >= 0.8 then
+    return jsonb_build_object('days', case when whole_ >= 0.8 then p_days else ceil(p_days * real_ / total_ * 100) / 100 end,
+      'status', 'verified', 'rate', round(rate_, 4), 'rate_of_year', round(whole_, 4), 'scheduled_days', total_, 'working_days', real_, 'attended_days', attended);
+  end if;
+  -- Under 80 percent: a day for each full month of that year, with no years-of-service days on top. A month with nobody there to attend earns nothing.
   for i in 0..11 loop
     sub_from := public.erp_leave_anchor(p_from, i);
     sub_to := public.erp_leave_anchor(p_from, i + 1) - 1;
     exit when sub_from > p_to;
-    if not exists (select 1 from unnest(misses) x where x between sub_from and least(sub_to, p_to)) then full_months := full_months + 1; end if;
+    if not exists (select 1 from unnest(misses) x where x between sub_from and least(sub_to, p_to))
+       and exists (select 1 from unnest(sched) x where x between sub_from and least(sub_to, p_to) and not x = any (stopped)) then
+      full_months := full_months + 1;
+    end if;
   end loop;
-  return jsonb_build_object('days', full_months * monthly_, 'status', 'verified', 'rate', round(rate_, 4), 'under_80', true, 'full_months', full_months);
+  return jsonb_build_object('days', full_months * monthly_, 'status', 'verified', 'rate', round(rate_, 4), 'rate_of_year', round(whole_, 4), 'under_80', true, 'full_months', full_months,
+    'scheduled_days', total_, 'working_days', real_, 'attended_days', attended);
 end $$;
 
 -- Brings one person's automatic grants in line with what they are due today. Safe to run any number of times, so the bus, the
@@ -338,13 +360,13 @@ begin
           'department_id', person -> 'department_id', 'department_name', person -> 'department_name',
           'leave_type_id', erp.timeoff_annual_type(), 'leave_type_code', 'annual', 'kind', r.kind, 'full_days', full_, 'days', (j ->> 'days')::numeric, 'used_before', 0,
           'granted_on', r.grant_date, 'valid_from', r.valid_from, 'valid_to', r.valid_to, 'period_from', r.period_from, 'period_to', r.period_to, 'years', r.years, 'rule', r.rule,
-          'attendance_status', j -> 'status', 'attendance_rate', j -> 'rate', 'not_attended', j -> 'not_attended', 'state', 'active', 'active', true,
+          'attendance_status', j -> 'status', 'attendance_rate', j -> 'rate', 'attendance_detail', j - 'days' - 'status' - 'rate', 'not_attended', j -> 'not_attended', 'state', 'active', 'active', true, 'deleted', false,
           'name', format('%s 연차 %s', person ->> 'name', r.grant_date));
         perform erp.emit('leave_grant', id_, 'LeaveGranted', jsonb_build_object('set', set_) || erp.leave_grant_facts(set_) || jsonb_build_object('delta', (j ->> 'days')::numeric));
       elsif rec.status = 'active' and (
           (rec.state ->> 'days')::numeric is distinct from (j ->> 'days')::numeric or rec.state ->> 'attendance_status' is distinct from j ->> 'status') then
         held := erp.leave_grant_held(id_) + coalesce((rec.state ->> 'used_before')::numeric, 0);
-        set_ := jsonb_build_object('attendance_status', j -> 'status', 'attendance_rate', j -> 'rate', 'not_attended', j -> 'not_attended');
+        set_ := jsonb_build_object('attendance_status', j -> 'status', 'attendance_rate', j -> 'rate', 'attendance_detail', j - 'days' - 'status' - 'rate', 'not_attended', j -> 'not_attended');
         if (j ->> 'days')::numeric < held then
           set_ := set_ || jsonb_build_object('days', held, 'flag', format('근거가 바뀌어 %s일이 되어야 하지만 이미 %s일을 써서 줄이지 않았습니다. 확인이 필요합니다', j ->> 'days', held));
         else
@@ -417,6 +439,7 @@ declare
   emp uuid;
   from_ date; to_ date;
   days_ numeric; held numeric;
+  k text; why text;
   reason_ text := nullif(btrim(coalesce(current_setting('erp.reason', true), '')), '');
 begin
   case p_command
@@ -427,8 +450,11 @@ begin
       if person is null then perform erp.fail('ERP_INVALID', '이 직원은 아직 휴가 대상으로 반영되지 않았습니다. 잠시 뒤 다시 시도하세요'); end if;
       t := erp.require_state((p ->> 'leave_type_id')::uuid, 'leave_type');
       if not coalesce((t ->> 'tracks_balance')::boolean, false) then perform erp.fail('ERP_INVALID', '잔여를 관리하지 않는 유형에는 부여할 수 없습니다'); end if;
-      if reason_ is null then perform erp.fail('ERP_REQUIRED', '부여 사유를 적어 주세요. 원장에 남으니 민감한 내용은 적지 마세요'); end if;
-      perform erp.timeoff_refuse_resident_no(reason_);
+      select key into k from jsonb_each(p) where key not in ('employee_id', 'leave_type_id', 'days', 'valid_from', 'valid_to', 'rule') limit 1;
+      if k is not null then perform erp.fail('ERP_UNKNOWN_FIELD', format('휴가 부여에 없는 항목입니다: %s', k)); end if;
+      why := coalesce(nullif(btrim(coalesce(p ->> 'rule', '')), ''), reason_);
+      if why is null then perform erp.fail('ERP_REQUIRED', '근거 항목은 필수입니다. 원장에 남으니 민감한 내용은 적지 마세요'); end if;
+      perform erp.timeoff_refuse_resident_no(why);
       days_ := erp.num(p -> 'days', null);
       from_ := erp.timeoff_date(p ->> 'valid_from', '시작일');
       to_ := erp.timeoff_date(p ->> 'valid_to', '끝일');
@@ -438,7 +464,7 @@ begin
       perform erp.timeoff_lock(emp);
       set_ := jsonb_build_object('employee_id', emp, 'employee_name', person -> 'name', 'department_id', person -> 'department_id', 'department_name', person -> 'department_name',
         'leave_type_id', p -> 'leave_type_id', 'leave_type_code', t -> 'code', 'kind', 'manual', 'days', days_, 'used_before', 0, 'granted_on', erp.today(), 'valid_from', from_, 'valid_to', to_,
-        'rule', '수동 부여', 'attendance_status', 'not_applicable', 'state', 'active', 'active', true, 'name', format('%s %s 수동 %s일', person ->> 'name', t ->> 'name', days_));
+        'rule', why, 'attendance_status', 'not_applicable', 'state', 'active', 'active', true, 'name', format('%s %s 수동 %s일', person ->> 'name', t ->> 'name', days_));
       perform erp.emit('leave_grant', new_id, 'LeaveGranted', jsonb_build_object('set', set_) || erp.leave_grant_facts(set_) || jsonb_build_object('delta', days_));
     when 'used_before' then
       s := erp.require_state(p_id, 'leave_grant');
@@ -520,7 +546,7 @@ create or replace function erp.leave_request_facts(s jsonb) returns jsonb
 language sql immutable as $$
   select jsonb_build_object('number', s -> 'number', 'employee_id', s -> 'employee_id', 'employee_no', s -> 'employee_no', 'employee_name', s -> 'employee_name',
     'department_id', s -> 'department_id', 'department_name', s -> 'department_name', 'leave_type_id', s -> 'leave_type_id', 'leave_type_code', s -> 'leave_type_code', 'leave_type_name', s -> 'leave_type_name',
-    'paid', s -> 'paid', 'counts_as_attended', s -> 'counts_as_attended', 'date_from', s -> 'date_from', 'date_to', s -> 'date_to', 'half_day', s -> 'half_day',
+    'paid', s -> 'paid', 'attendance_treatment', s -> 'attendance_treatment', 'date_from', s -> 'date_from', 'date_to', s -> 'date_to', 'half_day', s -> 'half_day',
     'dates', s -> 'dates', 'days', s -> 'days', 'allocations', s -> 'allocations', 'shortfall', s -> 'shortfall', 'has_reason', s -> 'has_reason')
 $$;
 
@@ -647,7 +673,7 @@ begin
 
   set_ := jsonb_build_object('number', erp.next_number('LV', 'LV-', 5), 'employee_id', emp, 'employee_no', person -> 'employee_no', 'employee_name', person -> 'name',
     'department_id', person -> 'department_id', 'department_name', person -> 'department_name',
-    'leave_type_id', t_id, 'leave_type_code', t -> 'code', 'leave_type_name', t -> 'name', 'paid', coalesce(t -> 'paid', 'false'::jsonb), 'counts_as_attended', coalesce(t -> 'counts_as_attended', 'false'::jsonb),
+    'leave_type_id', t_id, 'leave_type_code', t -> 'code', 'leave_type_name', t -> 'name', 'paid', coalesce(t -> 'paid', 'false'::jsonb), 'attendance_treatment', coalesce(t -> 'attendance_treatment', '"absent"'::jsonb),
     'date_from', from_, 'date_to', to_, 'half_day', half_, 'dates', to_jsonb(dates_), 'days', days_, 'allocations', alloc -> 'allocations', 'shortfall', shortfall_,
     'has_reason', reason_ is not null, 'state', 'pending', 'active', true);
   perform erp.emit('leave_request', p_id, 'LeaveRequested', jsonb_build_object('set', set_) || erp.leave_request_facts(set_));
@@ -807,7 +833,7 @@ declare
   map_ jsonb := '{}'::jsonb;
 begin
   for e in select * from jsonb_array_elements(coalesce(ev.data -> 'employees', '[]'::jsonb)) loop
-    map_ := map_ || jsonb_build_object(e ->> 'employee_id', jsonb_build_object('from', e -> 'from', 'to', e -> 'to', 'not_attended_dates', coalesce(e -> 'not_attended_dates', '[]'::jsonb)));
+    map_ := map_ || jsonb_build_object(e ->> 'employee_id', jsonb_build_object('from', e -> 'from', 'to', e -> 'to', 'not_attended_dates', coalesce(e -> 'not_attended_dates', '[]'::jsonb), 'suspended_dates', coalesce(e -> 'suspended_dates', '[]'::jsonb)));
   end loop;
   perform erp.emit('leave_attendance_month', erp.seed_id('leave_attendance_month:' || period_), 'LeaveAttendanceNoted', jsonb_build_object('set', jsonb_build_object(
     'name', period_, 'period', period_, 'employees', map_, 'active', true, 'deleted', false)));
@@ -916,6 +942,21 @@ begin
   return rows_;
 end $$;
 
+-- What a boss has decided and may still have to stand behind: their reports' leave from a month back on. Only a boss can see this
+-- about their own people, and the requests themselves stay closed.
+create or replace function public.erp_leave_reports() returns jsonb
+language plpgsql stable security definer set search_path = erp, extensions, pg_temp as $$
+declare me uuid := erp.timeoff_me();
+begin
+  if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '이 회사의 구성원이 아닙니다'); end if;
+  perform erp.require_module('timeoff');
+  if me is null then return '[]'::jsonb; end if;
+  return (select coalesce(jsonb_agg(erp.leave_request_row(q) order by q.state ->> 'date_from' desc), '[]'::jsonb)
+            from erp.records q join erp.records p on p.id = erp.timeoff_person_id((q.state ->> 'employee_id')::uuid) and not p.deleted
+           where q.type = 'leave_request' and not q.deleted and q.status = 'approved' and p.state ->> 'manager_id' = me::text
+             and (q.state ->> 'date_to')::date >= erp.today() - 30);
+end $$;
+
 -- The one way to read the words: the person who wrote them, their current boss, and people staff. An agent's tools never come here.
 create or replace function public.erp_leave_reason(p_request uuid) returns jsonb
 language plpgsql stable security definer set search_path = erp, extensions, pg_temp as $$
@@ -1006,7 +1047,9 @@ select erp.catalog_put('{
     {"name": "code", "label": "코드", "type": "text", "help": "비워 둬도 됩니다."},
     {"name": "tracks_balance", "label": "잔여 관리", "type": "boolean", "default": false, "list": true, "help": "켜면 부여된 일수 안에서만 신청할 수 있습니다."},
     {"name": "paid", "label": "유급", "type": "boolean", "default": false, "list": true},
-    {"name": "counts_as_attended", "label": "출근으로 봄", "type": "boolean", "default": false, "list": true, "help": "연차 출근율에서 이 휴가를 출근으로 칩니다. 근로기준법 제60조제6항의 기간(업무상 부상·질병 휴업, 출산전후휴가, 육아휴직)으로 쓰는 유형은 켜야 합니다. 그 밖에는 회사가 정합니다."},
+    {"name": "attendance_treatment", "label": "출근율에서", "type": "enum", "default": "absent", "required": true, "list": true,
+     "options": [{"value": "attended", "label": "출근으로 봄"}, {"value": "suspended", "label": "소정근로일에서 뺌(근로 의무 정지)"}, {"value": "absent", "label": "출근하지 않은 날로 봄"}],
+     "help": "근로기준법 제60조제6항의 기간(업무상 부상·질병 휴업, 출산전후휴가, 육아휴직)은 출근으로 봐야 합니다. 업무 밖 부상·질병 휴직이나 약정 휴직은 고용노동부가 소정근로일에서 빼라고 안내합니다. 그 밖에는 회사가 정하고 전문가와 확인합니다."},
     {"name": "allow_half_day", "label": "반차 허용", "type": "boolean", "default": false, "list": true, "help": "법에는 반차가 없습니다. 회사가 정합니다."},
     {"name": "allow_negative", "label": "마이너스 허용", "type": "boolean", "default": false, "list": true, "help": "잔여를 넘어 당겨 쓸 수 있게 합니다."},
     {"name": "max_negative", "label": "마이너스 한도(일)", "type": "number", "default": 0}
@@ -1034,7 +1077,7 @@ select erp.catalog_put('{
 }'::jsonb);
 
 select erp.catalog_put('{
-  "type": "leave_person", "module": "timeoff", "sort": 650, "label": "휴가 대상 직원", "label_en": "Leave person", "pick_states": ["active"],
+  "type": "leave_person", "module": "timeoff", "sort": 650, "label": "휴가 대상 직원", "label_en": "Leave person", "pick_states": ["active"], "read_roles": ["hr"],
   "fields": [
     {"name": "name", "label": "이름", "type": "text", "readonly": true, "list": true, "search": true},
     {"name": "employee_no", "label": "사번", "type": "text", "readonly": true, "list": true},
@@ -1066,7 +1109,7 @@ select erp.catalog_put('{
     {"name": "attendance_status", "label": "출근율 확인", "type": "enum", "readonly": true, "list": true,
      "options": [{"value": "verified", "label": "확인함"}, {"value": "unverified", "label": "확인 못 함"}, {"value": "not_applicable", "label": "해당 없음"}]},
     {"name": "attendance_rate", "label": "출근율", "type": "number", "readonly": true},
-    {"name": "rule", "label": "근거", "type": "text", "readonly": true},
+    {"name": "rule", "label": "근거", "type": "text", "required": true, "help": "원장에 남습니다. 민감한 내용은 적지 마세요."},
     {"name": "flag", "label": "확인 필요", "type": "text", "readonly": true},
     {"name": "state", "label": "상태", "type": "enum", "readonly": true, "list": true, "options": [{"value": "active", "label": "유효"}, {"value": "voided", "label": "취소"}]}
   ],
@@ -1134,10 +1177,10 @@ select erp.module_put('{
     {"name": "timeoff.reverted", "handler": "erp.timeoff_on_reverted", "events": ["Reverted"]}
   ],
   "publishes": [
-    {"event": "LeaveRequested", "fields": ["number", "employee_id", "employee_no", "employee_name", "department_id", "department_name", "leave_type_id", "leave_type_code", "leave_type_name", "paid", "counts_as_attended", "date_from", "date_to", "half_day", "dates", "days", "allocations", "shortfall", "has_reason"]},
-    {"event": "LeaveApproved", "fields": ["number", "employee_id", "employee_no", "employee_name", "department_id", "department_name", "leave_type_id", "leave_type_code", "leave_type_name", "paid", "counts_as_attended", "date_from", "date_to", "half_day", "dates", "days", "allocations", "shortfall", "has_reason", "approver_role", "approver_name"]},
-    {"event": "LeaveRejected", "fields": ["number", "employee_id", "employee_no", "employee_name", "department_id", "department_name", "leave_type_id", "leave_type_code", "leave_type_name", "paid", "counts_as_attended", "date_from", "date_to", "half_day", "dates", "days", "allocations", "shortfall", "has_reason", "approver_role", "approver_name", "has_reject_reason"]},
-    {"event": "LeaveCancelled", "fields": ["number", "employee_id", "employee_no", "employee_name", "department_id", "department_name", "leave_type_id", "leave_type_code", "leave_type_name", "paid", "counts_as_attended", "date_from", "date_to", "half_day", "dates", "days", "allocations", "shortfall", "has_reason", "was", "by_leaving"]},
+    {"event": "LeaveRequested", "fields": ["number", "employee_id", "employee_no", "employee_name", "department_id", "department_name", "leave_type_id", "leave_type_code", "leave_type_name", "paid", "attendance_treatment", "date_from", "date_to", "half_day", "dates", "days", "allocations", "shortfall", "has_reason"]},
+    {"event": "LeaveApproved", "fields": ["number", "employee_id", "employee_no", "employee_name", "department_id", "department_name", "leave_type_id", "leave_type_code", "leave_type_name", "paid", "attendance_treatment", "date_from", "date_to", "half_day", "dates", "days", "allocations", "shortfall", "has_reason", "approver_role", "approver_name"]},
+    {"event": "LeaveRejected", "fields": ["number", "employee_id", "employee_no", "employee_name", "department_id", "department_name", "leave_type_id", "leave_type_code", "leave_type_name", "paid", "attendance_treatment", "date_from", "date_to", "half_day", "dates", "days", "allocations", "shortfall", "has_reason", "approver_role", "approver_name", "has_reject_reason"]},
+    {"event": "LeaveCancelled", "fields": ["number", "employee_id", "employee_no", "employee_name", "department_id", "department_name", "leave_type_id", "leave_type_code", "leave_type_name", "paid", "attendance_treatment", "date_from", "date_to", "half_day", "dates", "days", "allocations", "shortfall", "has_reason", "was", "by_leaving"]},
     {"event": "LeaveGranted", "fields": ["employee_id", "employee_name", "department_id", "department_name", "leave_type_id", "leave_type_code", "kind", "days", "delta", "used_before", "granted_on", "valid_from", "valid_to", "period_from", "period_to", "rule", "attendance_status", "attendance_rate", "grant_state"]},
     {"event": "LeaveGrantAdjusted", "fields": ["employee_id", "employee_name", "kind", "days", "delta", "valid_to", "attendance_status", "attendance_rate", "grant_state"]},
     {"event": "LeaveGrantUsedBefore", "fields": ["employee_id", "employee_name", "kind", "days", "used_before", "valid_to", "grant_state"]},

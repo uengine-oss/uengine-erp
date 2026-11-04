@@ -5,6 +5,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { messageOf, rpc } from '../../lib/api'
 import { onDataChanged } from '../../lib/commands'
 import { db } from '../../lib/conn'
+import { timeView } from '../../lib/mode'
 import { hasRole } from '../../lib/session'
 import Icon from '../../components/Icon.vue'
 
@@ -74,6 +75,7 @@ watch([month, department], load)
     </div>
     <div v-if="error" class="banner banner-error banner-flush" role="alert"><Icon name="alert" /><span class="grow">{{ error }}</span></div>
     <div class="page-body page-pad">
+      <p v-if="timeView.at" class="small dim" data-testid="now-only">지난 시점을 보는 중이어도 이 화면은 지금 기준입니다.</p>
       <p v-if="cal && !cal.linked && !staff" class="muted" data-testid="calendar-unlinked">이 계정에 연결된 직원이 없어 팀을 알 수 없습니다.</p>
       <div class="grid head"><div v-for="w in ['일', '월', '화', '수', '목', '금', '토']" :key="w" class="dow">{{ w }}</div></div>
       <div class="grid">

@@ -4,7 +4,7 @@
 import { onMounted, ref } from 'vue'
 import { messageOf, rpc } from '../../lib/api'
 import { onDataChanged, sendCommand } from '../../lib/commands'
-import { writeBlock } from '../../lib/mode'
+import { timeView, writeBlock } from '../../lib/mode'
 import { ask, toast } from '../../lib/ui'
 import EmptyState from '../../components/EmptyState.vue'
 import Icon from '../../components/Icon.vue'
@@ -13,6 +13,7 @@ import { HALF_LABEL, dateRange, fmtDays } from './fmt'
 interface Row { id: string; number: string; employee_name: string; department_name: string; leave_type_name: string; date_from: string; date_to: string; half_day: string | null; days: number; shortfall: number; route: 'manager' | 'hr'; reason: string | null; balances: { remaining: number; name: string; tracks_balance: boolean }[] }
 
 const rows = ref<Row[] | null>(null)
+const approved = ref<{ id: string; number: string; employee_name: string; leave_type_name: string; date_from: string; date_to: string; days: number }[]>([])
 const error = ref('')
 const busyId = ref('')
 
@@ -20,6 +21,7 @@ async function load() {
   error.value = ''
   try {
     rows.value = await rpc<Row[]>('erp_leave_inbox')
+    approved.value = await rpc('erp_leave_reports')
   } catch (e) {
     error.value = messageOf(e)
   }
@@ -38,6 +40,18 @@ async function approve(r: Row) {
     error.value = messageOf(e)
   } finally {
     busyId.value = ''
+  }
+}
+
+async function cancelApproved(r: { id: string; number: string; employee_name: string }) {
+  const answer = await ask({ title: '휴가 취소', message: `${r.employee_name}의 ${r.number} 휴가를 취소할까요? 일수가 돌아옵니다. 본인에게 따로 알리세요.`, danger: true, confirmLabel: '휴가 취소' })
+  if (!answer) return
+  try {
+    await sendCommand({ type: 'leave_request', id: r.id, command: 'cancel', payload: {} })
+    toast('휴가를 취소했습니다.')
+    await load()
+  } catch (e) {
+    error.value = messageOf(e)
   }
 }
 
@@ -68,6 +82,7 @@ async function reject(r: Row) {
     <div class="page-head"><h1>승인함<span v-if="rows?.length" class="page-count">{{ rows.length }}건</span></h1></div>
     <div v-if="error" class="banner banner-error banner-flush" role="alert" data-testid="approvals-error"><Icon name="alert" /><span class="grow">{{ error }}</span></div>
     <div class="page-body page-pad">
+      <p v-if="timeView.at" class="small dim" data-testid="now-only">지난 시점을 보는 중이어도 이 화면은 지금 기준입니다.</p>
       <p class="small dim">승인자는 상사입니다. 상사가 없거나 퇴사했거나 ERP 계정이 없으면 인사 담당자에게 옵니다. 자기 신청은 직접 결정할 수 없습니다.</p>
       <table v-if="rows?.length" class="tbl" data-testid="approvals-table">
         <thead><tr><th>번호</th><th>직원</th><th>유형</th><th>날짜</th><th class="num">일수</th><th class="num">남은 일수</th><th>사유</th><th>경로</th><th></th></tr></thead>
@@ -89,11 +104,25 @@ async function reject(r: Row) {
         </tbody>
       </table>
       <EmptyState v-else-if="rows" title="기다리는 신청이 없습니다" text="부하 직원이 휴가를 신청하면 여기에 나타납니다." />
+      <section v-if="approved.length" class="reports" data-testid="approved-reports">
+        <h2>승인한 휴가 <span class="muted small">지난 30일부터. 이미 시작한 휴가는 본인이 취소할 수 없어 상사가 취소합니다</span></h2>
+        <table class="tbl">
+          <thead><tr><th>번호</th><th>직원</th><th>유형</th><th>날짜</th><th class="num">일수</th><th></th></tr></thead>
+          <tbody>
+            <tr v-for="r in approved" :key="r.id" data-testid="approved-row" :data-number="r.number">
+              <td>{{ r.number }}</td><td>{{ r.employee_name }}</td><td>{{ r.leave_type_name }}</td><td>{{ dateRange(r.date_from, r.date_to) }}</td><td class="num">{{ fmtDays(r.days) }}</td>
+              <td class="acts"><button type="button" class="btn btn-sm" :disabled="!!writeBlock" data-testid="approved-cancel" @click="cancelApproved(r)">취소</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
     </div>
   </div>
 </template>
 
 <style scoped>
+.reports { margin-top: 18px; }
+.reports h2 { margin-bottom: 8px; }
 .acts { white-space: nowrap; text-align: right; }
 .acts .btn + .btn { margin-left: 4px; }
 </style>

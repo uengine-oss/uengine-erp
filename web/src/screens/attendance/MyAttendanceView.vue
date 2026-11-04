@@ -4,7 +4,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { messageOf, rpc } from '../../lib/api'
 import { onDataChanged, sendCommand } from '../../lib/commands'
-import { writeBlock } from '../../lib/mode'
+import { timeView, writeBlock } from '../../lib/mode'
 import { toast } from '../../lib/ui'
 import Icon from '../../components/Icon.vue'
 import LawNotice from '../docs/LawNotice.vue'
@@ -56,6 +56,7 @@ async function stamp(command: 'check_in' | 'check_out') {
     <div class="page-head"><h1>내 근태</h1></div>
     <div v-if="error" class="banner banner-error banner-flush" role="alert" data-testid="my-attendance-error"><Icon name="alert" /><span class="grow">{{ error }}</span></div>
     <div class="page-body page-pad">
+      <p v-if="timeView.at" class="small dim" data-testid="now-only">지난 시점을 보는 중이어도 이 화면은 지금 기준입니다.</p>
       <LawNotice kind="attendance" />
       <section v-if="data && !data.linked" class="panel" data-testid="my-attendance-unlinked"><p>이 계정에 연결된 재직 직원이 없습니다. 인사 담당자에게 직원 정보에 ERP 구성원을 연결해 달라고 요청하세요.</p></section>
       <template v-else-if="data">
