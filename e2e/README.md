@@ -75,12 +75,13 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
 | 새 회사는 판매만 켜진 채로 시작한다 | `growth.test.mjs` 1<br>`modules.spec.mjs` 4<br>`growth.spec.mjs` 1<br>`bus.test.mjs` 1 | SQL, 브라우저 | ✅ |
+| 모듈은 필요한 모듈을 문서에 적고, 없으면 켜지지 않는다 | `expense.test.mjs` 1<br>`timeoff.spec.mjs` 1<br>`attendance.spec.mjs` 1 | SQL, 브라우저 | ✅ |
 | 다른 모듈 없이 일할 수 없는 모듈은 그렇게 밝힌다 | `expense.test.mjs` 1<br>`expense.spec.mjs` 1 | SQL, 브라우저 | ✅ |
 | 켜기 전에 무엇이 열리고 무엇을 다시 만들 수 없는지 알려 준다 | `modules.spec.mjs` 1<br>`growth.spec.mjs` 1<br>`accounting.test.mjs` 1 | SQL, 브라우저 | ✅ |
 | 켠 모듈은 그 뒤의 이벤트부터 받고 고른 만큼만 과거를 읽는다 | `modules.spec.mjs` 1<br>`bus.test.mjs` 5<br>`growth.test.mjs` 2<br>`growth.spec.mjs` 1 | SQL, 브라우저 | ✅ |
 | 유형은 카탈로그로 행 단위 읽기를 정할 수 있다 | `expense-privacy.test.mjs` 3 | SQL | ✅ |
 | 모듈 사이의 통로는 원장 이벤트 하나다 | `growth.test.mjs` 1<br>`growth.spec.mjs` 1<br>`bus.test.mjs` 1 | SQL, 브라우저 | ✅ |
-| 다섯 모듈의 어떤 조합도 동작한다 | `isolation.test.mjs` 32 | SQL | ✅ |
+| 여섯 모듈의 어떤 조합도 동작한다 | `isolation.test.mjs` 32 | SQL | ✅ |
 | 구독자가 실패해도 다른 일은 멈추지 않는다 | `growth.test.mjs` 1<br>`modules.spec.mjs` 2<br>`bus.test.mjs` 3 | SQL, 브라우저 | ✅ |
 | 전달은 재촉과 정기 실행으로 이어지고 순서를 지킨다 | `modules.spec.mjs` 2<br>`api.e2e.mjs` 1<br>`bus.test.mjs` 2 | SQL, HTTP, 브라우저 | ✅ |
 | 끄면 막히되 데이터는 남고 다시 켤 때 밀린 일을 고른다 | `modules.spec.mjs` 1<br>`growth.spec.mjs` 1<br>`bus.test.mjs` 1 | SQL, 브라우저 | ✅ |
@@ -527,54 +528,25 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
-| SQL | `test/*.test.mjs` (30개) | 848 |
-| HTTP | `test/*.e2e.mjs` (2개) | 16 |
-| 브라우저 | `e2e/tests/*.spec.mjs` (16개) | 194 |
-| 합계 | 48개 | 1058 |
+| SQL | `test/*.test.mjs` (43개) | 1273 |
+| HTTP | `test/*.e2e.mjs` (2개) | 17 |
+| 브라우저 | `e2e/tests/*.spec.mjs` (24개) | 277 |
+| 합계 | 69개 | 1567 |
 
 | 단계 | 파일별 시험 수 |
 |---|---|
-| SQL | `accounting.test.mjs` 27 · `api.test.mjs` 11 · `bus.test.mjs` 18 · `concurrency.test.mjs` 11 · `core.test.mjs` 18 · `demo.test.mjs` 4 · `growth.test.mjs` 11 · `history.test.mjs` 21 · `inventory.test.mjs` 63 · `hr.test.mjs` 42 · `invoicing.test.mjs` 51 · `isolation.test.mjs` 56 · `master.test.mjs` 45 · `models.test.mjs` 36 · `mrp.test.mjs` 63 · `plugin.test.mjs` 8 · `pricing.test.mjs` 145 · `purchase.test.mjs` 30 · `rebuild-gl.test.mjs` 8 · `sales.test.mjs` 51 |
-| HTTP | `api.e2e.mjs` 9 · `stack.e2e.mjs` 7 |
-| 브라우저 | `demo.spec.mjs` 5 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `hr.spec.mjs` 13 · `integration.spec.mjs` 3 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `mrp.spec.mjs` 15 · `pages.spec.mjs` 4 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `whatif.spec.mjs` 15 |
+| HTTP | `api.e2e.mjs` 10 · `stack.e2e.mjs` 7 |
+| 브라우저 | `attendance.spec.mjs` 8 · `books.spec.mjs` 10 · `crm.spec.mjs` 8 · `demo.spec.mjs` 5 · `expense.spec.mjs` 13 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `hr.spec.mjs` 13 · `integration.spec.mjs` 3 · `krtax.spec.mjs` 8 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `mrp.spec.mjs` 15 · `pages.spec.mjs` 4 · `parity-screens.spec.mjs` 36 · `payroll.spec.mjs` 17 · `project.spec.mjs` 8 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `timeoff.spec.mjs` 11 · `whatif.spec.mjs` 15 |
 
-**실패 중인 시험 하나.** `api.e2e.mjs › MCP over HTTP with a login token` 의 `tools/list` 4,000 바이트 검사가 실패한다. 지금 4,569 바이트이고, 급여 유형 6개를 빼고 재면 4,153 바이트라 급여 전에도 넘는다. 유형 이름이 도구 4개에 반복되는 것이 원인이어서 모듈이 늘수록 커진다. 한도를 올릴지, `enum` 을 `erp_read` 에만 둘지는 정하지 않았다.
+위 표는 실제로 돌려 센 값이다(SQL `tests 1273`, 브라우저 `277 passed`, HTTP `api.e2e.mjs` 10, `stack.e2e.mjs` 7). SQL 의 파일별 수는 다시 세지 않아 뺐다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 조합은 모듈의 조합마다 하나씩 생긴다. `expense-privacy.test.mjs` 의 표는 사람과 키와 읽는 길을 곱한 것이지만 시험 하나로 센다. 로컬 Postgres 의 디버거 확장(`pldbgapi2`)이 가끔 시험 하나를 떨어뜨린다. 그 파일만 다시 돌리면 통과한다.
 
-위 표의 합계는 인사까지의 값이다. 급여가 `payroll.test.mjs` 43, `isolation.test.mjs` 7, `payroll.spec.mjs` 17 을 더한다. 인사까지의 합계는 실제로 돌려 센 값이다(SQL `tests 768`, 브라우저 `179 passed`, HTTP `api.e2e.mjs` 8, `stack.e2e.mjs` 7). 파일별 표는 인사를 더하면서 바뀐 파일만 고쳤고, 그 전에 더해진 파일은 아직 빠져 있어 합이 맞지 않는다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 32개는 다섯 모듈의 조합마다 하나씩 생기고, 인사를 더한 조합 5개가 따로 있다.
-위 표의 합계는 실제로 돌려 센 값이다(SQL `tests 848`, 브라우저 `194 passed`, HTTP `api.e2e.mjs` 9, `stack.e2e.mjs` 7). 파일별 표는 인사와 제조를 더하면서 바뀐 파일만 고쳤고, 그 전에 더해진 파일은 아직 빠져 있어 합이 맞지 않는다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 32개는 다섯 모듈의 조합마다 하나씩 생기고, 인사를 더한 조합 5개와 제조를 더한 조합 6개가 따로 있다.
+**경비 읽기 규칙의 시험을 시험했다.** 읽는 길의 거름 조건 20개를 하나씩 빼고 `expense-privacy.test.mjs` 를 돌려 모두 실패하는 것을 확인했다(RLS 두 정책, `require_readable`, `erp_correlation`, 명령과 `erp_update` 의 범위 확인, `erp_records_at`, MCP 목록, 사가 상태 둘, `erp_references`, 가져오기, 사유 셋, 전표 적요, Storage, 글 함수, 상태의 적요, 역할). 처음에는 둘이 잡히지 않아 시험을 더했다.
 
-openspec 명세 14개의 요구사항 253개: 덮음 222 · 일부 30 · 공백 0 · 위 표에 없음 1. 시나리오 740개: 덮음 698 · 일부 13 · 공백 18 · 증거 표에 없음 11. 표에 없는 것은 제조 전부터 있던 `erp-integration` 의 되돌리기 5개와 사가 6개다(사가 요구사항은 위 표에도 없다). 이 줄의 앞선 값은 그 둘을 세지 않았다.
-| SQL | `test/*.test.mjs` (29개) | 819 |
-| HTTP | `test/*.e2e.mjs` (2개) | 14 |
-| 브라우저 | `e2e/tests/*.spec.mjs` (15개) | 176 |
-| 합계 | 46개 | 1009 |
-
-| 단계 | 파일별 시험 수 |
-|---|---|
-| SQL | `accounting.test.mjs` 27 · `api.test.mjs` 11 · `bus.test.mjs` 18 · `concurrency.test.mjs` 11 · `core.test.mjs` 18 · `demo.test.mjs` 4 · `growth.test.mjs` 11 · `history.test.mjs` 21 · `inventory.test.mjs` 63 · `invoicing.test.mjs` 51 · `assets.test.mjs` 44 · `books.test.mjs` 23 · `isolation.test.mjs` 72 · `master.test.mjs` 45 · `models.test.mjs` 36 · `plugin.test.mjs` 8 · `pricing.test.mjs` 145 · `purchase.test.mjs` 30 · `rebuild-gl.test.mjs` 8 · `sales.test.mjs` 51 |
-| HTTP | `api.e2e.mjs` 7 · `stack.e2e.mjs` 7 |
-| 브라우저 | `books.spec.mjs` 10 · `demo.spec.mjs` 5 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `integration.spec.mjs` 3 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `pages.spec.mjs` 4 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `whatif.spec.mjs` 15 |
-
-SQL 은 `node --test` 의 `tests 819`, 브라우저는 파일마다 돌린 수를 더해 176 으로 세었다. 파일별 표는 전체를 마지막으로 센 때의 값에 이번에 바뀐 파일만 고친 것이라 합이 맞지 않는다. HTTP 는 초기화한 스택이 있어야 돌므로 소스의 `test()` 를 세었다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 64개는 여섯 모듈의 조합마다 하나씩 생긴다.
-
-openspec 명세 13개의 요구사항 229개: 덮음 200 · 일부 29 · 공백 0. 시나리오 694개: 덮음 664 · 일부 12 · 공백 18.
-| HTTP | `test/*.e2e.mjs` (2개) | 15 |
-| 브라우저 | `e2e/tests/*.spec.mjs` (17개) | 198 |
-| 합계 | 49개 | 1061 |
-
-| 단계 | 파일별 시험 수 |
-|---|---|
-| SQL | `accounting.test.mjs` 27 · `api.test.mjs` 11 · `attendance.test.mjs` 18 · `bus.test.mjs` 18 · `concurrency.test.mjs` 11 · `core.test.mjs` 18 · `demo.test.mjs` 4 · `growth.test.mjs` 11 · `history.test.mjs` 21 · `inventory.test.mjs` 63 · `hr.test.mjs` 42 · `invoicing.test.mjs` 51 · `isolation.test.mjs` 56 · `master.test.mjs` 45 · `models.test.mjs` 36 · `plugin.test.mjs` 8 · `pricing.test.mjs` 145 · `purchase.test.mjs` 30 · `rebuild-gl.test.mjs` 8 · `sales.test.mjs` 51 · `timeoff.test.mjs` 45 |
-| HTTP | `api.e2e.mjs` 8 · `stack.e2e.mjs` 7 |
-| 브라우저 | `attendance.spec.mjs` 8 · `demo.spec.mjs` 5 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `hr.spec.mjs` 13 · `integration.spec.mjs` 3 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `pages.spec.mjs` 4 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `timeoff.spec.mjs` 11 · `whatif.spec.mjs` 15 |
-
-위 표의 합계는 실제로 돌려 센 값이다(SQL `tests 848`, 브라우저 `198 passed`, HTTP `api.e2e.mjs` 8, `stack.e2e.mjs` 7). 파일별 표는 휴가와 근태를 더하면서 바뀐 파일만 고쳤고, 그 전에 더해진 파일은 아직 빠져 있어 합이 맞지 않는다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 32개는 다섯 모듈의 조합마다 하나씩 생기고, 인사를 더한 조합 5개와 휴가·근태를 더한 조합 6개가 따로 있다. 로컬 Postgres 의 디버거 확장(`pldbgapi2`)이 가끔 시험 하나를 떨어뜨린다. 그 파일만 다시 돌리면 통과한다.
-
-openspec 명세 15개의 요구사항 260개, 시나리오 721개. 이번에 더한 요구사항 28개와 시나리오 37개는 모두 덮었다. 그 앞의 분류는 요구사항 230개 기준으로 덮음 201 · 일부 29 · 공백 0, 시나리오 673개 기준으로 덮음 643 · 일부 12 · 공백 18 이고 다시 세지 않았다.
+openspec 명세 22개의 요구사항 383개, 시나리오 1045개. 위 표에 있는 요구사항 379개: 덮음 347 · 일부 32 · 공백 0. 각 스펙의 증거 표에 있는 시나리오 1025개: 덮음 992 · 일부 15 · 공백 18. 표에 없는 요구사항은 `erp-analytics` 3개(내년 분기 전망, 판매가 what-if, MCP 로 읽는 분석 사실)와 `erp-integration` 1개(한 업무를 사가로 묶어 한 번에 보상한다)다. 증거 표에 없는 시나리오 20개 가운데 19개가 이 두 스펙(`erp-integration` 11, `erp-analytics` 8)의 것이다.
 
 ## 남은 공백
 
-`api.e2e.mjs` 의 2개(MCP 되돌리기, pg_cron 플러그인)는 `pg_cron` 전달을 기다리다 시간이 초과된다. `main` 26e55e3 에서도 같다. 로컬 스택을 초기화하고 설치한 뒤 `cron.job_run_details` 에 새 실행이 없고, 손으로 부른 `erp.bus_run` 은 전달한다. 원인은 찾지 못했다.
+**pg_cron.** 여러 사람이 같은 스택을 하루에 수십 번 초기화하면 `pg_cron` 이 설치 직후 잠깐 돌고 오래 멈추는 때가 있다. 워커 프로세스는 살아 있고 막힌 쿼리도 없으며, `cron.job_run_details` 에 새 행이 생기지 않는다. 원인은 찾지 못했고 DB 를 다시 시작하지 않았다. 이때 `pg_cron` 만 기다리는 `api.e2e.mjs` 3개(MCP 되돌리기, 플러그인, 제조)가 시간을 넘긴다. 위 수는 5초마다 `erp.bus_run` 을 부르는 대역을 함께 돌려 얻었으므로, **플러그인 시험은 이 판에서 `pg_cron` 자체를 증명하지 않는다.** 대역 없이 `pg_cron` 이 돌 때는 통과한 적이 있다.
 
 시험이 없는 시나리오다. 코드를 읽어 확인한 동작이고 회귀 시험은 없다.
 

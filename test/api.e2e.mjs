@@ -402,8 +402,14 @@ test('Back office over real HTTP: keys carry a member\'s rights, a paid claim is
       const client = createClient(URL_, KEY, { auth: { persistSession: false, autoRefreshToken: false } })
       await client.realtime.setAuth(token)
       const got = []
-      const channel = client.channel(`privacy-${crypto.randomUUID()}`).on('postgres_changes', { event: 'INSERT', schema: 'erp', table: 'events' }, (m) => got.push(m.new))
+      // SUBSCRIBED only says the channel joined. Changes flow once the server says so, and anything written before that is simply not sent.
+      let flowing
+      const ready = new Promise((resolve) => { flowing = resolve })
+      const channel = client.channel(`privacy-${crypto.randomUUID()}`)
+        .on('postgres_changes', { event: 'INSERT', schema: 'erp', table: 'events' }, (m) => got.push(m.new))
+        .on('system', {}, (m) => { if (m.extension === 'postgres_changes' && m.status === 'ok') flowing() })
       await new Promise((resolve, reject) => channel.subscribe((s) => (s === 'SUBSCRIBED' ? resolve() : s === 'CHANNEL_ERROR' || s === 'TIMED_OUT' ? reject(new Error(s)) : null)))
+      await ready
       return { got, close: () => client.removeAllChannels() }
     }
     const [mine, theirs] = [await watch(staff.token), await watch(noRole.token)]
