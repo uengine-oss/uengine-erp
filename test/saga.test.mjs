@@ -178,6 +178,44 @@ test('someone else built on it: the agent is refused, an admin must accept and t
   assert.equal((await c.rec(inv.json.id)).status, 'void')
 })
 
+// The order waits for goods that a purchase in the same saga brings in: the shipment was made first and left last.
+// Taking the receipt back first would need goods that are gone, so the offsets follow the moves, newest first.
+test('stock offsets run newest move first: the shipment comes back before the receipt goes back', async () => {
+  const saga = newSaga()
+  const as = (type, id, command, payload = {}) => c.admin(type, id, command, payload, { correlation: saga })
+  const onHand = async (variant) => Number((await c.db.query(`select coalesce(sum(qty), 0) q from erp.quants where variant_id = $1`, [variant])).rows[0].q)
+  const p = await c.admin('product', null, 'create', { name: '에어서큘레이터', list_price: 85000, standard_price: 60000 })
+  const variant = p.state.variants[0].id
+  const cust = (await c.admin('partner', null, 'create', { name: '한빛유통' })).id
+  const vendor = (await c.admin('partner', null, 'create', { name: '가온부품', company_type: 'company' })).id
+  const so = await as('sales_order', null, 'create', { partner_id: cust, lines: [{ variant_id: variant, qty: 50 }] })
+  await as('sales_order', so.id, 'confirm')
+  await c.settle()
+  const po = await as('purchase_order', null, 'create', { partner_id: vendor, lines: [{ variant_id: variant, qty: 60 }] })
+  await as('purchase_order', po.id, 'confirm')
+  await c.settle()
+  const picking = async (origin) => (await c.db.query(`select id from erp.records where type = 'picking' and state ->> 'origin_id' = $1`, [origin])).rows[0].id
+  const [inId, outId] = [await picking(po.id), await picking(so.id)]
+  await as('picking', inId, 'validate')
+  await as('picking', outId, 'check_availability')
+  await as('picking', outId, 'validate')
+  await c.settle()
+  const inv = await as('account_move', null, 'create', { from_sales_order: so.id })
+  await as('account_move', inv.id, 'post')
+  await c.settle()
+  assert.equal(await onHand(variant), 10)
+
+  const plan = (await c.db.asUser(c.adminId, 'select public.erp_saga_plan($1) p', [saga])).rows[0].p
+  assert.equal(plan.mode, 'compensate')
+  assert.deepEqual(plan.compensations.map((x) => x.id), [inv.id, outId, inId], 'last moved, first offset')
+  const done = (await c.db.asUser(c.adminId, 'select public.erp_saga_undo($1, $2, true, $3) r', [saga, plan.hash, '잘못 처리한 주문'])).rows[0].r
+  assert.equal(done.mode, 'compensate')
+  await c.settle()
+  assert.equal(await onHand(variant), 0, 'both moves are back, nothing left short')
+  assert.equal((await c.db.query(`select count(*)::int n from erp.records where type = 'picking' and status not in ('done', 'cancelled') and state ->> 'origin_id' in ($1, $2)`, [so.id, po.id])).rows[0].n, 0, 'no backorder waits')
+  assert.deepEqual(await c.verifyProjection(), [])
+})
+
 test('another member cannot undo or see the plan of a saga that is not theirs; roles still apply to the command', async () => {
   const saga = newSaga()
   await mcp('erp_create', { type: 't_inv', values: { name: 'B-6' }, saga_id: saga })

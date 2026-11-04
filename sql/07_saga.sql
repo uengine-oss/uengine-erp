@@ -26,6 +26,7 @@ declare
   doc jsonb;
   top boolean;
   first_ bigint;
+  last_tx xid8;
   blocked_here jsonb;
   comp jsonb := '[]'::jsonb;
   keep jsonb := '[]'::jsonb;
@@ -38,7 +39,10 @@ begin
   select coalesce(jsonb_agg(b), '[]'::jsonb) into hard from jsonb_array_elements(plan -> 'blocked') b where not b ? 'id' or b ->> 'kind' not in ('state', 'check');
   for s in select * from jsonb_array_elements(plan -> 'streams') loop
     select c.doc into doc from erp.catalog c where c.type = s ->> 'type';
-    select min(e.seq), bool_or(not e.source like 'bus:%') into first_, top from erp.events e
+    -- Offsets run in reverse of the saga's own last command on each stream, not of when the stream was opened:
+    -- a delivery opened early that waited for a receipt has to come back before the receipt can go back.
+    -- Streams one command wrote together, such as a voucher and its payment, go back newest first.
+    select min(e.seq), max(e.txid) filter (where not e.source like 'bus:%'), bool_or(not e.source like 'bus:%') into first_, last_tx, top from erp.events e
      where e.stream_id = (s ->> 'id')::uuid and e.correlation_id = any (select jsonb_array_elements_text(plan -> 'scope')::uuid);
     -- 'check': a module said what it keeps outside the ledger stands in the way. A type that can be offset is offset, the rest stops.
     select coalesce(jsonb_agg(b), '[]'::jsonb) into blocked_here from jsonb_array_elements(plan -> 'blocked') b where b ->> 'id' = s ->> 'id' and b ->> 'kind' in ('state', 'check');
@@ -48,7 +52,7 @@ begin
     -- Once anything has to be offset, everything that can be offset is, or a goods receipt would stay behind
     -- a cancelled bill. Without anything to offset, the whole saga simply reverts.
     elsif doc ? 'compensate' and jsonb_array_length(plan -> 'blocked') > 0 then
-      comp := comp || jsonb_build_object('id', s -> 'id', 'type', s -> 'type', 'label', s -> 'label', 'name', s -> 'name', 'seq', first_,
+      comp := comp || jsonb_build_object('id', s -> 'id', 'type', s -> 'type', 'label', s -> 'label', 'name', s -> 'name', 'seq', first_, 'tx', last_tx::text,
         'command', doc -> 'compensate' -> 'command', 'params', coalesce(doc -> 'compensate' -> 'params', '{}'::jsonb), 'action', doc -> 'compensate' -> 'label');
       if doc -> 'compensate' ? 'warning' then
         warn := warn || jsonb_build_object('id', s -> 'id', 'name', s -> 'name', 'message', doc -> 'compensate' ->> 'warning');
@@ -59,7 +63,7 @@ begin
       keep := keep || jsonb_build_object('id', s -> 'id', 'type', s -> 'type', 'label', s -> 'label', 'name', s -> 'name');
     end if;
   end loop;
-  select coalesce(jsonb_agg(x order by (x ->> 'seq')::bigint desc), '[]'::jsonb) into comp from jsonb_array_elements(comp) x;
+  select coalesce(jsonb_agg(x - 'tx' order by (x ->> 'tx')::numeric desc, (x ->> 'seq')::bigint desc), '[]'::jsonb) into comp from jsonb_array_elements(comp) x;
   mode_ := case when jsonb_array_length(hard) > 0 then 'blocked'
                 when jsonb_array_length(plan -> 'blocked') = 0 then 'rollback'
                 else 'compensate' end;
