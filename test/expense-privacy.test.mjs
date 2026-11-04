@@ -149,6 +149,7 @@ test('the matrix, by login: every generic read path shows each person what they 
       // What the realtime server asks about each change before sending it to a subscriber.
       ['erp.events as realtime asks', () => req(u, 'select * from erp.events where stream_id = any ($1)', [ids]), { amounts: true }],
       ['erp_event_feed', async () => (await rpc(u, 'erp_event_feed', '0', 0, null, 1000)), { numbers: false }],
+      ['the event log read over MCP', async () => (await asRow(req(u, 'select public.erp_mcp($1) r', [JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'erp_read', arguments: { events: { limit: 1000 } } } })]))).result, { numbers: false }],
       ['erp_records_at', async () => asRow(rpc(u, 'erp_records_at', 'expense', LATER, 100, 0, null)), { amounts: true }],
       ['erp_references of the employee', async () => asRow(rpc(u, 'erp_references', co.staffE.id, 50)), { numbers: false }],
     ]

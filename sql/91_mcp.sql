@@ -79,11 +79,11 @@ language sql stable as $$
               where not coalesce((d ->> 'hidden')::boolean, false))
   select jsonb_build_object('tools', jsonb_build_array(
     jsonb_build_object('name', 'erp_read',
-      'description', 'ERP 조회. 인자 없음=유형 목록. type=목록(filter 는 필드 일치, search 는 이름 검색). type+id=한 건. type+schema=필드와 가능한 상태 변경. id+history=이벤트 이력과 correlation_id. as_of(ISO 시각)=그 시점의 값. saga=사가 번호=만든 문서와 구독자 처리 여부. rollback={correlation_id}=되돌리기 방식(rollback|compensate|blocked)·범위·hash 미리보기.',
+      'description', 'ERP 조회. 인자 없음=유형 목록. type=목록(filter 는 필드 일치, search 는 이름 검색). type+id=한 건. type+schema=필드와 가능한 상태 변경. id+history=이벤트 이력과 correlation_id. as_of(ISO 시각)=그 시점의 값. saga=사가 번호=만든 문서와 구독자 처리 여부. rollback={correlation_id}=되돌리기 방식(rollback|compensate|blocked)·범위·hash 미리보기. events={after,from,to,stream,limit}=원장을 커서로 차례로 읽기.',
       'inputSchema', jsonb_build_object('type', 'object', 'properties', jsonb_build_object(
         'type', jsonb_build_object('type', 'string', 'enum', t.e), 'id', '{"type":"string"}'::jsonb, 'schema', '{"type":"boolean"}'::jsonb,
         'history', '{"type":"boolean"}'::jsonb, 'filter', '{"type":"object"}'::jsonb, 'search', '{"type":"string"}'::jsonb,
-        'as_of', '{"type":"string"}'::jsonb, 'saga', '{"type":"string"}'::jsonb, 'rollback', '{"type":"object"}'::jsonb, 'analytics', '{"type":"object"}'::jsonb, 'limit', '{"type":"integer"}'::jsonb, 'offset', '{"type":"integer"}'::jsonb))),
+        'as_of', '{"type":"string"}'::jsonb, 'saga', '{"type":"string"}'::jsonb, 'rollback', '{"type":"object"}'::jsonb, 'analytics', '{"type":"object"}'::jsonb, 'events', '{"type":"object"}'::jsonb, 'limit', '{"type":"integer"}'::jsonb, 'offset', '{"type":"integer"}'::jsonb))),
     jsonb_build_object('name', 'erp_create',
       'description', 'ERP 레코드 생성. 필드는 erp_read 의 schema 로 확인한다. saga_id 를 주면 같은 업무로 묶인다. type=rollback 은 되돌리기 실행: values={correlation_id, plan_hash, allow_cascade}, reason 필수.',
       'inputSchema', jsonb_build_object('type', 'object', 'required', '["type","values"]'::jsonb, 'properties', jsonb_build_object(
@@ -153,6 +153,41 @@ begin
   end case;
 end $$;
 
+-- The ledger in order, for a system outside this database that follows the work: only settled events, so nothing can appear behind the cursor (the
+-- same rule as erp_event_feed). That feed reads under the caller's row security. Here the owner's rights skip it, so every row names what the caller may read.
+-- The cursor is opaque to the reader. `stream` narrows to one document, to look back at what it was when a later event mentions it.
+create or replace function erp.mcp_events(a jsonb) returns jsonb
+language plpgsql stable as $$
+declare
+  readable text[] := erp.readable_types();
+  limited text[] := erp.scoped_types();
+  seen uuid[] := erp.scoped_ids();
+  lim int := least(greatest(coalesce((a ->> 'limit')::int, 200), 1), 1000);
+  cur text := coalesce(nullif(a ->> 'after', ''), '0:0');
+  from_ timestamptz := nullif(a ->> 'from', '')::timestamptz;
+  to_ timestamptz := nullif(a ->> 'to', '')::timestamptz;
+  stream_ text := nullif(a ->> 'stream', '');
+  rows_ jsonb;
+begin
+  if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '이 회사의 구성원이 아닙니다'); end if;
+  if cur !~ '^[0-9]+:[0-9]+$' then perform erp.fail('ERP_INVALID', 'after 는 앞선 응답의 next 값이어야 합니다'); end if;
+  if stream_ is not null and stream_ !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then perform erp.fail('ERP_INVALID', 'stream 은 UUID 여야 합니다'); end if;
+  select coalesce(jsonb_agg(jsonb_build_object('seq', x.seq, 'occurred_at', x.occurred_at, 'type', x.event_type, 'stream_type', x.stream_type, 'stream_id', x.stream_id,
+           'actor', x.actor_name, 'source', x.source, 'correlation_id', x.correlation_id, 'data', x.data, '_cursor', x.txid::text || ':' || x.seq::text) order by x.txid, x.seq), '[]'::jsonb) into rows_
+    from (
+      select e.* from erp.events e
+       where (e.txid, e.seq) > (split_part(cur, ':', 1)::xid8, split_part(cur, ':', 2)::bigint)
+         and e.txid < pg_snapshot_xmin(pg_current_snapshot())
+         and (from_ is null or e.occurred_at >= from_) and (to_ is null or e.occurred_at <= to_)
+         and (stream_ is null or e.stream_id = stream_::uuid)
+         and erp.readable_row(e.stream_type, e.stream_id, readable, limited, seen)
+       order by e.txid, e.seq limit lim) x;
+  return jsonb_build_object(
+    'events', (select coalesce(jsonb_agg(r - '_cursor' order by o), '[]'::jsonb) from jsonb_array_elements(rows_) with ordinality t(r, o)),
+    'next', case when jsonb_array_length(rows_) > 0 then rows_ -> -1 ->> '_cursor' else cur end,
+    'more', jsonb_array_length(rows_) = lim);
+end $$;
+
 -- This runs with the owner's rights, which skip row security, so every read names what the caller may see.
 create or replace function erp.mcp_read(a jsonb) returns jsonb
 language plpgsql stable as $$
@@ -169,6 +204,7 @@ declare
 begin
   if a ? 'saga' then return public.erp_saga_status((a ->> 'saga')::uuid); end if;
   if a ? 'analytics' then return erp.mcp_analytics(a -> 'analytics'); end if;
+  if a ? 'events' then return erp.mcp_events(a -> 'events'); end if;
   if a ? 'rollback' then
     if coalesce(a -> 'rollback' ->> 'kind', 'correlation') = 'correlation' then
       return public.erp_saga_plan((a -> 'rollback' ->> 'correlation_id')::uuid);
