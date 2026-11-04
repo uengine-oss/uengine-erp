@@ -112,7 +112,7 @@ begin
       out_ := array[(p_target ->> 'correlation_id')::uuid];
     when 'record' then
       select array_agg(distinct correlation_id) into out_ from erp.events
-       where stream_id = (p_target ->> 'id')::uuid and version > (p_target ->> 'version')::int;
+       where stream_id = (p_target ->> 'id')::uuid and version > (p_target ->> 'version')::int and not coalesce((data ->> 'yields')::boolean, false);
     when 'time' then
       select array_agg(distinct e.correlation_id) into out_ from erp.events e
         join erp.catalog c on c.type = e.stream_type
@@ -130,10 +130,13 @@ language plpgsql stable as $$
 declare c uuid[] := p_seed; extra uuid[];
 begin
   loop
+    -- An event that only gave way (yields), such as a reservation released because other work took the stock,
+    -- builds on nothing and is built on by nothing.
     select array_agg(distinct later.correlation_id) into extra
-      from (select stream_id, min(seq) as first_seq from erp.events where correlation_id = any (c) group by stream_id) f
+      from (select stream_id, min(seq) as first_seq from erp.events
+             where correlation_id = any (c) and not coalesce((data ->> 'yields')::boolean, false) group by stream_id) f
       join erp.events later on later.stream_id = f.stream_id and later.seq > f.first_seq
-     where not later.correlation_id = any (c);
+     where not later.correlation_id = any (c) and not coalesce((later.data ->> 'yields')::boolean, false);
     exit when extra is null;
     c := c || extra;
   end loop;
@@ -162,7 +165,8 @@ begin
     select e.stream_id, e.stream_type, min(e.version) as first_version, count(*) as event_count,
            rec.version as current_version, rec.name, rec.status, rec.state as current_state
       from erp.events e join erp.records rec on rec.id = e.stream_id
-     where e.correlation_id = any (scope)
+     -- Undoing one piece of work leaves alone a document it only made give way; going back to a time takes everything.
+     where e.correlation_id = any (scope) and (p_kind = 'time' or not coalesce((e.data ->> 'yields')::boolean, false))
      group by e.stream_id, e.stream_type, rec.version, rec.name, rec.status, rec.state
      order by e.stream_id
   loop

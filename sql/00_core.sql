@@ -390,7 +390,8 @@ begin
 
   insert into erp.events(stream_type, stream_id, version, event_type, data, actor_id, actor_name, source, reason,
                          correlation_id, causation_seq, occurred_at)
-  values (p_type, p_id, coalesce(r.version, 0) + 1, p_event, erp.with_changes(before_state, p_data), actor,
+  values (p_type, p_id, coalesce(r.version, 0) + 1, p_event,
+          erp.with_changes(before_state, p_data || case when current_setting('erp.yields', true) = 'on' then '{"yields": true}'::jsonb else '{}'::jsonb end), actor,
           coalesce((select name from erp.members where user_id = actor), nullif(current_setting('erp.actor_name', true), '')),
           case when depth > 0 then 'reaction' else coalesce(nullif(current_setting('erp.source', true), ''), 'ui') end,
           nullif(current_setting('erp.reason', true), ''),

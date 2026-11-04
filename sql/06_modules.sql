@@ -286,6 +286,8 @@ begin
     begin
       perform set_config('erp.correlation_id', ev.correlation_id::text, true);
       perform set_config('erp.causation_seq', ev.seq::text, true);
+      -- What follows from giving way gives way too, so it ties no two pieces of work together either.
+      perform set_config('erp.yields', case when (ev.data ->> 'yields')::boolean then 'on' else '' end, true);
       perform set_config('erp.source', 'bus:' || p_name, true);
       perform set_config('erp.reason', coalesce(ev.reason, ''), true);
       perform set_config('erp.depth', '0', true);
@@ -300,10 +302,12 @@ begin
       update erp.subscriptions set failures = failures + 1, last_error = sqlerrm, last_error_seq = ev.seq,
         last_error_at = clock_timestamp(), last_run_at = clock_timestamp() where name = p_name;
       perform set_config('erp.event_actor', '', true);
+      perform set_config('erp.yields', '', true);
       return n;
     end;
   end loop;
   perform set_config('erp.event_actor', '', true);
+  perform set_config('erp.yields', '', true);
 
   -- Move past events this subscriber does not care about, or every tick rescans them.
   if seen < p_batch then

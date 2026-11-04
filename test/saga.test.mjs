@@ -205,11 +205,12 @@ test('stock offsets run newest move first: the shipment comes back before the re
   await c.settle()
   assert.equal(await onHand(variant), 10)
   // Someone else's order has since reserved what is left; the goods still go back, and that reservation gives way.
-  const other = await c.admin('sales_order', null, 'create', { partner_id: cust, lines: [{ variant_id: variant, qty: 10 }] })
-  await c.admin('sales_order', other.id, 'confirm', {})
+  const otherSaga = newSaga()
+  const other = await c.admin('sales_order', null, 'create', { partner_id: cust, lines: [{ variant_id: variant, qty: 10 }] }, { correlation: otherSaga })
+  await c.admin('sales_order', other.id, 'confirm', {}, { correlation: otherSaga })
   await c.settle()
   const otherOut = await picking(other.id)
-  await c.admin('picking', otherOut, 'check_availability', {})
+  await c.admin('picking', otherOut, 'check_availability', {}, { correlation: otherSaga })
   assert.equal((await c.rec(otherOut)).status, 'ready')
 
   const plan = (await c.db.asUser(c.adminId, 'select public.erp_saga_plan($1) p', [saga])).rows[0].p
@@ -223,6 +224,17 @@ test('stock offsets run newest move first: the shipment comes back before the re
   assert.equal((await c.db.query(`select count(*)::int n from erp.records where type = 'picking' and status not in ('done', 'cancelled') and state ->> 'origin_id' in ($1, $2)`, [so.id, po.id])).rows[0].n, 0, 'no backorder waits')
   const after_ = await c.rec(otherOut)
   assert.notEqual(after_.status, 'ready'); assert.equal(Number(after_.state.moves[0].reserved), 0)
+  assert.equal(Number((await c.db.query(`select coalesce(sum(reserved), 0) r from erp.quants where variant_id = $1`, [variant])).rows[0].r), 0)
+
+  // Giving way tied nothing together: the other order still goes back alone, and the undo above stays.
+  const otherPlan = (await c.db.asUser(c.adminId, 'select public.erp_saga_plan($1) p', [otherSaga])).rows[0].p
+  assert.deepEqual(otherPlan.cascade, [], 'releasing its reservation was not work built on it')
+  assert.ok(!otherPlan.streams.some((s) => s.id === inv.id || s.id === inId), 'the first saga is not in it')
+  ;(await c.db.asUser(c.adminId, 'select public.erp_saga_undo($1, $2, false, $3) r', [otherSaga, otherPlan.hash, '시험 정리'])).rows[0].r
+  await c.settle()
+  assert.equal((await c.rec(otherOut)).state.deleted, true)
+  assert.equal((await c.rec(inv.id)).status, 'posted', 'the offset invoice stays as it was')
+  assert.equal(await onHand(variant), 0)
   assert.equal(Number((await c.db.query(`select coalesce(sum(reserved), 0) r from erp.quants where variant_id = $1`, [variant])).rows[0].r), 0)
   assert.deepEqual(await c.verifyProjection(), [])
 })

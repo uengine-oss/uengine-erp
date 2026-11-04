@@ -524,11 +524,14 @@ end $$;
 
 -- After stock falls below what is promised, the newest promises give way. A transfer being worked on right now is
 -- skipped instead of waited for: waiting here is how two validations deadlock, and that transfer settles its own.
+-- Giving way is marked (yields), so the work that took the stock is not taken for work built on that transfer:
+-- either can still be undone on its own.
 create or replace function erp.quant_free_excess(p_variants uuid[]) returns void
 language plpgsql as $$
 declare
   q record; pick record; s jsonb; m jsonb; a jsonb; excess numeric; x numeric;
   rows_ jsonb; fx jsonb; keep jsonb; freed numeric;
+  was_yielding text := coalesce(current_setting('erp.yields', true), '');
 begin
   for q in select variant_id, location_id, lot_id from erp.quants
             where variant_id = any (p_variants) and reserved > greatest(qty, 0)
@@ -563,7 +566,9 @@ begin
         rows_ := rows_ || m;
       end loop;
       if jsonb_array_length(fx) > 0 then
+        perform set_config('erp.yields', 'on', true);
         perform erp.picking_write(pick.picking_id, 'PickingReservationReduced', s, rows_, fx);
+        perform set_config('erp.yields', was_yielding, true);
       end if;
     end loop;
   end loop;
@@ -2378,7 +2383,7 @@ end $$;
 select erp.catalog_put('{
   "type": "picking", "module": "inventory", "sort": 200, "label": "입출고 전표", "label_en": "Transfer",
   "external_events": ["PickingValidated"],
-  "compensate": {"command": "compensate", "label": "반품 처리", "warning": "물건을 실제로 되돌립니다. 그 재고를 다른 주문이 잡아 두었다면 가장 늦게 잡은 예약부터 풀립니다"},
+  "compensate": {"command": "compensate", "label": "반품 처리", "warning": "물건을 실제로 되돌리며, 다른 주문이 그 재고를 예약했다면 가장 늦게 잡은 예약부터 풀립니다"},
   "fields": [
     {"name": "number", "label": "번호", "type": "text", "readonly": true, "list": true, "search": true},
     {"name": "picking_type", "label": "유형", "type": "enum", "required": true, "default": "internal", "list": true,
