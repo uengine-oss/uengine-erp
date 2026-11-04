@@ -337,22 +337,24 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
-| SQL | `test/*.test.mjs` (18개) | 597 |
-| HTTP | `test/*.e2e.mjs` (2개) | 13 |
-| 브라우저 | `e2e/tests/*.spec.mjs` (13개) | 130 |
-| 합계 | 33개 | 740 |
+| SQL | `test/*.test.mjs` (29개) | 819 |
+| HTTP | `test/*.e2e.mjs` (2개) | 14 |
+| 브라우저 | `e2e/tests/*.spec.mjs` (15개) | 176 |
+| 합계 | 46개 | 1009 |
 
 | 단계 | 파일별 시험 수 |
 |---|---|
-| SQL | `accounting.test.mjs` 27 · `api.test.mjs` 11 · `bus.test.mjs` 18 · `concurrency.test.mjs` 11 · `core.test.mjs` 18 · `demo.test.mjs` 4 · `growth.test.mjs` 11 · `history.test.mjs` 21 · `inventory.test.mjs` 63 · `invoicing.test.mjs` 51 · `assets.test.mjs` 44 · `books.test.mjs` 23 · `isolation.test.mjs` 71 · `master.test.mjs` 45 · `models.test.mjs` 36 · `plugin.test.mjs` 8 · `pricing.test.mjs` 145 · `purchase.test.mjs` 30 · `rebuild-gl.test.mjs` 8 · `sales.test.mjs` 51 |
+| SQL | `accounting.test.mjs` 27 · `api.test.mjs` 11 · `bus.test.mjs` 18 · `concurrency.test.mjs` 11 · `core.test.mjs` 18 · `demo.test.mjs` 4 · `growth.test.mjs` 11 · `history.test.mjs` 21 · `inventory.test.mjs` 63 · `invoicing.test.mjs` 51 · `assets.test.mjs` 44 · `books.test.mjs` 23 · `isolation.test.mjs` 72 · `master.test.mjs` 45 · `models.test.mjs` 36 · `plugin.test.mjs` 8 · `pricing.test.mjs` 145 · `purchase.test.mjs` 30 · `rebuild-gl.test.mjs` 8 · `sales.test.mjs` 51 |
 | HTTP | `api.e2e.mjs` 7 · `stack.e2e.mjs` 7 |
 | 브라우저 | `books.spec.mjs` 10 · `demo.spec.mjs` 5 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `integration.spec.mjs` 3 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `pages.spec.mjs` 4 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `whatif.spec.mjs` 15 |
 
-SQL 은 `node --test` 의 `tests 597`, 브라우저는 `npx playwright test --list` 의 `Total: 130 tests in 13 files` 로 세었다. HTTP 는 초기화한 스택이 있어야 돌므로 소스의 `test()` 를 세었다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 64개는 여섯 모듈의 조합마다 하나씩 생긴다.
+SQL 은 `node --test` 의 `tests 819`, 브라우저는 파일마다 돌린 수를 더해 176 으로 세었다. 파일별 표는 전체를 마지막으로 센 때의 값에 이번에 바뀐 파일만 고친 것이라 합이 맞지 않는다. HTTP 는 초기화한 스택이 있어야 돌므로 소스의 `test()` 를 세었다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 64개는 여섯 모듈의 조합마다 하나씩 생긴다.
 
 openspec 명세 13개의 요구사항 229개: 덮음 200 · 일부 29 · 공백 0. 시나리오 694개: 덮음 664 · 일부 12 · 공백 18.
 
 ## 남은 공백
+
+`api.e2e.mjs` 의 2개(MCP 되돌리기, pg_cron 플러그인)는 `pg_cron` 전달을 기다리다 시간이 초과된다. `main` 26e55e3 에서도 같다. 로컬 스택을 초기화하고 설치한 뒤 `cron.job_run_details` 에 새 실행이 없고, 손으로 부른 `erp.bus_run` 은 전달한다. 원인은 찾지 못했다.
 
 시험이 없는 시나리오다. 코드를 읽어 확인한 동작이고 회귀 시험은 없다.
 
