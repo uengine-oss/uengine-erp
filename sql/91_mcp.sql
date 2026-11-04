@@ -85,20 +85,22 @@ language sql stable as $$
     jsonb_build_object('name', 'erp_create',
       'description', 'ERP 레코드 생성. 필드는 erp_read 의 schema 로 확인한다. saga_id 를 주면 같은 업무로 묶인다. type=rollback 은 되돌리기 실행: values={correlation_id, plan_hash, allow_cascade}, reason 필수.',
       'inputSchema', jsonb_build_object('type', 'object', 'required', '["type","values"]'::jsonb, 'properties', jsonb_build_object(
-        'type', jsonb_build_object('type', 'string', 'enum', t.e || '["rollback"]'::jsonb), 'values', '{"type":"object"}'::jsonb,
+        'type', '{"type":"string","description":"erp_read 의 유형 목록에 있는 유형, 또는 rollback"}'::jsonb, 'values', '{"type":"object"}'::jsonb,
         'reason', '{"type":"string"}'::jsonb, 'idempotency_key', '{"type":"string"}'::jsonb, 'saga_id', '{"type":"string"}'::jsonb))),
     jsonb_build_object('name', 'erp_update',
       'description', 'ERP 레코드 수정. 바꿀 필드만 넣는다. 확정 같은 업무 동작은 values.state 를 다음 상태로 바꾼다. 그 밖의 동작은 action 에 schema 의 extra_commands 이름을 넣는다.',
       'inputSchema', jsonb_build_object('type', 'object', 'required', '["type","id","values"]'::jsonb, 'properties', jsonb_build_object(
-        'type', jsonb_build_object('type', 'string', 'enum', t.e), 'id', '{"type":"string"}'::jsonb, 'values', '{"type":"object"}'::jsonb, 'action', '{"type":"string"}'::jsonb,
+        'type', '{"type":"string"}'::jsonb, 'id', '{"type":"string"}'::jsonb, 'values', '{"type":"object"}'::jsonb, 'action', '{"type":"string"}'::jsonb,
         'expected_version', '{"type":"integer"}'::jsonb, 'reason', '{"type":"string"}'::jsonb, 'saga_id', '{"type":"string"}'::jsonb))),
     jsonb_build_object('name', 'erp_delete',
       'description', 'ERP 레코드 삭제. 이력은 원장에 남는다.',
       'inputSchema', jsonb_build_object('type', 'object', 'required', '["type","id"]'::jsonb, 'properties', jsonb_build_object(
-        'type', jsonb_build_object('type', 'string', 'enum', t.e), 'id', '{"type":"string"}'::jsonb,
+        'type', '{"type":"string"}'::jsonb, 'id', '{"type":"string"}'::jsonb,
         'expected_version', '{"type":"integer"}'::jsonb, 'reason', '{"type":"string"}'::jsonb, 'saga_id', '{"type":"string"}'::jsonb)))
   )) from t
 $$;
+
+-- The list of types appears once, on erp_read: every module adds to it, and an agent reads this on every turn.
 
 -- This runs with the owner's rights, which skip row security, so every read names what the caller may see.
 create or replace function erp.mcp_read(a jsonb) returns jsonb
