@@ -10,7 +10,10 @@ const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 // ERP_SQL_ONLY=00,10,20 builds a subset, so a module can be tested while its neighbours are unfinished.
 const only = process.env.ERP_SQL_ONLY?.split(',')
 const files = fs.readdirSync(dir).filter((f) => /^\d+.*\.sql$/.test(f)).filter((f) => !only || only.includes(f.slice(0, 2)) || f.startsWith('99')).sort()
-const body = files.map((f) => `-- ===== ${f} =====\n${fs.readFileSync(path.join(dir, f), 'utf8').trim()}\n`).join('\n')
+// The Korean names of ledger events live in one file the screens read too, so SQL takes them from there and the two cannot differ.
+const labels = JSON.stringify(JSON.parse(fs.readFileSync(path.join(root, 'web', 'src', 'lib', 'eventLabels.json'), 'utf8')))
+if (labels.includes('$labels$')) throw new Error('eventLabels.json may not contain $labels$')
+const body = files.map((f) => `-- ===== ${f} =====\n${fs.readFileSync(path.join(dir, f), 'utf8').trim()}\n`).join('\n').replaceAll('@EVENT_LABELS@', labels)
 const out = `-- uEngine ERP install / upgrade script v${pkg.version}
 -- Run this once in your Supabase project: SQL Editor -> New query -> paste -> Run.
 -- Safe to run again; it never deletes your data.
