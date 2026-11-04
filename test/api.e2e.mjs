@@ -2,6 +2,7 @@
 // Run after scripts/reset-local.mjs and install-local.mjs with SETUP_CODE set.
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import pg from 'pg'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -111,7 +112,8 @@ test('MCP over HTTP with a login token: CRUD with the official SDK', async () =>
   assert.deepEqual(tools.map((t) => t.name), ['erp_read', 'erp_create', 'erp_update', 'erp_delete'])
   const size = Buffer.byteLength(JSON.stringify(tools))
   console.log(`  tools/list: ${tools.length} tools, ${size} bytes`)
-  assert.ok(size < 4000)
+  // Every type's name appears once per tool, so each new module spends a little of this.
+  assert.ok(size < 4000, `${size} bytes`)
   const types = JSON.parse(text(await c.callTool({ name: 'erp_read', arguments: {} })))
   assert.ok(types.some((t) => t.type === 'partner'))
   const made = JSON.parse(text(await c.callTool({ name: 'erp_create', arguments: { type: 'partner', values: { name: 'MCP 거래처' } } })))
@@ -268,4 +270,65 @@ test('People over real HTTP: resources and tools appear by themselves, and priva
   const count = await rpc('erp_headcount', { p_on: '2025-03-04' })
   assert.equal(count.status, 200)
   assert.ok(!count.json.people.some((p) => p.id === id))
+})
+
+test('Manufacturing over real HTTP: an agent with a key builds and finishes, pg_cron moves the stock, and a role is a role', async () => {
+  const key = async (name, roles) => {
+    const m = await rpc('erp_command', { p_type: 'member', p_id: null, p_command: 'create', p_payload: { name, email: `${name}-${stamp}@example.com`, password: PASS, roles } })
+    assert.equal(m.status, 200, JSON.stringify(m.json))
+    return (await rpc('erp_api_key_create', { p_member_id: m.json.id, p_label: name })).json.key
+  }
+  const product = async (name, cost) => (await rpc('erp_command', { p_type: 'product', p_id: null, p_command: 'create', p_payload: { name: `${name} ${stamp}`, standard_price: cost } })).json.state.variants[0].id
+  const [fan, motor] = [await product('제조 제품', 50), await product('제조 부품', 30)]
+  assert.equal((await rpc('erp_command', { p_type: 'stock_adjustment', p_id: null, p_command: 'create', p_payload: { variant_id: motor, counted_qty: 10, apply: true } })).status, 200)
+  const agent = await mcpClient({ Authorization: `Bearer ${KEY}`, 'x-erp-key': await key('mrp-agent', ['mrp']) })
+  const outsider = await mcpClient({ Authorization: `Bearer ${KEY}`, 'x-erp-key': await key('sales-agent', ['sales']) })
+  try {
+    const { tools } = await agent.listTools()
+    assert.equal(tools.length, 4, 'no change to the tools')
+    assert.ok(tools[0].inputSchema.properties.type.enum.includes('manufacturing_order'))
+    const call = async (name, args) => { const r = await agent.callTool({ name, arguments: args }); assert.equal(r.isError, undefined, text(r)); return JSON.parse(text(r)) }
+    const saga = crypto.randomUUID()
+    const bill = await call('erp_create', { type: 'bom', values: { variant_id: fan, lines: [{ variant_id: motor, qty: 2 }] }, saga_id: saga })
+    const order = await call('erp_create', { type: 'manufacturing_order', values: { variant_id: fan, qty: 3 }, saga_id: saga })
+    assert.equal(order.state.bom_id, bill.id)
+    assert.equal(Number(order.state.components[0].qty), 6)
+
+    for (const [tool, args] of [
+      ['erp_create', { type: 'bom', values: { variant_id: fan, lines: [{ variant_id: motor, qty: 1 }] } }],
+      ['erp_update', { type: 'manufacturing_order', id: order.id, values: { state: 'confirmed' } }],
+      ['erp_delete', { type: 'manufacturing_order', id: order.id }],
+    ]) {
+      const r = await outsider.callTool({ name: tool, arguments: args })
+      assert.equal(r.isError, true, tool); assert.match(text(r), /ERP_FORBIDDEN/)
+    }
+    const read = await outsider.callTool({ name: 'erp_read', arguments: { type: 'manufacturing_order', id: order.id } })
+    assert.equal(read.isError, undefined, 'reading is open to members')
+
+    await call('erp_update', { type: 'manufacturing_order', id: order.id, values: { state: 'confirmed' }, saga_id: saga })
+    const short = await agent.callTool({ name: 'erp_update', arguments: { type: 'manufacturing_order', id: order.id, values: { state: 'done', qty_done: 1 }, saga_id: saga } })
+    assert.equal(short.isError, true); assert.match(text(short), /ERP_BACKORDER_CHOICE/)
+    assert.equal((await call('erp_update', { type: 'manufacturing_order', id: order.id, values: { state: 'done' }, saga_id: saga })).status, 'done')
+
+    // Nobody is connected and nobody ticks the bus: the agent only waits.
+    const status = () => call('erp_read', { saga })
+    const st = await waitFor(async () => { const s = await status(); return s.pending ? null : s }, 'stock to hear about it', 60000)
+    assert.deepEqual(st.stuck, [])
+    assert.ok(st.documents.some((d) => d.type === 'picking'))
+    const net = Object.fromEntries(st.net.filter((n) => n.kind === 'quant').map((n) => [n.key.variant_id, Number(n.amount)]))
+    assert.deepEqual([net[fan], net[motor]], [3, -6])
+    assert.equal((await call('erp_read', { type: 'manufacturing_order', id: order.id })).state.stock_state, 'applied')
+
+    const made = await http('GET', `erp_api_manufacturing_order?id=eq.${order.id}&select=number,qty_done,stock_state`)
+    assert.equal(made.status, 200)
+    assert.equal(Number(made.json[0].qty_done), 3)
+    assert.equal((await http('POST', 'erp_api_bom', { token: viewer, body: { variant_id: fan, lines: [{ variant_id: motor, qty: 1 }] } })).status, 403)
+    assert.equal((await rpc('erp_mrp_explode', { p_variant_id: fan, p_qty: 1 })).json.lines.length, 1)
+
+    const plan = await call('erp_read', { rollback: { correlation_id: saga } })
+    assert.equal(plan.mode, 'rollback')
+    await call('erp_create', { type: 'rollback', values: { correlation_id: saga, plan_hash: plan.hash }, reason: '잘못 만듦' })
+    const after_ = await waitFor(async () => { const s = await status(); return s.pending ? null : s }, 'the undo to settle', 60000)
+    for (const n of after_.net) assert.equal(Number(n.amount), 0, JSON.stringify(n))
+  } finally { await agent.close(); await outsider.close() }
 })

@@ -8,6 +8,7 @@ const PATHS: Record<string, string> = {
   hr: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a7 7 0 0 1 14 0v1M16 3.5a4 4 0 0 1 0 7.5M22 21v-1a7 7 0 0 0-4-6.3',
   payroll: 'M3 6h18v12H3zM3 10h18M7 15h4M15 15h2',
   purchase: 'M3 4h2.5l2.2 11h10.1l2-8H6.5M9.5 20h.01M17 20h.01',
+  mrp: 'M3 20V10l6 4v-4l6 4V5h6v15zM7 17h.01M12 17h.01M17 17h.01',
   inventory: 'M3.5 8L12 3.5 20.5 8v8L12 20.5 3.5 16zM3.5 8L12 12.5 20.5 8M12 12.5v8',
   invoicing: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9.5 8l1.2 5 1.3-3.5 1.3 3.5 1.2-5M9 10.5h6',
   accounting: 'M5 3h14v18H5zM8.5 7h7M8.5 11h7M8.5 15h3',

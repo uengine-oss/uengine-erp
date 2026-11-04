@@ -88,7 +88,7 @@
 | `partner` | `company_type(company/person), name, parent_id, address_type(contact/invoice/delivery/followup/other), job_position, phone, mobile, email, website, street, region, city, zip, country, tax_id, ref, industry, lang, tags, salesperson_id, payment_term_id, vendor_payment_term_id, pricelist_id, fiscal_position_id, inbound_payment_method_id, outbound_payment_method_id, invoice_sending_method(manual/email/post), delivery_method, receipt_reminder, receipt_reminder_days, note, merged_into, active`. 명령 `merge{into}` |
 | `product` | `type(goods/service/combo), is_storable, name, internal_ref, barcode, category_id, uom_id, purchase_uom_id, list_price, standard_price, sale_ok, purchase_ok, sale_tax_ids, purchase_tax_ids, invoice_policy(order/delivery), bill_policy(order/receipt), tracking(none/lot/serial), weight, volume, customer_lead_days, description_sale, description_purchase, attributes[{id, attribute_id, value_ids, extras:{value_id:price}}], variants[{id, sku, barcode, values:[value_id], name, price_extra, standard_price, active}], vendors[{id, partner_id, min_qty, price, delay_days, vendor_code, discount, date_start, date_end}], combos[{id, name, items[{id, variant_id, extra_price}]}], optional_product_ids` |
 | `warehouse` | `name, code, address, stock_location_id`. 코드는 5자 이내 |
-| `location` | `name, parent_id, usage(view/internal/customer/supplier/inventory/transit), scrap` |
+| `location` | `name, parent_id, usage(view/internal/customer/supplier/inventory/production/transit), scrap` |
 
 - 속성 없는 제품도 기본 변형 한 줄이 생긴다. 주문·재고는 언제나 `variant_id` 를 쓴다.
 - `is_storable` 은 재화만 켤 수 있다(서비스·콤보는 저장할 때 꺼진다). 끈 재화도 전표는 생기고 재고 수량만 변하지 않는다. 재고 모듈을 켜기 전에 만든 제품에는 값이 없고, 없으면 재화는 저장되는 것으로 본다.
@@ -120,7 +120,7 @@
   - 세금: `부가세 10% 매출`, `부가세 10% 매입`, `영세율 매출`, `영세율 매입`, `면세 매출`, `면세 매입`
   - 결제 조건: `즉시`, `15일`, `30일`, `30%선금+잔금 60일`
   - 계정과목: `현금`, `보통예금`, `외상매출금`, `선급금`, `부가세대급금`, `상품`, `비품`, `외상매입금`, `부가세예수금`, `선수금`, `자본금`, `이월이익잉여금`, `상품매출`, `잡이익`, `상품매출원가`, `대손상각비`, `재고자산감모손실`, `잡손실`
-  - 분류: `기본 분류`. 창고: `WH`. 위치: `재고`, `공급사`, `고객`, `재고조정`, `폐기`. 가격표: `기본 가격표`
+  - 분류: `기본 분류`. 창고: `WH`. 위치: `재고`, `공급사`, `고객`, `재고조정`, `폐기`, `생산`. 가격표: `기본 가격표`
 - 회사 설정의 기본 세금 `default_sale_tax_id`, `default_purchase_tax_id` 는 새 제품의 기본값이다. `default_price_include` 는 포함 여부를 밝히지 않은 새 세금의 기본값이다. 이 필드들은 `10_master.sql` 이 회사 카탈로그에 더한다. 새 제품의 단위와 분류 기본값은 시드 `개`, `기본 분류` 다.
 
 ## 3. 가격 (`sql/20_pricing.sql`)

@@ -21,7 +21,7 @@ export interface CommandUi {
   hideParams?: string[]
   /** Parameters that depend on the document. */
   fields?: (record: ErpRecord | null) => Field[]
-  payload?: (values: State) => State
+  payload?: (values: State, record?: ErpRecord | null) => State
   retry?: Record<string, CommandRetry>
 }
 
@@ -289,6 +289,40 @@ export const NAV: NavModule[] = [
       { type: 'withholding_filing', label: '원천세', route: '/payroll/withholding', needs: 'payroll_run', roles: ['hr', 'payroll'] },
       { label: '4대보험 자료', route: '/payroll/insurance', needs: 'payroll_run', roles: ['hr', 'payroll'] },
       { label: '인건비 전망', route: '/payroll/outlook', needs: 'payroll_run', roles: ['hr', 'payroll'] },
+    ],
+  },
+  {
+    key: 'mrp', label: '제조', icon: 'mrp',
+    screens: [
+      {
+        type: 'manufacturing_order', formPanel: loader('MrpOrderPanel'), readonlyIn: ['confirmed', 'progress', 'done', 'cancelled', 'reversed'], hideColumns: { components: ['name', 'product_id'] },
+        views: { date: 'date_planned', groups: ['variant_id', 'stock_state'] },
+        advanced: ['date_confirmed', 'date_started', 'date_done', 'consumption', 'backorder_of', 'origin'],
+        commands: {
+          // Only what someone changed goes back. Parts left as they were follow what was really made.
+          done: {
+            fields: (r) => [
+              { name: 'qty_done', label: '완료 수량', type: 'number', required: true, default: r?.state.qty ?? 1, help: '계획보다 적으면 남은 수량을 어떻게 할지 묻습니다.' },
+              ...(r?.state.components ?? []).map((c: State): Field => ({ name: c.id, label: `${c.name ?? '자재'} 실제 사용량`, type: 'number', default: c.qty ?? 0 })),
+            ],
+            payload: (v, r) => {
+              const changed = (r?.state.components ?? []).filter((c: State) => v[c.id] !== null && v[c.id] !== undefined && Number(v[c.id]) !== Number(c.qty))
+              return { qty_done: v.qty_done, ...(changed.length ? { components: changed.map((c: State) => ({ id: c.id, qty_done: v[c.id] })) } : {}) }
+            },
+            retry: {
+              ERP_CONSUMPTION_DIFF: { title: '계획과 다른 사용량', confirmLabel: '그대로 완료', payload: () => ({ accept_difference: true }) },
+              ERP_BACKORDER_CHOICE: {
+                title: '계획보다 적게 만들었습니다',
+                message: '남은 수량을 어떻게 할까요?',
+                fields: [{ name: 'backorder', label: '남은 수량', type: 'enum', required: true, default: 'true', options: [{ value: 'true', label: '새 지시로 남겨 두기' }, { value: 'false', label: '버리기' }] }],
+                payload: (v) => ({ backorder: v.backorder === 'true' }),
+              },
+            },
+          },
+        },
+      },
+      { type: 'bom', hideColumns: { lines: ['name', 'product_id'] }, advanced: ['sequence', 'uom_id'] },
+      { label: '제조 현황', route: '/mrp/outlook', needs: 'manufacturing_order' },
     ],
   },
   {

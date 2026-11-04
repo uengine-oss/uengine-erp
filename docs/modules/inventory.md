@@ -5,7 +5,7 @@
 ## 켜기
 
 - `module enable {id: 'inventory', options: {import_since: '2024-12-01'}}`. `import_since` 를 주면 그 날짜 이후의 판매 이벤트를 처음부터 다시 받아 출고 대기를 만든다(취소·수량 변경도 함께 재생된다). 없으면 켠 뒤의 이벤트만 받는다. 구매 이벤트는 켠 뒤부터다.
-- 기초 재고는 `stock_adjustment` 로 넣는다. 시드: 창고 `WH`, 위치 `재고·공급사·고객·재고조정·폐기`, 작업 유형 `WH/IN`, `WH/OUT`, `WH/INT`.
+- 기초 재고는 `stock_adjustment` 로 넣는다. 시드: 창고 `WH`, 위치 `재고·공급사·고객·재고조정·폐기·생산`, 작업 유형 `WH/IN`, `WH/OUT`, `WH/INT`.
 
 ## 전표 `picking`
 
@@ -85,7 +85,7 @@
 
 `name, variant_id, location_id, warehouse_id, min_qty, max_qty, multiple, trigger(auto/manual), vendor_id, snoozed_until, last_error, active`. 같은 제품·위치에 하나, 최소 ≤ 최대. 만들어도 바로 요청하지 않는다.
 
-- 예측 = 현재고 − 출고 예정 + 입고 예정 + 초안 구매 수량 + 답 없는 요청. 예정은 공급사 납기 안에 드는 이동만 센다. 확정 안 된 판매 견적은 세지 않는다.
+- 예측 = 현재고 − 출고 예정 + 입고 예정 + 초안 구매 수량·제조 계획 + 답 없는 요청. 예정은 공급사 납기 안에 드는 이동만 센다. 확정 안 된 판매 견적은 세지 않는다.
 - 수량: 예측 < 최소일 때 `최대 − 예측` 을 배수로 내림한다. 그래서 0 일 수 있다. 배수 0 은 내림하지 않는다.
 - 자동 규칙은 **주문 확정, 주문 수량 증가, 줄 추가, 출고 전표 확정** 때 바로 요청한다. 재고 조정과 폐기는 스케줄러를 기다린다(폐기 `replenish` 제외).
 - 명령 `replenish{qty, to_max}`, `snooze{until}`. 공급사가 없으면 사람의 요청은 `ERP_NO_VENDOR`, 스케줄러는 `last_error` 에 남긴다.
@@ -105,8 +105,24 @@
 | `PurchaseOrderLinePriceChanged` | 열린 입고의 단가 |
 | `...Cancelled` | 열린 전표 취소, 끝난 전표는 그대로 |
 | `PurchaseDraftQtyChanged` | 초안 수량, 요청 응답 |
+| `ManufacturingPlanChanged` | 초안 구매 수량과 같은 합계에 넣고 요청에 답한다. 음수 줄이 있으면 그 제품의 자동 규칙을 평가한다 |
+| `ManufacturingDone` | 재고 → 생산(자재), 생산 → 재고(완제품) 전표를 만들어 바로 처리한다. 아래 |
+| `ManufacturingReversed` | 그 전표들을 실제 반품으로 되돌린다. 아래 |
 
 주문이 켜기 전의 것이면 전표가 없다. 그런 주문의 수량 증가는 늘어난 만큼만 새 전표가 되고 감소는 무시한다.
+
+### 제조에서 온 일
+
+제조 모듈은 이벤트만 낸다. 재고는 제조의 함수와 표를 부르지 않고, 아는 것은 이벤트 이름 셋이다(`test/isolation.test.mjs`). 켜져 있는 제조가 없어도 재고는 그대로 동작한다.
+
+- 전표 둘은 `picking_type: internal`, `origin_type: manufacturing_order` 이고 위치 한쪽이 시드 위치 `생산`(용도 `production`, 실물 위치가 아니라 재고 행이 없다)이다. 전표 ID 는 이벤트 번호에서 나오므로 두 번 받아도 하나다.
+- 일반 전표와 같은 `picking_validate` 를 지나므로 재고 부족은 음수가 되고, 다른 전표의 예약은 최근 것부터 풀린다. 날짜는 이벤트의 `date_done` 이다. 사람이 `validate` 에 날짜를 넣어도 무시한다.
+- 자재는 그때의 원가로 나간다. 그 합계가 `production_value` 다. `average` 제품은 합계 ÷ 수량으로 들어와 일반 입고처럼 평균을 옮기고, `standard` 제품은 표준 원가로 들어온다.
+- 자재의 자동 재주문 규칙은 계획이 늘 때와 자재가 줄어든 뒤 평가한다.
+- 자재 수량은 전표로 나갈 때 제품 기준 단위의 `rounding` 으로 반올림된다.
+- 되돌리기는 일반 전표와 같다. 사가의 `ManufacturingReversed` 는 완제품, 자재 순으로 반품한다(`to_refund: false`, 단가 유지). `average` 면 평균도 되돌린다.
+
+재주문 규칙의 `replenish_by` 는 제조 모듈이 카탈로그에 더하는 칸이다. 재고는 값이 `buy` 가 아니면 공급사를 묻지 않고 그 값을 `ReorderRequested` 에 실어 보낸다. 무슨 뜻인지는 모른다. 표시는 `erp_replenish_list.replenish_by`.
 
 ## 조회
 

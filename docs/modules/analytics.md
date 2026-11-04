@@ -25,8 +25,9 @@ SQL 은 사실을 돌려주고, 계산은 브라우저에서 한다. 모든 함�
 | `erp_flow_stats(p_from, p_to, p_as_of, p_grain)` | `{grain, from, to, rows:[{period, region, product_id, qty, revenue, margin, orders}]}`. `p_grain` 은 `day week month quarter year` |
 | `erp_quote_conversion(p_from, p_to, p_as_of)` | `{quotes, won, lost, open, rate, low, high, decided_rate, median_days}`. `low`·`high` 는 80% 구간 |
 | `erp_headcount(p_on, p_as_of)`, `erp_headcount_trend(p_from, p_to, p_as_of)` | 그날의 재직 인원과 부서, 달별 입퇴사와 인원. 업무 날짜와 원장 시점이 따로다. `docs/modules/hr.md` 참고 |
+| `erp_mrp_lead_times(p_as_of)`, `erp_mrp_materials(p_weeks, p_as_of)`, `erp_mrp_whatif(p_variant_id, p_factor, p_as_of)` | 실측 제조 기간, 자재 소요, 생산량 변경 시 자재 소진일. `docs/modules/mrp.md` 참고 |
 
-도우미: `erp_analytics_tz`, `erp_biz_day`, `erp_undone`, `erp_module_spans`, `erp_unit_maps`, `erp_location_map`, `erp_sales_lines`.
+도우미: `erp_analytics_tz`, `erp_biz_day`, `erp_undone`, `erp_module_spans`, `erp_unit_maps`, `erp_location_map`, `erp_sales_lines`, `erp_mrp_done_rows`, `erp_mrp_part_use`.
 
 ### 되돌리기
 
@@ -38,6 +39,8 @@ SQL 은 사실을 돌려주고, 계산은 브라우저에서 한다. 모든 함�
 
 - 이력만 읽는 모델(`stat_sales`, `quote_conversion`, `demand_sales`, `demand_true`, `whatif_drop`, `lead_time`, `pnl_outlook`, `stat_headcount`, `payroll_cost`, `whatif_headcount`)은 쌓인 이력으로 계속 계산하고 `stale_modules` 에 그 모듈을 적는다(M8).
 - 지금 재고나 미결 청구서가 있어야 하는 모델(`stockout_risk`, `whatif_policy`, `whatif_realloc`, `whatif_lead`, `reorder_plan`, `cash_in`, `whatif_terms`)은 잠긴다.
+- 이력만 읽는 모델(`stat_sales`, `quote_conversion`, `demand_sales`, `demand_true`, `whatif_drop`, `lead_time`, `pnl_outlook`, `stat_headcount`, `mrp_lead_time`)은 쌓인 이력으로 계속 계산하고 `stale_modules` 에 그 모듈을 적는다(M8).
+- 지금 재고나 미결 청구서가 있어야 하는 모델(`stockout_risk`, `whatif_policy`, `whatif_realloc`, `whatif_lead`, `reorder_plan`, `cash_in`, `whatif_terms`, `mrp_materials`, `whatif_production`)은 잠긴다.
 
 문서를 읽을 권한이 없는 사람에게 그 문서로 계산하는 모델은 `state: locked, forbidden: true` 이고 건수도 0 이다.
 

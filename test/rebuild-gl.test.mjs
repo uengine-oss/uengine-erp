@@ -178,6 +178,14 @@ async function script(c, { accountingAt }) {
   await picked('incoming', 1, 600, custLoc, stockLoc, { date: '2026-05-04', is_return: true })
   await picked('outgoing', 1, 600, stockLoc, supLoc, { date: '2026-05-05', is_return: true })
   await picked('internal', 1, 600, stockLoc, stockLoc, { date: '2026-05-05' })
+  // Goods made here: parts in, goods out at a standard above what went in, and the same taken back by returns.
+  const place = await seedId(c, '생산')
+  await picked('internal', 2, 600, stockLoc, place, { date: '2026-05-05' })
+  await picked('internal', 2, 700, place, stockLoc, { date: '2026-05-05', production_value: 1200 })
+  await picked('internal', 1, 600, stockLoc, place, { date: '2026-05-05' })
+  await picked('internal', 1, 700, place, stockLoc, { date: '2026-05-05', production_value: 600 })
+  await picked('internal', 1, 700, stockLoc, place, { date: '2026-05-05', production_value: 600, is_return: true })
+  await picked('internal', 1, 600, place, stockLoc, { date: '2026-05-05', is_return: true })
   // Half past midnight here is still the day before in UTC, which the company switches to at the end.
   await clock('2026-05-06T00:30:00+09:00')
   await emit('stock_adjustment', crypto.randomUUID(), 'StockAdjusted', { set: { state: 'applied' }, variant_id: variant, product_id: goods.id, delta: -2, unit_cost: 600, counted_qty: 3 })
@@ -257,9 +265,12 @@ test('the trial balance is exactly the same however late accounting was turned o
   assert.deepEqual(e.totals, a.totals)
   assert.equal(Number(a.totals.debit), Number(a.totals.credit))
   assert.ok(a.rows.length >= 12, 'the script reaches most of the chart of accounts')
-  for (const name of ['외상매출금', '외상매입금', '상품', '미착품', '선수금', '상품매출', '상품매출원가', '부가세예수금', '부가세대급금', '보통예금', '현금', '대손상각비', '잡손실', '재고자산감모손실', '특수 매출']) {
+  for (const name of ['외상매출금', '외상매입금', '상품', '미착품', '선수금', '상품매출', '상품매출원가', '부가세예수금', '부가세대급금', '보통예금', '현금', '대손상각비', '잡손실', '재고자산감모손실', '특수 매출', '재공품', '제조원가차이']) {
     assert.ok(a.rows.some((r) => r.name === name), `${name} was touched`)
   }
+  const line = (n) => a.rows.find((r) => r.name === n)
+  assert.equal(Number(line('재공품').closing), 0, 'what is finished is no longer in progress, returned or not')
+  assert.equal(Number(line('제조원가차이').closing), -200, 'carried above cost once, and the second difference taken back with its goods')
 })
 
 test('so are the periods, profit and loss, and the balance sheet', async () => {

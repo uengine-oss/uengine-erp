@@ -679,7 +679,9 @@ declare
   taken jsonb := '{}'::jsonb; running jsonb := '{}'::jsonb;
   lines_ jsonb; allocs jsonb; keep jsonb;
   need numeric; x numeric; have numeric; q record; key_ text; lot uuid; first_ boolean;
-  cost_ numeric; receipt boolean; variants uuid[]; new_id uuid; moved_id text; on_hand numeric; done_at timestamptz := erp.now();
+  cost_ numeric; receipt boolean; variants uuid[]; new_id uuid; moved_id text; on_hand numeric;
+  -- Only this module's own work on another module's event names the day. A person's validate is always today.
+  done_at timestamptz := coalesce((p_p ->> 'date_done')::timestamptz, erp.now());
   bo jsonb; demand_ numeric;
 begin
   perform erp.lock_check(erp.today(), '{}', '입출고');
@@ -815,7 +817,8 @@ begin
     jsonb_build_object('state', 'done', 'date_done', done_at),
     jsonb_build_object('number', s -> 'number', 'picking_type', s -> 'picking_type', 'origin_type', s -> 'origin_type', 'origin_id', s -> 'origin_id',
       'is_return', coalesce((s ->> 'is_return')::boolean, false), 'to_refund', coalesce((s ->> 'to_refund')::boolean, false),
-      'partner_id', s -> 'partner_id', 'warehouse_id', s -> 'warehouse_id', 'date_done', done_at, 'moves', facts));
+      'partner_id', s -> 'partner_id', 'warehouse_id', s -> 'warehouse_id', 'date_done', done_at, 'moves', facts)
+      || case when s ? 'production_value' then jsonb_build_object('production_value', s -> 'production_value') else '{}'::jsonb end);
 
   perform erp.quant_free_excess(variants);
 
@@ -852,7 +855,7 @@ begin
     'picking_type', kind, 'partner_id', src -> 'partner_id', 'origin_type', src -> 'origin_type', 'origin_id', src -> 'origin_id', 'origin_name', src -> 'origin_name',
     'location_from', src -> 'location_to', 'location_to', src -> 'location_from', 'warehouse_id', src -> 'warehouse_id',
     'scheduled_date', erp.now(), 'shipping_policy', coalesce(src ->> 'shipping_policy', 'direct'),
-    'return_of', p -> 'return_of', 'operation_type_id', op -> 'return_type_id', 'note', p -> 'note'))
+    'return_of', p -> 'return_of', 'operation_type_id', op -> 'return_type_id', 'note', p -> 'note', 'production_value', src -> 'production_value'))
     || jsonb_build_object('is_return', true, 'to_refund', coalesce((p ->> 'to_refund')::boolean, true));
   perform erp.picking_new(p_id, back, rows_);
   perform erp.picking_open(p_id);
@@ -997,7 +1000,7 @@ begin
       perform erp.picking_write(p_id, 'PickingUnreserved', s, plan -> 'moves', plan -> 'effects', '{}'::jsonb,
         jsonb_build_object('origin_type', s -> 'origin_type', 'origin_id', s -> 'origin_id'));
     when 'validate' then
-      perform erp.picking_validate(p_id, p);
+      perform erp.picking_validate(p_id, p - 'date_done');
     when 'cancel' then
       perform erp.picking_cancel(p_id);
     when 'compensate' then
@@ -1484,6 +1487,125 @@ begin
 end $$;
 
 ------------------------------------------------------------------------------------------------
+-- Goods made here. The maker only reports: planned quantities while an order is open, then what was used and what came
+-- out. Stock does the moving, on two slips of its own that go through the same code as any other, so reservations, cost,
+-- the books and undoing need nothing new. Facts come from the event; this module never looks at the order.
+------------------------------------------------------------------------------------------------
+create or replace function erp.stock_making_new(p_id uuid, ev erp.events, p_from uuid, p_to uuid, p_moves jsonb, p_extra jsonb default '{}'::jsonb) returns void
+language plpgsql as $$
+begin
+  perform erp.picking_new(p_id, jsonb_build_object('picking_type', 'internal', 'origin_type', ev.stream_type, 'origin_id', ev.stream_id, 'origin_name', ev.data -> 'number',
+    'location_from', p_from, 'location_to', p_to, 'warehouse_id', coalesce((ev.data ->> 'warehouse_id')::uuid, erp.stock_default_warehouse()),
+    'scheduled_date', ev.data -> 'date_done', 'shipping_policy', 'direct', 'is_return', false) || p_extra, p_moves);
+end $$;
+
+-- Handles the whole slip at the quantities it was made with. The day is the day the work finished, however late this runs.
+create or replace function erp.stock_making_validate(p_id uuid, p_date text) returns jsonb
+language plpgsql as $$
+begin
+  perform erp.picking_validate(p_id, jsonb_build_object('backorder', false, 'date_done', p_date, 'moves', (
+    select coalesce(jsonb_agg(jsonb_build_object('id', m ->> 'id', 'done', erp.num(m -> 'demand'))), '[]'::jsonb)
+      from jsonb_array_elements(erp.state_of(p_id) -> 'moves') m)));
+  return erp.state_of(p_id);
+end $$;
+
+-- Parts leave at what they are carried at, and that is what the finished goods cost. Average goods come in at it and their
+-- average moves as with any receipt. Standard goods stay at their standard, and the books keep the difference.
+create or replace function erp.stock_on_making_done(ev erp.events) returns void
+language plpgsql as $$
+declare
+  d jsonb := ev.data;
+  w uuid := coalesce((d ->> 'warehouse_id')::uuid, erp.stock_default_warehouse());
+  stock_ uuid := erp.stock_warehouse_location(w);
+  place uuid := erp.stock_virtual('production', '생산');
+  parts uuid := erp.stock_doc_id('making-parts', ev.seq);
+  goods uuid := erp.stock_doc_id('making-goods', ev.seq);
+  rows_ jsonb := '[]'::jsonb;
+  c jsonb; used jsonb; m jsonb;
+  spent numeric := 0;
+  v jsonb := erp.stock_variant((d ->> 'variant_id')::uuid);
+  qty_ numeric := erp.uom_convert(erp.num(d -> 'qty_done'), (d ->> 'uom_id')::uuid, (v ->> 'uom_id')::uuid);
+  unit numeric;
+begin
+  if exists (select 1 from erp.records where id = goods) then return; end if;
+  for c in select value from jsonb_array_elements(coalesce(d -> 'components', '[]'::jsonb)) where erp.num(value -> 'qty_done') > 0 loop
+    m := erp.stock_new_move(jsonb_build_object('id', md5('making:' || ev.seq || ':' || (c ->> 'line_id'))::uuid, 'variant_id', c -> 'variant_id',
+      'qty', c -> 'qty_done', 'uom_id', c -> 'uom_id', 'name', c -> 'name', 'origin_line_id', c -> 'line_id'));
+    -- Less than the product's own unit can count: nothing moves, and a slip with nothing to do must not stall the rest.
+    if erp.num(m -> 'demand') > 0 then rows_ := rows_ || m; end if;
+  end loop;
+  if jsonb_array_length(rows_) > 0 then
+    perform erp.stock_making_new(parts, ev, stock_, place, rows_);
+    used := erp.stock_making_validate(parts, d ->> 'date_done');
+    for m in select value from jsonb_array_elements(used -> 'moves') loop
+      spent := spent + erp.money(erp.num(m -> 'done') * erp.num(m -> 'unit_cost'));
+    end loop;
+  end if;
+  unit := case when v ->> 'cost_method' = 'average' and qty_ > 0 then round(spent / qty_, 6) end;
+  perform erp.stock_making_new(goods, ev, place, stock_, jsonb_build_array(erp.stock_new_move(jsonb_build_object('id', md5('making:' || ev.seq || ':goods')::uuid,
+      'variant_id', d -> 'variant_id', 'qty', d -> 'qty_done', 'uom_id', d -> 'uom_id', 'name', d -> 'name', 'origin_line_id', 'finished', 'unit_cost', unit))),
+    jsonb_build_object('production_value', spent));
+  perform erp.stock_making_validate(goods, d ->> 'date_done');
+  perform erp.reorder_evaluate(array(select (x ->> 'variant_id')::uuid from jsonb_array_elements(coalesce(d -> 'components', '[]'::jsonb)) x));
+end $$;
+
+-- A saga undoing finished work that cannot simply be reverted: goods go back out and parts come back in, by real returns at
+-- the cost they moved at. An average that the goods moved goes back with them, as far as what remains can show it.
+create or replace function erp.stock_on_making_reversed(ev erp.events) returns void
+language plpgsql as $$
+declare
+  r erp.records;
+  new_id uuid;
+  rows_ jsonb;
+  m jsonb; v jsonb;
+  on_hand numeric; old_ numeric; new_ numeric; q numeric;
+begin
+  for r in select * from erp.stock_origin_pickings(ev.stream_id) x
+            where x.status = 'done' and not coalesce((x.state ->> 'is_return')::boolean, false)
+            order by x.state ? 'production_value' desc, x.id
+  loop
+    new_id := erp.stock_doc_id('making-back:' || r.id, ev.seq);
+    continue when exists (select 1 from erp.records where id = new_id);
+    select coalesce(jsonb_agg(jsonb_build_object('id', x ->> 'id', 'qty', erp.num(x -> 'done'))), '[]'::jsonb) into rows_
+      from jsonb_array_elements(r.state -> 'moves') x where erp.num(x -> 'done') > 0;
+    continue when rows_ = '[]'::jsonb;
+    if r.state ? 'production_value' then
+      for m in select value from jsonb_array_elements(r.state -> 'moves') where erp.num(value -> 'done') > 0 loop
+        v := erp.stock_variant((m ->> 'variant_id')::uuid);
+        continue when v ->> 'cost_method' <> 'average';
+        perform 1 from erp.records where id = (v ->> 'product_id')::uuid for update;
+        v := erp.stock_variant((m ->> 'variant_id')::uuid);
+        select coalesce(sum(z.qty), 0) into on_hand from erp.quants z where z.variant_id = (m ->> 'variant_id')::uuid;
+        q := erp.num(m -> 'done'); old_ := erp.num(v -> 'standard_price');
+        continue when on_hand - q <= 0;
+        new_ := round((on_hand * old_ - q * erp.num(m -> 'unit_cost')) / (on_hand - q), 6);
+        if new_ is distinct from old_ then
+          perform erp.emit('product', (v ->> 'product_id')::uuid, 'ProductCostChanged', jsonb_build_object(
+            'col', jsonb_build_object('variants', jsonb_build_object('set', jsonb_build_array(jsonb_build_object('id', v ->> 'variant_id', 'standard_price', new_)))),
+            'variant_id', v ->> 'variant_id', 'product_id', v ->> 'product_id', 'from', old_, 'to', new_, 'reason', coalesce(ev.data ->> 'number', '')));
+        end if;
+      end loop;
+    end if;
+    perform erp.picking_make_return(new_id, jsonb_build_object('return_of', r.id, 'moves', rows_, 'to_refund', false, 'note', ev.data ->> 'number'));
+    perform erp.stock_making_validate(new_id, null);
+  end loop;
+end $$;
+
+create or replace function erp.stock_on_making(ev erp.events) returns void
+language plpgsql as $$
+begin
+  case ev.event_type
+    when 'ManufacturingPlanChanged' then
+      -- The same sum a draft purchase goes into: what is coming counts as coming, and parts already spoken for as gone.
+      perform erp.stock_on_rfq(ev);
+      perform erp.reorder_evaluate(array(select (x ->> 'variant_id')::uuid from jsonb_array_elements(coalesce(ev.data -> 'lines', '[]'::jsonb)) x where erp.num(x -> 'qty') < 0));
+    when 'ManufacturingDone' then perform erp.stock_on_making_done(ev);
+    when 'ManufacturingReversed' then perform erp.stock_on_making_reversed(ev);
+    else null;
+  end case;
+end $$;
+
+------------------------------------------------------------------------------------------------
 -- Stock adjustments
 ------------------------------------------------------------------------------------------------
 create or replace function erp.stock_quant_qty(p_variant uuid, p_location uuid, p_lot uuid) returns numeric
@@ -1850,7 +1972,7 @@ declare
 begin
   facts := jsonb_build_object('rule_id', p_rule_id, 'variant_id', p_doc -> 'variant_id', 'product_id', v ->> 'product_id',
     'location_id', p_doc -> 'location_id', 'warehouse_id', p_doc -> 'warehouse_id', 'qty', p_doc -> 'qty', 'uom_id', v ->> 'uom_id',
-    'vendor_id', p_doc -> 'vendor_id', 'origin', p_doc -> 'origin');
+    'vendor_id', p_doc -> 'vendor_id', 'origin', p_doc -> 'origin', 'replenish_by', coalesce(p_doc ->> 'replenish_by', 'buy'));
   perform erp.emit('stock_replenishment', new_id, 'ReorderRequested', facts || jsonb_build_object('set', facts || jsonb_build_object(
     'name', format('%s %s', v ->> 'name', trim_scale((p_doc ->> 'qty')::numeric)), 'number', erp.next_number('RR', 'RR/', 5), 'state', 'requested', 'active', true)));
   return new_id;
@@ -1864,6 +1986,8 @@ declare
   n jsonb := erp.reorder_numbers(s);
   qty_ numeric := p_qty;
   mult numeric := erp.num(s -> 'multiple', 1);
+  -- Anything but buying is some other module's word. This one only knows that it needs no vendor, and says it in the event.
+  by_ text := coalesce(s ->> 'replenish_by', 'buy');
   msg text;
 begin
   if qty_ is null and p_to_max then
@@ -1872,7 +1996,7 @@ begin
   end if;
   qty_ := coalesce(qty_, erp.num(n -> 'qty_to_order'));
   if qty_ <= 0 then return null; end if;
-  if n ->> 'vendor_id' is null then
+  if by_ = 'buy' and n ->> 'vendor_id' is null then
     msg := format('공급사가 없습니다: %s', s ->> 'name');
     if p_manual then perform erp.fail('ERP_NO_VENDOR', msg); end if;
     if s ->> 'last_error' is distinct from msg then
@@ -1884,7 +2008,7 @@ begin
     perform erp.emit('reorder_rule', p_id, 'ReorderRuleCleared', '{"set": {"last_error": null}}'::jsonb);
   end if;
   return erp.replenishment_request(p_id, jsonb_build_object('variant_id', s -> 'variant_id', 'location_id', s -> 'location_id', 'warehouse_id', n -> 'warehouse_id',
-    'qty', qty_, 'vendor_id', n -> 'vendor_id', 'origin', coalesce(s ->> 'name', '재주문 규칙')));
+    'qty', qty_, 'vendor_id', case when by_ = 'buy' then n -> 'vendor_id' end, 'origin', coalesce(s ->> 'name', '재주문 규칙'), 'replenish_by', by_));
 end $$;
 
 create or replace function erp.reorder_evaluate(p_variants uuid[]) returns int
@@ -2187,7 +2311,8 @@ begin
             order by name, id loop
     n := erp.reorder_numbers(r.state);
     out_ := out_ || (n || jsonb_build_object('rule_id', r.id, 'name', r.state -> 'name', 'variant_id', r.state -> 'variant_id', 'location_id', r.state -> 'location_id',
-      'min_qty', r.state -> 'min_qty', 'max_qty', r.state -> 'max_qty', 'multiple', r.state -> 'multiple', 'trigger', r.state -> 'trigger', 'last_error', r.state -> 'last_error'));
+      'min_qty', r.state -> 'min_qty', 'max_qty', r.state -> 'max_qty', 'multiple', r.state -> 'multiple', 'trigger', r.state -> 'trigger', 'last_error', r.state -> 'last_error',
+      'replenish_by', coalesce(r.state ->> 'replenish_by', 'buy')));
   end loop;
   return out_;
 end $$;
@@ -2470,14 +2595,15 @@ select erp.module_put('{
      "events": ["SalesOrderConfirmed", "SalesOrderLineAdded", "SalesOrderLineQtyChanged", "SalesOrderCancelled", "SalesOrderDelivered"]},
     {"name": "inventory.purchase", "handler": "erp.stock_on_purchase",
      "events": ["PurchaseOrderConfirmed", "PurchaseOrderLineAdded", "PurchaseOrderLineQtyChanged", "PurchaseOrderLinePriceChanged", "PurchaseOrderCancelled", "PurchaseDraftQtyChanged"]},
-    {"name": "inventory.invoice", "handler": "erp.stock_on_invoice", "events": ["InvoicePosted", "InvoiceResetToDraft", "InvoiceCancelled"]}
+    {"name": "inventory.invoice", "handler": "erp.stock_on_invoice", "events": ["InvoicePosted", "InvoiceResetToDraft", "InvoiceCancelled"]},
+    {"name": "inventory.making", "handler": "erp.stock_on_making", "events": ["ManufacturingPlanChanged", "ManufacturingDone", "ManufacturingReversed"]}
   ],
   "publishes": [
     {"event": "PickingStateChanged", "fields": ["number", "picking_type", "origin_type", "origin_id", "state", "is_return", "partner_id", "scheduled_date", "lines"]},
     {"event": "PickingValidated", "fields": ["number", "picking_type", "origin_type", "origin_id", "is_return", "to_refund", "partner_id", "warehouse_id", "date_done", "moves"]},
     {"event": "StockAdjusted", "fields": ["variant_id", "product_id", "location_id", "warehouse_id", "lot_id", "delta", "unit_cost", "counted_qty"]},
     {"event": "StockScrapped", "fields": ["variant_id", "product_id", "location_id", "warehouse_id", "lot_id", "qty", "unit_cost"]},
-    {"event": "ReorderRequested", "fields": ["rule_id", "variant_id", "product_id", "location_id", "warehouse_id", "qty", "uom_id", "vendor_id", "origin"]}
+    {"event": "ReorderRequested", "fields": ["rule_id", "variant_id", "product_id", "location_id", "warehouse_id", "qty", "uom_id", "vendor_id", "origin", "replenish_by"]}
   ]
 }'::jsonb);
 

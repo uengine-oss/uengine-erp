@@ -61,7 +61,7 @@ test('S17. it starts off, cannot be turned on without people, and on turning on 
     assert.equal(card.enabled, false)
     await rejects(k.admin('payroll_run', null, 'create', { period_month: '2026-07', pay_date: '2026-07-25' }), 'ERP_MODULE_OFF')
     const refused = await rejects(k.admin('module', null, 'enable', { id: 'payroll' }), 'ERP_MODULE_REQUIRED')
-    assert.match(refused.message, /인사 모듈을 먼저 켜세요/)
+    assert.match(refused.message, /인사 모듈이 먼저 켜져 있어야/)
 
     await k.admin('module', null, 'enable', { id: 'hr' })
     const d = await k.admin('department', null, 'create', { name: '영업' })

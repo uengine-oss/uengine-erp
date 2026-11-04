@@ -394,7 +394,7 @@ async function runCommand(command: string, label: string, def: Pick<CommandDef, 
       confirmLabel: label,
     })
     if (!answer) return
-    payload = ui?.payload ? ui.payload(answer.values) : answer.values
+    payload = ui?.payload ? ui.payload(answer.values, record.value) : answer.values
     reason = answer.reason || null
   }
   // An action means "with what is on screen", so unsaved edits are saved first.
@@ -407,7 +407,7 @@ async function runCommand(command: string, label: string, def: Pick<CommandDef, 
       try {
         const res = await sendCommand({ type: props.type, id: props.id, command, payload, expectedVersion: record.value?.version ?? null, reason })
         adoptResult(res)
-        toast(`${label} 완료`)
+        toast(label.endsWith('완료') ? label : `${label} 완료`)
         void loadStream()
         after?.()
         return

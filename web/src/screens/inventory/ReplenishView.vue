@@ -14,7 +14,7 @@ import EmptyState from '../../components/EmptyState.vue'
 import LoadError from '../../components/LoadError.vue'
 import NumberInput from '../../components/NumberInput.vue'
 
-interface Need { rule_id: string; name: string | null; variant_id: string; location_id: string; min_qty: number; max_qty: number; multiple: number; trigger: string; last_error: string | null; on_hand: number; incoming: number; outgoing: number; rfq_qty: number; pending_qty: number; forecast: number; qty_to_order: number; lead_days: number; horizon: string; vendor_id: string | null }
+interface Need { rule_id: string; name: string | null; variant_id: string; location_id: string; min_qty: number; max_qty: number; multiple: number; trigger: string; last_error: string | null; on_hand: number; incoming: number; outgoing: number; rfq_qty: number; pending_qty: number; forecast: number; qty_to_order: number; lead_days: number; horizon: string; vendor_id: string | null; replenish_by: string }
 
 const { data, loading, error, load } = useLoad(async () => {
   const list = await rpc<Need[]>('erp_replenish_list')
@@ -99,13 +99,13 @@ async function snooze(r: Need) {
     <LoadError :message="error" @retry="load" />
     <div class="page-body" style="background: var(--surface)">
       <table v-if="list.length" class="tbl" data-testid="replenish-table">
-        <thead><tr><th v-if="canOrder" style="width: 30px"></th><th>제품</th><th>위치</th><th>공급사</th><th class="num">최소</th><th class="num">최대</th><th class="num">예측</th><th class="num" style="width: 110px">주문 수량</th><th v-if="canOrder" style="width: 210px"></th></tr></thead>
+        <thead><tr><th v-if="canOrder" style="width: 30px"></th><th>제품</th><th>위치</th><th>공급처</th><th class="num">최소</th><th class="num">최대</th><th class="num">예측</th><th class="num" style="width: 110px">주문 수량</th><th v-if="canOrder" style="width: 210px"></th></tr></thead>
         <tbody>
           <template v-for="r in list" :key="r.rule_id">
             <tr data-testid="replenish-row" :data-rule="r.rule_id">
               <td v-if="canOrder"><input type="checkbox" :checked="picked.has(r.rule_id)" :aria-label="`${refLabel(r.variant_id)} 선택`" data-testid="replenish-pick" @change="toggle(r.rule_id)" /></td>
               <td>{{ refLabel(r.variant_id) }}<span v-if="r.last_error" class="tag" :title="r.last_error" style="margin-left: 4px" data-testid="replenish-error">멈춤</span></td>
-              <td>{{ refLabel(r.location_id) }}</td><td>{{ r.vendor_id ? refLabel(r.vendor_id) : '없음' }}</td><td class="num">{{ fmtNumber(r.min_qty) }}</td><td class="num">{{ fmtNumber(r.max_qty) }}</td>
+              <td>{{ refLabel(r.location_id) }}</td><td data-testid="replenish-vendor">{{ r.replenish_by === 'make' ? '직접 제조' : r.vendor_id ? refLabel(r.vendor_id) : '없음' }}</td><td class="num">{{ fmtNumber(r.min_qty) }}</td><td class="num">{{ fmtNumber(r.max_qty) }}</td>
               <td class="num" :class="{ neg: r.forecast < 0 }" data-testid="replenish-forecast">{{ fmtNumber(r.forecast) }}</td>
               <td class="num"><NumberInput :model-value="qtyOf(r)" :aria-label="`${refLabel(r.variant_id)} 주문 수량`" :disabled="!canOrder" data-testid="replenish-qty" @update:model-value="qty[r.rule_id] = $event" /></td>
               <td v-if="canOrder" class="num">
@@ -117,7 +117,7 @@ async function snooze(r: Need) {
             <tr v-if="open === r.rule_id" data-testid="replenish-detail">
               <td :colspan="canOrder ? 9 : 7" class="wrap detail">
                 납기 <strong>{{ r.lead_days }}일</strong>, 예측일 <strong data-testid="replenish-horizon">{{ r.horizon }}</strong>. 이 날까지의 입출고만 셉니다.
-                현재고 {{ fmtNumber(r.on_hand) }} − 출고 {{ fmtNumber(r.outgoing) }} + 입고 {{ fmtNumber(r.incoming) }} + 구매 견적 {{ fmtNumber(r.rfq_qty) }} + 요청 중 {{ fmtNumber(r.pending_qty) }} = 예측 {{ fmtNumber(r.forecast) }}.
+                현재고 {{ fmtNumber(r.on_hand) }} − 출고 {{ fmtNumber(r.outgoing) }} + 입고 {{ fmtNumber(r.incoming) }} + 구매 견적·제조 계획 {{ fmtNumber(r.rfq_qty) }} + 요청 중 {{ fmtNumber(r.pending_qty) }} = 예측 {{ fmtNumber(r.forecast) }}.
                 <template v-if="r.last_error"><br /><span class="err-text">{{ r.last_error }}</span></template>
               </td>
             </tr>

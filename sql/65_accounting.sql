@@ -425,8 +425,10 @@ declare
   prod jsonb;
   stock_ text := erp.seed_id('상품')::text;
   awaited text := erp.seed_id('미착품')::text;
+  making text := erp.seed_id('재공품')::text;
   cogs text;
   rows_ jsonb := '[]'::jsonb;
+  carried numeric := 0;
 begin
   for m in select value from jsonb_array_elements(coalesce(d -> 'moves', '[]'::jsonb)) loop
     value_ := erp.money(erp.num(m -> 'qty_done') * erp.num(m -> 'unit_cost'));
@@ -445,8 +447,19 @@ begin
       rows_ := rows_ || erp.books_row(stock_, partner, m ->> 'name', value_) || erp.books_row(awaited, partner, m ->> 'name', -value_);
     elsif from_ = 'internal' and to_ = 'supplier' then
       rows_ := rows_ || erp.books_row(awaited, partner, m ->> 'name', value_) || erp.books_row(stock_, partner, m ->> 'name', -value_);
+    elsif from_ = 'internal' and to_ = 'production' then
+      rows_ := rows_ || erp.books_row(making, partner, m ->> 'name', value_) || erp.books_row(stock_, partner, m ->> 'name', -value_);
+      carried := carried + value_;
+    elsif from_ = 'production' and to_ = 'internal' then
+      rows_ := rows_ || erp.books_row(stock_, partner, m ->> 'name', value_) || erp.books_row(making, partner, m ->> 'name', -value_);
+      carried := carried + value_;
     end if;
   end loop;
+  -- Finished goods carried at a standard, or a rounding, can differ from what went into them. Work in progress still ends at nothing.
+  if d ? 'production_value' and erp.num(d -> 'production_value') <> carried then
+    value_ := (erp.num(d -> 'production_value') - carried) * case when is_return then -1 else 1 end;
+    rows_ := rows_ || erp.books_row(erp.seed_id('제조원가차이')::text, partner, d ->> 'number', value_) || erp.books_row(making, partner, d ->> 'number', -value_);
+  end if;
   perform erp.books_entry(ev, erp.seed_id('gl:' || ev.seq), erp.books_date(d ->> 'date_done', ev), d ->> 'number', partner, rows_);
 end $$;
 

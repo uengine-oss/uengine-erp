@@ -12,7 +12,8 @@
    "test/demo.test.mjs",
    "test/voucher.test.mjs",
    "test/krtax.test.mjs",
-   "test/hr.test.mjs"
+   "test/hr.test.mjs",
+   "test/mrp.test.mjs"
   ],
   "e2e": [
    "test/api.e2e.mjs"
@@ -84,6 +85,10 @@
   {
    "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
    "id": "erp-hr"
+  },
+  {
+   "spec_repo": "/Users/uengine/uengine-platform/uengine-erp",
+   "id": "erp-mrp"
   }
  ],
  "videos": [

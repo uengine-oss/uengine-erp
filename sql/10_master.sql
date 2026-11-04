@@ -1610,7 +1610,7 @@ select erp.catalog_master('{
     {"name": "parent_id", "label": "상위 위치", "type": "ref", "ref": "location", "list": true},
     {"name": "usage", "label": "용도", "type": "enum", "required": true, "default": "internal", "list": true,
      "options": [{"value": "view", "label": "묶음"}, {"value": "internal", "label": "사내"}, {"value": "customer", "label": "고객"},
-                 {"value": "supplier", "label": "공급사"}, {"value": "inventory", "label": "재고조정"}, {"value": "transit", "label": "이동 중"}]},
+                 {"value": "supplier", "label": "공급사"}, {"value": "inventory", "label": "재고조정"}, {"value": "production", "label": "생산"}, {"value": "transit", "label": "이동 중"}]},
     {"name": "scrap", "label": "폐기 위치", "type": "boolean", "default": false}
   ]
 }'::jsonb, '["inventory"]'::jsonb);
@@ -1879,12 +1879,24 @@ begin
 end $$;
 insert into erp.default_seeds(fn, sort) values ('erp.seed_account_groups', 12) on conflict (fn) do nothing;
 
+-- Where parts go and finished goods come from, and the accounts that hold them on the way. Here and not with manufacturing:
+-- stock and the books use them by name, and they have to be there before anyone turns that module on.
+create or replace function erp.seed_production() returns void
+language plpgsql as $$
+begin
+  perform erp.seed_put('account', '재공품', '{"code": "169", "name": "재공품", "account_type": "asset_current"}');
+  perform erp.seed_put('account', '제조원가차이', '{"code": "459", "name": "제조원가차이", "account_type": "expense"}');
+  perform erp.seed_put('location', '생산', '{"name": "생산", "usage": "production"}');
+end $$;
+insert into erp.default_seeds(fn, sort) values ('erp.seed_production', 11) on conflict (fn) do nothing;
+
 -- A company installed before these existed gets them on upgrade; setup never runs twice.
 do $$ begin
   if exists (select 1 from erp.records where id = erp.company_id()) then
     perform set_config('erp.source', 'setup', true);
     perform set_config('erp.seeding', 'on', true);
     perform erp.seed_account_groups();
+    perform erp.seed_production();
     perform set_config('erp.seeding', '', true);
     perform set_config('erp.source', '', true);
   end if;

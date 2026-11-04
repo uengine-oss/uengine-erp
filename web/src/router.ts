@@ -76,6 +76,7 @@ export const router = createRouter({
         { path: 'payroll/withholding', name: 'payroll-withholding', component: () => import('./screens/payroll/WithholdingView.vue'), meta: { title: '원천세' } },
         { path: 'payroll/insurance', name: 'payroll-insurance', component: () => import('./screens/payroll/InsuranceView.vue'), meta: { title: '4대보험 자료' } },
         { path: 'payroll/outlook', name: 'payroll-outlook', component: () => import('./screens/payroll/OutlookView.vue'), meta: { title: '인건비 전망' } },
+        { path: 'mrp/outlook', name: 'mrp-outlook', component: () => import('./screens/mrp/MrpOutlookView.vue'), meta: { title: '제조 현황' } },
         { path: 'master/variants', name: 'variants', component: () => import('./screens/master/VariantsView.vue'), meta: { title: '전체 변형' } },
         { path: 'master/duplicates', name: 'duplicates', component: () => import('./screens/master/DuplicatesView.vue'), meta: { title: '중복 연락처' } },
         { path: 'print/:type/:id', name: 'print', component: () => import('./screens/print/PrintView.vue'), props: true, meta: { title: '출력' } },
