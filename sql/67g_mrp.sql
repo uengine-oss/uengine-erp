@@ -420,6 +420,10 @@ begin
   if p ? 'qty_done' and jsonb_typeof(p -> 'qty_done') <> 'null' and erp.num(p -> 'qty_done', null) is null then perform erp.fail('ERP_INVALID', '완료 수량은 숫자여야 합니다'); end if;
   made := erp.uom_line_qty(coalesce(erp.num(p -> 'qty_done', null), planned), uom);
   if made <= 0 then perform erp.fail('ERP_INVALID', '완료 수량은 0보다 커야 합니다. 만들지 않았으면 취소하세요'); end if;
+  -- Stock counts in the product's own unit and rounds there. Less than it can count would reach it as nothing at all.
+  if erp.uom_convert(made, uom, (erp.variant((s ->> 'variant_id')::uuid) ->> 'uom_id')::uuid) <= 0 then
+    perform erp.fail('ERP_INVALID', '완료 수량이 제품 기준 단위로 0 이 됩니다. 단위나 수량을 확인하세요');
+  end if;
   ratio := made / planned;
 
   for c in select value from jsonb_array_elements(coalesce(p -> 'components', '[]'::jsonb)) loop
@@ -545,6 +549,10 @@ begin
   b := erp.mrp_order_bom(vid, bid);
   key_ := erp.mrp_calc_key(vid, uom, q, b ->> 'id');
   if b is null then warn := warn || '"이 제품의 자재 명세가 없습니다. 자재를 직접 넣거나 자재 명세를 먼저 만드세요."'::jsonb; end if;
+  -- New products start in a standard-cost category with no standard, and then all the materials would land on the variance account.
+  if coalesce(erp.state_of((v ->> 'category_id')::uuid) ->> 'cost_method', 'standard') = 'standard' and erp.num(v -> 'standard_price') = 0 then
+    warn := warn || '"이 제품은 표준 원가가 0 입니다. 이대로 완료하면 완제품이 0 원으로 들어오고 자재비는 제조원가차이로 갑니다. 표준 원가를 넣거나 분류를 평균 원가로 바꾸세요."'::jsonb;
+  end if;
   return doc || jsonb_build_object('variant_id', vid, 'product_id', v ->> 'product_id', 'uom_id', uom, 'bom_id', b -> 'id', 'calc_key', key_, 'warnings', warn)
     || case when doc ->> 'calc_key' is distinct from key_ and b is not null then jsonb_build_object('components', erp.mrp_components((b ->> 'id')::uuid, q, uom)) else '{}'::jsonb end;
 end $$;
@@ -675,7 +683,7 @@ select erp.catalog_put('{
     {"name": "date_done", "label": "완료 일시", "type": "datetime", "readonly": true},
     {"name": "stock_state", "label": "재고 반영", "type": "enum", "readonly": true, "list": true,
      "options": [{"value": "pending", "label": "반영 대기"}, {"value": "applied", "label": "반영됨"}, {"value": "reversing", "label": "되돌리는 중"}, {"value": "reversed", "label": "되돌림"}]},
-    {"name": "material_cost", "label": "자재비", "type": "money", "readonly": true},
+    {"name": "material_cost", "label": "자재비", "type": "number", "readonly": true},
     {"name": "unit_cost", "label": "완제품 단가", "type": "number", "readonly": true},
     {"name": "note", "label": "메모", "type": "text", "multiline": true},
     {"name": "calc_key", "label": "계산 기준", "type": "text", "readonly": true, "hidden": true},
@@ -738,6 +746,7 @@ select erp.module_put('{
     {"event": "ManufacturingOrderCreated", "fields": ["number", "variant_id", "product_id", "name", "qty", "uom_id", "warehouse_id", "bom_id", "origin", "date_planned", "components"]},
     {"event": "ManufacturingOrderChanged", "fields": ["number", "variant_id", "product_id", "name", "qty", "uom_id", "warehouse_id", "bom_id", "origin", "date_planned", "components"]},
     {"event": "ManufacturingConfirmed", "fields": ["number", "variant_id", "product_id", "name", "qty", "uom_id", "warehouse_id", "bom_id", "origin", "date_planned", "components"]},
+    {"event": "ManufacturingResetToDraft", "fields": ["number", "variant_id", "product_id", "name", "qty", "uom_id", "warehouse_id", "bom_id", "origin", "date_planned", "components"]},
     {"event": "ManufacturingStarted", "fields": ["date_started", "number", "variant_id", "product_id", "name", "qty", "uom_id", "warehouse_id", "bom_id", "origin", "date_planned", "components"]},
     {"event": "ManufacturingDone", "fields": ["qty_done", "date_done", "date_confirmed", "date_started", "number", "variant_id", "product_id", "name", "qty", "uom_id", "warehouse_id", "bom_id", "origin", "date_planned", "components"]},
     {"event": "ManufacturingCancelled", "fields": ["was", "number", "variant_id", "product_id", "name", "qty", "uom_id", "warehouse_id", "bom_id", "origin", "date_planned", "components"]},

@@ -283,10 +283,15 @@ describe('orders', () => {
     assert.equal(num(again.components[0].qty), 99, 'nothing it depends on moved')
     const moved = await call(k, k.adminId, 'erp_preview', 'manufacturing_order', JSON.stringify({ ...typed, qty: 5 }))
     assert.equal(num(moved.components[0].qty), 10)
-    const none = await product(k, '명세 없는 제품')
+    const none = await product(k, '명세 없는 제품', 5)
     const w = await call(k, k.adminId, 'erp_preview', 'manufacturing_order', JSON.stringify({ variant_id: none.variant, qty: 1 }))
     assert.equal(w.bom_id, null)
     assert.match(w.warnings[0], /자재 명세가 없습니다/)
+    assert.match(a.warnings[0], /표준 원가가 0 입니다/, 'with no standard, the materials would all land on the variance')
+    const avgCat = await category(k, '미리보기 평균', 'average')
+    const free = await product(k, '평균 미리보기 제품', 0, { category_id: avgCat })
+    await bomOf(k, free, [[motor, 1]])
+    assert.deepEqual((await call(k, k.adminId, 'erp_preview', 'manufacturing_order', JSON.stringify({ variant_id: free.variant, qty: 1 }))).warnings, [])
     assert.deepEqual(await call(k, k.adminId, 'erp_preview', 'manufacturing_order', '{}'), {}, 'an empty form is left alone')
     const n = (await k.db.query(`select count(*)::int n from erp.events`)).rows[0].n
     await call(k, k.adminId, 'erp_preview', 'manufacturing_order', JSON.stringify({ variant_id: f.variant, qty: 3 }))
@@ -812,25 +817,31 @@ describe('when things go wrong', () => {
     const handler = (await k.db.query(`select handler from erp.subscriptions where name = 'inventory.making'`)).rows[0].handler
     await k.db.query(`create or replace function erp.t_broken(ev erp.events) returns void language plpgsql as $f$ begin raise exception 'ERP_TEST: 창고 연결 실패'; end $f$`)
     await k.db.query(`update erp.subscriptions set handler = 'erp.t_broken' where name = 'inventory.making'`)
-    const o = await orderOf(k, f, 3)
-    await k.admin('manufacturing_order', o.id, 'confirm', {})
-    const done = await k.admin('manufacturing_order', o.id, 'done', {})
-    assert.equal(done.status, 'done', 'the work is on record')
-    await k.db.query('select erp.bus_run(2000)')
-    assert.equal((await k.rec(o.id)).state.stock_state, 'pending')
-    assert.equal(await stockOf(k, f.variant), 0)
-    assert.equal(await stockOf(k, m.variant), 50)
-    const stuck = (await call(k, k.adminId, 'erp_bus_status')).find((s) => s.name === 'inventory.making')
-    assert.ok(stuck.failures > 0); assert.match(stuck.last_error, /창고 연결 실패/)
-    const others = (await call(k, k.adminId, 'erp_bus_status')).filter((s) => s.name !== 'inventory.making' && s.failures > 0)
-    assert.deepEqual(others, [], 'nobody else stops')
-    // Other work goes on meanwhile.
-    const other = await orderOf(k, f, 1)
-    assert.equal(other.status, 'draft')
-    await k.admin('manufacturing_order', other.id, 'delete', {})
-
-    await k.db.query('update erp.subscriptions set handler = $1 where name = $2', [handler, 'inventory.making'])
-    await call(k, k.adminId, 'erp_bus_retry', 'inventory.making')
+    // Delivery waits for the oldest open transaction in the cluster, so both of these keep asking until it has happened.
+    const sub = async () => (await call(k, k.adminId, 'erp_bus_status')).find((s) => s.name === 'inventory.making')
+    const until = async (check) => { for (let i = 0; i < 600 && !(await check()); i++) await new Promise((r) => setTimeout(r, 100)) }
+    let o
+    try {
+      o = await orderOf(k, f, 3)
+      await k.admin('manufacturing_order', o.id, 'confirm', {})
+      const done = await k.admin('manufacturing_order', o.id, 'done', {})
+      assert.equal(done.status, 'done', 'the work is on record')
+      await until(async () => { await k.db.query('select erp.bus_run(2000)'); return (await sub()).failures > 0 })
+      assert.equal((await k.rec(o.id)).state.stock_state, 'pending')
+      assert.equal(await stockOf(k, f.variant), 0)
+      assert.equal(await stockOf(k, m.variant), 50)
+      const stuck = await sub()
+      assert.ok(stuck.failures > 0); assert.match(stuck.last_error, /창고 연결 실패/)
+      const others = (await call(k, k.adminId, 'erp_bus_status')).filter((s) => s.name !== 'inventory.making' && s.failures > 0)
+      assert.deepEqual(others, [], 'nobody else stops')
+      // Other work goes on meanwhile.
+      const other = await orderOf(k, f, 1)
+      assert.equal(other.status, 'draft')
+      await k.admin('manufacturing_order', other.id, 'delete', {})
+    } finally {
+      await k.db.query('update erp.subscriptions set handler = $1 where name = $2', [handler, 'inventory.making'])
+    }
+    await until(async () => { await call(k, k.adminId, 'erp_bus_retry', 'inventory.making'); return (await sub()).failures === 0 })
     await k.settle()
     assert.equal(await stockOf(k, f.variant), 3)
     assert.equal(await stockOf(k, m.variant), 44)
@@ -1279,6 +1290,7 @@ describe('models, from the ledger alone', () => {
     await c.admin('manufacturing_order', open.id, 'confirm', {})
     await c.settle()
     const r = await call(c, c.adminId, 'erp_mrp_materials', 4, AS_OF)
+    assert.ok(r.weeks_seen >= WEEKS, 'the screen can say how much history this rests on')
     const part = r.rows.find((x) => x.variant_id === m.variant)
     assert.equal(num(part.on_hand), 1000 - WEEKS * 25)
     assert.equal(num(part.spoken_for), 40)
@@ -1408,7 +1420,8 @@ describe('the demo company', () => {
   })
 
   // A batch is one transaction, so the app sends it again after the known debugger glitch. That glitch sticks to a connection,
-  // so each try gets a new one, as requests do from PostgREST's pool.
+  // so each try gets a new one, as requests do from PostgREST's pool. Inside a delivery the bus catches the glitch as a handler
+  // failure, so it shows up one step later as a slip that was never made. A real missing slip still fails after the last try.
   async function applyBatch(c, batch) {
     const { host, port, user, password, database } = c.db.client
     for (let attempt = 0; ; attempt++) {
@@ -1423,7 +1436,7 @@ describe('the demo company', () => {
         return r
       } catch (e) {
         await client.query('rollback').catch(() => {})
-        if (!/pldbgapi2/.test(e.message) || attempt >= 5) throw e
+        if (!/pldbgapi2|전표가 없습니다/.test(e.message) || attempt >= 5) throw e
       } finally { await client.end() }
     }
   }

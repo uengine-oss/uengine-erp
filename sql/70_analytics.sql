@@ -612,7 +612,7 @@ end $$;
 -- For each part: what is on the shelf, what open orders have already spoken for, and how much a week has gone into making, over at
 -- most the last 26 weeks with the weeks nothing was made counted as nothing. Their spread is what the ranges below are made from.
 create or replace function public.erp_mrp_part_use(p_as_of timestamptz)
-returns table(variant_id text, name text, on_hand numeric, spoken_for numeric, week_mean numeric, week_sd numeric)
+returns table(variant_id text, name text, on_hand numeric, spoken_for numeric, week_mean numeric, week_sd numeric, weeks_seen int)
 language plpgsql stable set search_path = public, pg_temp as $$
 declare
   undone uuid[] := public.erp_undone(p_as_of);
@@ -649,7 +649,7 @@ begin
        and coalesce(locs -> (r ->> 'location_id') ->> 'usage', 'internal') = 'internal'
      group by 1
   )
-  select i.v, i.nm, coalesce(sh.q, 0), coalesce(cl.q, 0), coalesce(st.mean, 0), coalesce(st.sd, 0)
+  select i.v, i.nm, coalesce(sh.q, 0), coalesce(cl.q, 0), coalesce(st.mean, 0), coalesce(st.sd, 0), coalesce((select span.n from span), 0)
     from ids i left join shelf sh on sh.v = i.v left join claimed cl on cl.v = i.v left join stats st on st.v = i.v;
 end $$;
 
@@ -663,7 +663,7 @@ declare
   weeks int := coalesce(p_weeks, 8);
 begin
   if weeks < 1 or weeks > 52 then raise exception 'ERP_INVALID: 전망 기간은 1주에서 52주까지입니다'; end if;
-  return jsonb_build_object('as_of', asof, 'weeks', weeks, 'rows', coalesce((
+  return jsonb_build_object('as_of', asof, 'weeks', weeks, 'weeks_seen', (select max(u.weeks_seen) from public.erp_mrp_part_use(asof) u), 'rows', coalesce((
     select jsonb_agg(jsonb_build_object('variant_id', u.variant_id, 'name', u.name, 'on_hand', u.on_hand, 'spoken_for', u.spoken_for, 'week_mean', round(u.week_mean, 2),
              'expected', round(u.spoken_for + u.week_mean * weeks, 2),
              'expected_low', round(u.spoken_for + greatest(u.week_mean * weeks - 1.28 * u.week_sd * sqrt(weeks::numeric), 0), 2),

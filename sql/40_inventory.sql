@@ -1411,8 +1411,10 @@ declare
 begin
   if exists (select 1 from erp.records where id = goods) then return; end if;
   for c in select value from jsonb_array_elements(coalesce(d -> 'components', '[]'::jsonb)) where erp.num(value -> 'qty_done') > 0 loop
-    rows_ := rows_ || erp.stock_new_move(jsonb_build_object('id', md5('making:' || ev.seq || ':' || (c ->> 'line_id'))::uuid, 'variant_id', c -> 'variant_id',
+    m := erp.stock_new_move(jsonb_build_object('id', md5('making:' || ev.seq || ':' || (c ->> 'line_id'))::uuid, 'variant_id', c -> 'variant_id',
       'qty', c -> 'qty_done', 'uom_id', c -> 'uom_id', 'name', c -> 'name', 'origin_line_id', c -> 'line_id'));
+    -- Less than the product's own unit can count: nothing moves, and a slip with nothing to do must not stall the rest.
+    if erp.num(m -> 'demand') > 0 then rows_ := rows_ || m; end if;
   end loop;
   if jsonb_array_length(rows_) > 0 then
     perform erp.stock_making_new(parts, ev, stock_, place, rows_);
