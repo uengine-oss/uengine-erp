@@ -13,7 +13,7 @@ select erp.module_put('{
   "not_rebuilt": "청구 모듈이 없던 기간에는 매출 전표를 만들 수 없습니다. 재고 전표만 과거로 올라가 손익이 어긋나지 않도록, 청구를 시작한 날을 고르고 그 전은 기초 잔액 전표로 넣으세요.",
   "subscribes": [{"name": "accounting.books", "handler": "erp.books_on_event", "replay": true, "since_option": "books_since",
     "events": ["InvoicePosted", "InvoiceResetToDraft", "InvoiceCancelled", "PaymentPosted", "PaymentCancelled",
-               "PickingValidated", "StockAdjusted", "StockScrapped", "BankLineBooked", "BankLineUnbooked"]}],
+               "PickingValidated", "StockAdjusted", "StockScrapped", "BankLineBooked", "BankLineUnbooked", "PayrollPosted", "PayrollPaid"]}],
   "publishes": [{"event": "JournalEntryPosted", "fields": ["number", "date", "origin_type", "origin_id", "lines"]}]
 }'::jsonb);
 
@@ -482,10 +482,30 @@ begin
     erp.books_row(d ->> 'account_id', d ->> 'partner_id', d ->> 'name', -amount_)));
 end $$;
 
+-- Payroll says its lines and their totals; no person is in them. A line with no account of its own takes the usual one by what it is.
+create or replace function erp.books_on_payroll(ev erp.events) returns void
+language plpgsql as $$
+declare
+  d jsonb := ev.data;
+  rows_ jsonb := '[]'::jsonb;
+  e jsonb;
+begin
+  for e in select value from jsonb_array_elements(coalesce(d -> 'entry', '[]'::jsonb)) loop
+    if e ->> 'key' not in ('wages', 'withheld', 'payable', 'bank') then
+      perform erp.fail('ERP_INVALID', format('알 수 없는 급여 전표 줄입니다: %s', coalesce(e ->> 'key', '')));
+    end if;
+    rows_ := rows_ || erp.books_row(coalesce(e ->> 'account_id',
+        erp.seed_id(case e ->> 'key' when 'wages' then '급여' when 'withheld' then '예수금' when 'payable' then '미지급금' else '보통예금' end)::text),
+      null, e ->> 'name', erp.num(e -> 'amount'));
+  end loop;
+  perform erp.books_entry(ev, erp.seed_id('gl:' || ev.seq), erp.books_date(d ->> 'date', ev), d ->> 'number', null, rows_);
+end $$;
+
 create or replace function erp.books_on_event(ev erp.events) returns void
 language plpgsql as $$
 begin
   case
+    when ev.event_type in ('PayrollPosted', 'PayrollPaid') then perform erp.books_on_payroll(ev);
     when ev.event_type = 'InvoicePosted' then perform erp.books_on_invoice(ev);
     when ev.event_type = 'BankLineBooked' then perform erp.books_on_bank_line(ev);
     when ev.event_type = 'BankLineUnbooked' then perform erp.books_withdraw(ev);
@@ -835,11 +855,20 @@ create or replace function erp.books_seed_accounts() returns void
 language plpgsql as $$
 declare
   code_ text := '147';
+  seed_ record;
 begin
   if not exists (select 1 from erp.records where id = erp.seed_id('미착품')) then
     if exists (select 1 from erp.records r where r.type = 'account' and not r.deleted and r.state ->> 'code' = code_) then code_ := '1470'; end if;
     perform erp.seed_put('account', '미착품', jsonb_build_object('code', code_, 'name', '미착품', 'account_type', 'asset_current'));
   end if;
+  -- Where a payroll entry lands when its item names no account.
+  for seed_ in select * from (values ('253', '미지급금', 'liability_current'), ('254', '예수금', 'liability_current'), ('802', '급여', 'expense')) t(code, name, account_type) loop
+    if not exists (select 1 from erp.records where id = erp.seed_id(seed_.name)) then
+      code_ := seed_.code;
+      if exists (select 1 from erp.records a where a.type = 'account' and not a.deleted and a.state ->> 'code' = code_) then code_ := code_ || '0'; end if;
+      perform erp.seed_put('account', seed_.name, jsonb_build_object('code', code_, 'name', seed_.name, 'account_type', seed_.account_type));
+    end if;
+  end loop;
 end $$;
 
 insert into erp.default_seeds(fn, sort) values ('erp.books_seed_accounts', 16)

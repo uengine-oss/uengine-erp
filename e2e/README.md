@@ -352,6 +352,30 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | REST 와 MCP 는 카탈로그에서 저절로 나온다 | `hr.test.mjs` 3<br>`api.e2e.mjs` 1 | SQL, HTTP | ✅ |
 | 가상 회사에 직원이 더해져도 다른 수치는 그대로다 | `hr.test.mjs` 3 | SQL | ✅ |
 
+### 14. 급여 (spec `erp-payroll`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 급여는 꺼진 채 시작하고 인사가 있어야 켠다 | `payroll.test.mjs` 2<br>`payroll.spec.mjs` 2<br>`isolation.test.mjs` 7 | SQL, 브라우저 | ✅ |
+| 요율과 세액표는 제품에 없고 회사가 출처와 함께 넣는다 | `payroll.test.mjs` 3<br>`payroll.spec.mjs` 3 | SQL, 브라우저 | ✅ |
+| 금액은 손으로 계산한 값과 같다 | `payroll.test.mjs` 4<br>`payroll.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 근거 없는 계산은 하지 않고 사람이 입력한다 | `payroll.test.mjs` 3<br>`payroll.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 사람이 고친 칸은 표시되고 남는다 | `payroll.test.mjs` 2<br>`payroll.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 확정한 급여는 자료가 바뀌어도 움직이지 않는다 | `payroll.test.mjs` 1<br>`payroll.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 한 사람의 금액은 원장에 들어가지 않는다 | `payroll.test.mjs` 2 | SQL | ✅ |
+| 직원은 자기 명세서만 본다 | `payroll.test.mjs` 1<br>`payroll.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 주민등록번호는 받지 않는다 | `payroll.test.mjs` 1<br>`payroll.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 급여 정보와 명세서는 지울 수 있다 | `payroll.test.mjs` 3 | SQL | ✅ |
+| 전표는 이벤트만으로 만들고 나중에 켜도 같다 | `payroll.test.mjs` 4<br>`payroll.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 앱은 돈을 옮기지 않고 이체 파일을 내려준다 | `payroll.test.mjs` 1<br>`payroll.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 확정한 대장은 정정 대장으로 바로잡는다 | `payroll.test.mjs` 3<br>`payroll.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 사가는 초안을 취소하고 확정을 상쇄한다 | `payroll.test.mjs` 3 | SQL | ✅ |
+| 원천세는 지급 월로 귀속 월별로 집계한다 | `payroll.test.mjs` 2<br>`payroll.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 마감하면 그 달의 대장이 잠기고 해제는 흔적을 남긴다 | `payroll.test.mjs` 2<br>`payroll.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 입퇴사로 4대보험 목록을 내려받는다 | `payroll.test.mjs` 1<br>`payroll.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 인건비 전망은 세 상태로 보이고 원장만 읽는다 | `payroll.test.mjs` 1<br>`payroll.spec.mjs` 3 | SQL, 브라우저 | ✅ |
+| 끄고 켜도 남고, 구독자가 고장 나도 발행자는 멈추지 않는다 | `payroll.test.mjs` 2 | SQL | ✅ |
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |
@@ -367,7 +391,9 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | HTTP | `api.e2e.mjs` 8 · `stack.e2e.mjs` 7 |
 | 브라우저 | `demo.spec.mjs` 5 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `hr.spec.mjs` 13 · `integration.spec.mjs` 3 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `pages.spec.mjs` 4 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `whatif.spec.mjs` 15 |
 
-위 표의 합계는 실제로 돌려 센 값이다(SQL `tests 768`, 브라우저 `179 passed`, HTTP `api.e2e.mjs` 8, `stack.e2e.mjs` 7). 파일별 표는 인사를 더하면서 바뀐 파일만 고쳤고, 그 전에 더해진 파일은 아직 빠져 있어 합이 맞지 않는다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 32개는 다섯 모듈의 조합마다 하나씩 생기고, 인사를 더한 조합 5개가 따로 있다.
+**실패 중인 시험 하나.** `api.e2e.mjs › MCP over HTTP with a login token` 의 `tools/list` 4,000 바이트 검사가 실패한다. 지금 4,569 바이트이고, 급여 유형 6개를 빼고 재면 4,153 바이트라 급여 전에도 넘는다. 유형 이름이 도구 4개에 반복되는 것이 원인이어서 모듈이 늘수록 커진다. 한도를 올릴지, `enum` 을 `erp_read` 에만 둘지는 정하지 않았다.
+
+위 표의 합계는 인사까지의 값이다. 급여가 `payroll.test.mjs` 43, `isolation.test.mjs` 7, `payroll.spec.mjs` 17 을 더한다. 인사까지의 합계는 실제로 돌려 센 값이다(SQL `tests 768`, 브라우저 `179 passed`, HTTP `api.e2e.mjs` 8, `stack.e2e.mjs` 7). 파일별 표는 인사를 더하면서 바뀐 파일만 고쳤고, 그 전에 더해진 파일은 아직 빠져 있어 합이 맞지 않는다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 32개는 다섯 모듈의 조합마다 하나씩 생기고, 인사를 더한 조합 5개가 따로 있다.
 
 openspec 명세 13개의 요구사항 230개: 덮음 201 · 일부 29 · 공백 0. 시나리오 673개: 덮음 643 · 일부 12 · 공백 18.
 

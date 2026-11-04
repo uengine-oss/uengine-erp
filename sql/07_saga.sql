@@ -147,7 +147,7 @@ begin
                      sum(case when row_ ? 'debit' or row_ ? 'credit' then coalesce(erp.num(row_ -> 'debit'), 0) - coalesce(erp.num(row_ -> 'credit'), 0) else coalesce(erp.num(row_ -> 'qty'), 0) end) as amount
                 from erp.events e, jsonb_each(e.data -> 'effects') as t(kind, arr), jsonb_array_elements(t.arr) row_
                 left join erp.records a on a.id = coalesce(row_ ->> 'account_id', row_ ->> 'variant_id')::uuid
-               where e.correlation_id = any (ids) and (row_ ? 'qty' or row_ ? 'debit' or row_ ? 'credit')
+               where e.correlation_id = any (ids) and (row_ ? 'qty' or row_ ? 'debit' or row_ ? 'credit') and e.stream_type = any (readable)
                group by 1, 2) n),
     'pending', exists (select 1 from erp.subscriptions s join erp.events e on e.correlation_id = any (ids) and (e.txid, e.seq) > (s.last_txid, s.last_seq)
                         where s.active and (s.event_types is null or e.event_type = any (s.event_types)) and (s.since is null or e.occurred_at >= s.since)),

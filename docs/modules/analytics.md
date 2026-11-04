@@ -36,7 +36,7 @@ SQL 은 사실을 돌려주고, 계산은 브라우저에서 한다. 모든 함�
 
 `잠김`은 필요한 모듈이 한 번도 켜진 적 없을 때다. 켰다가 끈 경우는 모델마다 다르다.
 
-- 이력만 읽는 모델(`stat_sales`, `quote_conversion`, `demand_sales`, `demand_true`, `whatif_drop`, `lead_time`, `pnl_outlook`, `stat_headcount`)은 쌓인 이력으로 계속 계산하고 `stale_modules` 에 그 모듈을 적는다(M8).
+- 이력만 읽는 모델(`stat_sales`, `quote_conversion`, `demand_sales`, `demand_true`, `whatif_drop`, `lead_time`, `pnl_outlook`, `stat_headcount`, `payroll_cost`, `whatif_headcount`)은 쌓인 이력으로 계속 계산하고 `stale_modules` 에 그 모듈을 적는다(M8).
 - 지금 재고나 미결 청구서가 있어야 하는 모델(`stockout_risk`, `whatif_policy`, `whatif_realloc`, `whatif_lead`, `reorder_plan`, `cash_in`, `whatif_terms`)은 잠긴다.
 
 문서를 읽을 권한이 없는 사람에게 그 문서로 계산하는 모델은 `state: locked, forbidden: true` 이고 건수도 0 이다.
