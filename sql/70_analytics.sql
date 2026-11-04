@@ -368,7 +368,9 @@ begin
       from (
         select r, public.erp_biz_day(coalesce(r ->> 'date', e.data ->> 'date'), e.occurred_at, tz) as day
           from public.erp_events e, jsonb_array_elements(e.data -> 'effects' -> 'gl') r
-         where (e.data -> 'effects') ? 'gl' and e.occurred_at <= asof) x
+         where (e.data -> 'effects') ? 'gl' and e.occurred_at <= asof
+           -- The year-end transfer empties income and expense. It is no month's result.
+           and coalesce((r ->> 'closing')::boolean, false) = false) x
       join public.erp_records a on a.id = (x.r ->> 'account_id')::uuid and a.type = 'account' and a.state ->> 'account_type' in ('income', 'expense')
      where x.day >= p_from and x.day < p_to
      group by 1, 2, 3, 4) y;
@@ -780,6 +782,26 @@ begin
     'week_made', round(mean_, 2), 'week_made_low', round(low_, 2), 'week_made_high', round(high_, 2), 'week_made_changed', round(mean_ * p_factor, 2), 'parts', out_);
 end $$;
 
+-- Each registered asset's plan as the event carried it, and when it left. The plan is a decision already made, so
+-- what is ahead for today's assets is arithmetic; only assets not yet bought are uncertain.
+create or replace function public.erp_asset_history(p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  asof timestamptz := coalesce(p_as_of, now());
+  undone uuid[] := public.erp_undone(asof);
+begin
+  return jsonb_build_object(
+    'decimals', coalesce((select (state ->> 'decimal_places')::int from public.erp_records where id = '00000000-0000-0000-0000-000000000001'::uuid), 0),
+    'assets', coalesce((select jsonb_agg(jsonb_build_object('asset_id', e.stream_id, 'number', e.data ->> 'number', 'name', e.data ->> 'name',
+        'cost', (e.data ->> 'cost')::numeric, 'acquired', e.data ->> 'acquisition_date', 'in_service', e.data ->> 'in_service_date',
+        'opening', coalesce((e.data ->> 'opening_accumulated')::numeric, 0), 'plan', e.data -> 'plan',
+        'disposed_on', (select d.data ->> 'date' from public.erp_events d
+                         where d.stream_id = e.stream_id and d.event_type = 'AssetDisposed' and d.occurred_at <= asof and not d.correlation_id = any (undone)
+                         order by d.version desc limit 1)) order by e.data ->> 'acquisition_date', e.seq)
+      from public.erp_events e
+     where e.event_type = 'AssetRegistered' and e.occurred_at <= asof and not e.correlation_id = any (undone)), '[]'::jsonb));
+end $$;
+
 -- Every model and its state. Thresholds come from experiments/whatif/results-thresholds.json and match web/src/lib/forecast/thresholds.ts.
 -- Modules on and off, and what counts as evidence, are all read from the ledger, using its indexes.
 create or replace function public.erp_models(p_as_of timestamptz default null) returns jsonb
@@ -789,7 +811,7 @@ declare
   asof timestamptz := coalesce(p_as_of, now());
   today date := ((asof at time zone tz) + interval '1 second')::date;
   spans jsonb := public.erp_module_spans(asof);
-  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계","hr":"인사","payroll":"급여","mrp":"제조"}';
+  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계","hr":"인사","payroll":"급여","mrp":"제조","assets":"고정자산"}';
   readable text[] := erp.readable_types();
   m record;
   missing text[];
@@ -810,6 +832,7 @@ declare
   first_hire date; people_months int := 0;
   pay_months int; pay_first date;
   made int := 0; first_made date;
+  asset_first date; asset_months int := 0;
   span jsonb;
   a date; b date;
 begin
@@ -847,7 +870,7 @@ begin
   -- By accounting date, not when the entry was recorded: books turned on late are rebuilt all at once.
   select count(distinct date_trunc('month', d)), min(d)::date into gl_months, gl_first
     from (select public.erp_biz_day(coalesce(e.data -> 'effects' -> 'gl' -> 0 ->> 'date', e.data ->> 'date'), e.occurred_at, tz) as d
-            from public.erp_events e where (e.data -> 'effects') ? 'gl' and e.occurred_at <= asof) x;
+            from public.erp_events e where (e.data -> 'effects') ? 'gl' and e.occurred_at <= asof and e.stream_type <> 'fiscal_close') x;
   -- By the day people joined: a company entering long-serving staff today already has that history.
   select min(p.hire_date) into first_hire from public.erp_people(asof) p;
   if first_hire is not null and first_hire <= today then
@@ -859,6 +882,13 @@ begin
 
   -- Months with a confirmed register, by the month earned. A register taken back leaves its month empty again.
   select count(*), min((p.period || '-01')::date) into pay_months, pay_first from public.erp_payroll_monthly(asof) p where p.cost <> 0;
+
+  -- How long this company has been buying assets is what says anything about the ones it has not bought yet.
+  select min((e.data ->> 'acquisition_date')::date) into asset_first
+    from public.erp_events e where e.event_type = 'AssetRegistered' and e.occurred_at <= asof and not e.correlation_id = any (public.erp_undone(asof));
+  if asset_first is not null then
+    asset_months := greatest(0, (extract(year from today)::int * 12 + extract(month from today)::int) - (extract(year from asset_first)::int * 12 + extract(month from asset_first)::int));
+  end if;
 
   -- The drop what-if asks for stockouts. Counted only when stock history exists, because this one walks every stock change.
   stock_out_cases := 0;
@@ -887,7 +917,8 @@ begin
       ('whatif_headcount', 'whatif', '인원 증감 시 인건비', array['payroll'], false, array['payroll_run']),
       ('mrp_lead_time', 'forecast', '실측 제조 기간', array['mrp'], false, array['manufacturing_order']),
       ('mrp_materials', 'forecast', '자재 소요 전망', array['mrp', 'inventory'], true, array['manufacturing_order', 'picking']),
-      ('whatif_production', 'whatif', '생산량 변경', array['mrp', 'inventory'], true, array['manufacturing_order', 'picking'])
+      ('whatif_production', 'whatif', '생산량 변경', array['mrp', 'inventory'], true, array['manufacturing_order', 'picking']),
+      ('depreciation_outlook', 'forecast', '감가상각비 전망', array['assets'], false, array['asset'])
     ) as t(id, kind, label, modules, needs_current, types)
   loop
     missing := '{}'; stale := '{}';
@@ -923,6 +954,7 @@ begin
       when 'stat_headcount' then have := people_months; need := 3; unit_ := '개월'; since_ := first_hire; msg := '인사 이력';
       when 'payroll_cost', 'whatif_headcount' then have := pay_months; need := 3; unit_ := '개월'; since_ := pay_first; msg := '확정한 급여 대장';
       when 'mrp_lead_time', 'mrp_materials', 'whatif_production' then have := made; need := 10; unit_ := '건'; since_ := first_made; msg := '제조 완료';
+      when 'depreciation_outlook' then have := asset_months; need := 12; unit_ := '개월'; since_ := asset_first; msg := '자산 이력';
     end case;
 
     ok := have >= need;

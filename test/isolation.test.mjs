@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { company, rejects } from './lib/harness.mjs'
 
-const FILES = { sales: '30_sales.sql', inventory: '40_inventory.sql', purchase: '50_purchase.sql', invoicing: ['60_invoicing.sql', '62_bank.sql', '63_voucher.sql'], accounting: '65_accounting.sql', krtax: '66_krtax.sql', hr: '67_hr.sql', payroll: '67c_payroll.sql', mrp: '67g_mrp.sql', analytics: '70_analytics.sql' }
+const FILES = { sales: '30_sales.sql', inventory: '40_inventory.sql', purchase: '50_purchase.sql', invoicing: ['60_invoicing.sql', '62_bank.sql', '63_voucher.sql'], accounting: ['65_accounting.sql', '68_books.sql'], assets: '66_assets.sql', krtax: '66_krtax.sql', hr: '67_hr.sql', payroll: '67c_payroll.sql', mrp: '67g_mrp.sql', analytics: '70_analytics.sql' }
 const read = (f) => { try { return fs.readFileSync(new URL(`../sql/${f}`, import.meta.url), 'utf8') } catch { return null } }
 const stripComments = (s) => s.replace(/--.*$/gm, '')
 
@@ -78,10 +78,10 @@ test('stock does not know manufacturing: it hears three event names, and carries
   assert.deepEqual([...new Set([...inv.src.matchAll(/Manufacturing[A-Za-z]+/g)].map((x) => x[0]))].sort(), ['ManufacturingDone', 'ManufacturingPlanChanged', 'ManufacturingReversed'])
 })
 
-// Every combination of modules must run the work it has, with nothing stuck. 32 companies, each small.
-const ALL = ['sales', 'inventory', 'purchase', 'invoicing', 'accounting']
-const OWN = { sales: ['sales_order', 'quote_template'], inventory: ['picking', 'warehouse', 'stock_adjustment', 'reorder_rule'], purchase: ['purchase_order'], invoicing: ['account_move', 'payment', 'journal', 'payment_method', 'bank_statement', 'bank_line'], accounting: ['journal_entry', 'account'] }
-const subsets = Array.from({ length: 32 }, (_, i) => ALL.filter((_m, b) => i & (1 << b)))
+// Every combination of modules must run the work it has, with nothing stuck. 64 companies, each small.
+const ALL = ['sales', 'inventory', 'purchase', 'invoicing', 'accounting', 'assets']
+const OWN = { sales: ['sales_order', 'quote_template'], inventory: ['picking', 'warehouse', 'stock_adjustment', 'reorder_rule'], purchase: ['purchase_order'], invoicing: ['account_move', 'payment', 'journal', 'payment_method', 'bank_statement', 'bank_line'], accounting: ['journal_entry', 'account'], assets: ['asset', 'depreciation_run'] }
+const subsets = Array.from({ length: 2 ** ALL.length }, (_, i) => ALL.filter((_m, b) => i & (1 << b)))
 // Tax filing needs invoicing and nothing else, so it joins every combination that has it.
 const withTax = subsets.filter((s) => s.includes('invoicing')).map((s) => [...s, 'krtax'])
 const picks = async (k, id) => (await k.db.query(`select * from erp.records where type = 'picking' and not deleted and state ->> 'origin_id' = $1`, [id])).rows
@@ -145,10 +145,17 @@ for (const on of [...subsets, ...withTax]) {
       } else {
         await rejects(k.admin('vat_return', null, 'create', { year: 2026, term: '1', kind: 'final' }), 'ERP_MODULE_OFF')
       }
+      if (has('assets')) {
+        const a = await k.admin('asset', null, 'create', { name: '비품', acquisition_date: '2026-01-05', cost: 1200000, life_years: 5, register: true })
+        assert.equal((await k.admin('depreciation_run', null, 'create', { through: '2026-02-28' })).state.total, 40000)
+        await k.admin('asset', a.id, 'dispose', { date: '2026-04-10', kind: 'scrap' })
+        await k.settle()
+      }
       if (has('accounting')) {
         const tb = (await k.db.asUser(k.adminId, 'select public.erp_trial_balance() r')).rows[0].r
         assert.equal(tb.rows.reduce((a, r) => a + Number(r.debit ?? 0), 0), tb.rows.reduce((a, r) => a + Number(r.credit ?? 0), 0))
         if (has('invoicing')) assert.ok(tb.rows.length > 0)
+        if (has('assets')) assert.equal(Number(tb.rows.find((r) => r.name === '감가상각비').closing), 60000, 'the run and the catch-up at disposal')
       }
 
       const last = await k.settle()
@@ -161,6 +168,7 @@ for (const on of [...subsets, ...withTax]) {
       for (const m of models) assert.ok(['locked', 'insufficient', 'ready'].includes(m.state), JSON.stringify(m))
       if (!has('sales')) assert.equal(models.find((m) => m.id === 'demand_sales').state, 'locked')
       if (!has('inventory')) assert.equal(models.find((m) => m.id === 'demand_true').state, 'locked')
+      assert.equal(models.find((m) => m.id === 'depreciation_outlook').state === 'locked', !has('assets'))
     } finally { await k.close() }
   })
 }

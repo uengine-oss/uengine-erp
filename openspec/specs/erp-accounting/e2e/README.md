@@ -82,3 +82,30 @@ source scripts/local-env.sh && npm run test:e2e -- growth.spec.mjs   # 로컬 �
 - 재고 평가와 실사 차이 시나리오의 SQL 시험은 재고 모듈을 켜지 않고 이벤트 계약 모양대로 이벤트를 직접 넣는다. 실제 재고 모듈이 낸 이벤트로 전표가 되는지는 `growth.test.mjs › accounting turned on last gives the same books as accounting from the start, on the real modules` 가 시산표 수준에서 확인한다.
 - `accounting.test.mjs`, `rebuild-gl.test.mjs` 는 대부분 관리자 계정으로 명령을 보낸다. `accounting` 역할로 보내는 명령은 `growth.test.mjs`, `growth.spec.mjs` 의 S5 시험이 확인한다.
 - 코드에서만 확인한 문장(시나리오 없이 요구사항 본문에만 있음): 지급 쪽 조기 할인 계정, 공급사 선금의 선급금, 출고 원가에 제품 분류 비용 계정 쓰기, `kind` 가 `auto` 인 전표의 `reverse`·`update` 밖의 명령 거부, 시산표 화면의 기본 기간.
+
+## 장부, 재무제표, 결산
+
+| 스펙 시나리오 | 시험 | 단계 | |
+|---|---|---|---|
+| 실행 한 번은 계정별 한 줄의 전표 하나다 | `assets.test.mjs › a monthly run charges each asset and the books make one entry per account` | SQL | ✅ |
+| 합계잔액시산표는 재무상태표 계정을 이월하고 손익 계정은 올해 것만 더한다 | `books.test.mjs › the trial balance of totals and balances: balance sheet accounts carry in, income and expense start from nothing`<br>`books.spec.mjs › 장부` | SQL, 브라우저 | ✅ |
+| 일계표는 현금과 대체를 나누고 현금 칸이 잔액과 맞는다 | `books.test.mjs › the day summary splits cash from the rest, and its cash columns meet the cash balance`<br>`books.spec.mjs › 장부` | SQL, 브라우저 | ✅ |
+| 월계표는 같은 보고서를 한 달로 보고 지난해 같은 달을 함께 보여 준다 | `books.test.mjs › the monthly summary is the same report over a month, against the same month a year before`<br>`books.spec.mjs › 장부` | SQL, 브라우저 | ✅ |
+| 현금출납장은 잔액을 이어 가고 상대 계정을 말한다 | `books.test.mjs › the cash book runs a balance, names the other side, and can read a bank account too`<br>`books.spec.mjs › 장부` | SQL, 브라우저 | ✅ |
+| 거래처 원장은 거래처별로 보고 눌러서 줄을 본다 | `books.test.mjs › the partner ledger: one row a partner, and every line of one`<br>`books.spec.mjs › 장부` | SQL, 브라우저 | ✅ |
+| 매입매출장은 문서별이고 취소한 문서는 없다 | `books.test.mjs › sales and purchase book: documents, not entries, and one taken back is gone`<br>`books.spec.mjs › 장부` | SQL, 브라우저 | ✅ |
+| 손익계산서 | `books.test.mjs › the income statement: the sections of the form, the year before beside it`<br>`books.spec.mjs › 재무제표` | SQL, 브라우저 | ✅ |
+| 재무상태표는 전기 말과 나란히 맞는다 | `books.test.mjs › the balance sheet: the groups of the form, against the end of the year before, and it balances`<br>`books.spec.mjs › 재무제표` | SQL, 브라우저 | ✅ |
+| 재료비, 노무비, 경비에서 당기제품제조원가까지 | `books.test.mjs › materials, labour and overhead, opening and closing work in progress` | SQL | ✅ |
+| 손익계산서와 이어진다 | `books.test.mjs › the income statement takes the total as a line under cost of sales, and the books still add up` | SQL | ✅ |
+| 처분하면 다음 해의 전기이월과 맞물린다 | `books.test.mjs › the appropriation statement reads next year's entry, and last year's carried amount meets this one`<br>`books.spec.mjs › 재무제표` | SQL, 브라우저 | ✅ |
+| 손실이면 결손금처리계산서다 | `books.test.mjs › the deficit form when the year lost money` | SQL | ✅ |
+| 넣지 못한 것은 이유를 말한다 | `books.test.mjs › before anything happens: the transfer is shown, and what could not be included says why`<br>`books.spec.mjs › 결산` | SQL, 브라우저 | ✅ |
+| 대손 추정은 실적률로만 나온다 | `books.test.mjs › a bad-debt estimate appears only with evidence, at the rate of the decree, net of the allowance` | SQL | ✅ |
+| 손익을 옮겨도 그해 손익은 그대로다 | `books.test.mjs › the close moves profit to equity, and what the year earned still reads the same`<br>`books.spec.mjs › 재무제표` | SQL, 브라우저 | ✅ |
+| 결산하지 않은 지난 해 손익이 함께 옮겨진다 | `books.test.mjs › a year never closed comes along with the next one, and the statement still says what each year earned`<br>`books.spec.mjs › 결산` | SQL, 브라우저 | ✅ |
+| 뒤의 해가 결산되어 있으면 앞의 해를 바꿀 수 없다 | `books.test.mjs › a year closed later has to be taken back first; a year still open comes along` | SQL | ✅ |
+| 잠그면 결산도 취소도 되돌리기도 막힌다 | `books.test.mjs › the lock holds: no close, no taking back inside a closed period, and the rollback is blocked too`<br>`books.spec.mjs › 잠그면` | SQL, 브라우저 | ✅ |
+| 업그레이드해도 시산표가 같다 | `books.test.mjs › upgrading adds accounts and moves no balance, and takes the next code when one is in use` | SQL | ✅ |
+| 설치 SQL 을 다시 실행해도 숫자가 같다 | `books.test.mjs › running the install script again on a company with entries changes no figure` | SQL | ✅ |
+| 새 회사에는 계정과 제조원가 그룹이 있다 | `books.test.mjs › a new company has the accounts and the manufacturing group` | SQL | ✅ |

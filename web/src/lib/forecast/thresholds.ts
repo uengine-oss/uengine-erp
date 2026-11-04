@@ -18,4 +18,5 @@ export const NEED = {
   paid_invoices: 100,
   term_changes: 3,
   journal_months: 3,
+  asset_history_months: 12,
 } as const

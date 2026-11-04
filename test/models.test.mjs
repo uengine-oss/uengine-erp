@@ -41,7 +41,7 @@ describe('SQL: what the ledger says', () => {
 
   test('nothing is open before any module is on', async () => {
     const m = await models('2024-01-01T00:00:00+09:00')
-    assert.equal(Object.keys(m).length, 20)
+    assert.equal(Object.keys(m).length, 21)
     for (const x of Object.values(m)) {
       assert.equal(x.state, 'locked')
       assert.ok(x.missing_modules.length > 0)
@@ -182,6 +182,7 @@ describe('SQL: what the ledger says', () => {
     assert.equal(m.cash_in.evidence.need, NEED.paid_invoices)
     assert.equal(m.whatif_terms.evidence.term_changes_need, NEED.term_changes)
     assert.equal(m.pnl_outlook.evidence.need, NEED.journal_months)
+    assert.equal(m.depreciation_outlook.evidence.need, NEED.asset_history_months)
   })
 
   test('sales rows net out changes, cancellations, re-confirmation and rollbacks', async () => {

@@ -13,6 +13,7 @@ const TYPE_LABELS: Record<string, string> = {
   payroll_run: '급여 대장', pay_item: '급여 항목', payroll_rates: '4대보험 요율 자료', payroll_tax_table: '간이세액표', payroll_bank_format: '은행 이체 양식',
   withholding_filing: '원천세 마감', payroll_profile: '직원 급여 정보 기록', payroll_audit: '명세서 변경 기록',
   bom: '자재 명세', manufacturing_order: '제조 지시',
+  asset: '고정자산', depreciation_run: '감가상각 실행', fiscal_close: '결산',
 }
 
 /** A type's name for people, also when its module is off. A type nobody here has heard of is still a document. */
@@ -21,6 +22,8 @@ export function typeLabel(type: string): string {
 }
 const EXACT: Record<string, string> = {
   CompanyCreated: '회사 생성', CompanyUpdated: '회사 정보 변경',
+  AssetCreated: '자산 작성', AssetUpdated: '자산 변경', AssetDeleted: '자산 삭제', AssetRegistered: '자산 등록', AssetDepreciated: '감가상각 반영', AssetDisposed: '자산 처분',
+  DepreciationPosted: '감가상각 실행', FiscalYearClosed: '결산', FiscalYearReopened: '결산 취소',
   MemberAdded: '구성원 추가', MemberChanged: '구성원 변경', MemberDeactivated: '구성원 비활성화', MemberActivated: '구성원 활성화',
   QuotationCreated: '견적 생성', QuotationUpdated: '견적 변경', QuotationLineAdded: '견적 줄 추가', QuotationLineChanged: '견적 줄 변경',
   QuotationLineRemoved: '견적 줄 삭제', QuotationSent: '견적 발송', QuotationSigned: '견적 서명',

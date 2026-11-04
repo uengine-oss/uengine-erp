@@ -1,7 +1,7 @@
 // Reads the ledger's series through the public SQL functions. Each call is one bounded stretch of time
 // because the API stops a statement after 8 seconds.
 import { toDay, toIso } from './calendar.ts'
-import type { InvoiceRow, JournalRow, LedgerData, ModuleSpan, PurchaseLine, ReceiptRow, ReorderRule, SalesRow, StockRow, VariantInfo } from './types.ts'
+import type { AssetHistoryRow, InvoiceRow, JournalRow, LedgerData, ModuleSpan, PurchaseLine, ReceiptRow, ReorderRule, SalesRow, StockRow, VariantInfo } from './types.ts'
 
 export type RpcFn = <T>(fn: string, args: Record<string, unknown>) => Promise<T>
 
@@ -39,6 +39,8 @@ export async function loadLedger(rpc: RpcFn, opt: { asOf?: string | null; onProg
     asOf: c.as_of, timezone: c.timezone, modules: c.modules, variants: c.variants, warehouses: c.warehouses,
     sales: [], stock: [], receipts: [], purchases: [], invoices: [], journal: [], rules: [],
   }
+  // A company may own assets and have sold nothing yet, so this does not wait for the rest of the ledger.
+  if ((c.modules.assets?.periods?.length ?? 0) > 0) base.assets = await rpc<{ decimals: number; assets: AssetHistoryRow[] }>('erp_asset_history', { p_as_of: asOf })
   if (!first || !last) return base
   const span = Math.ceil((toDay(last) - toDay(first) + 1) / STEP_DAYS)
   const on = (m: string): boolean => (c.modules[m]?.periods?.length ?? 0) > 0

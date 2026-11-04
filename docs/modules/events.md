@@ -108,6 +108,19 @@
 | 이벤트 | `data` 의 사실 |
 |---|---|
 | `JournalEntryPosted` | 전표 스트림. 효과 `gl = [{account_id, partner_id, date, debit, credit}]`. 분석의 기간은 `occurred_at` 이 아니라 효과의 `date` 로 거른다(회계를 늦게 켜면 전표 시각은 다시 만든 시점이다) |
+| `FiscalYearClosed` | 결산 스트림(유형 `fiscal_close`). `year, number, date, net_income, lines`. 효과 `gl` 의 줄에 `closing: true` 가 붙는다. **그해 손익을 읽는 쪽은 이 줄을 빼야 한다** |
+| `FiscalYearReopened` | 결산 취소. `year, number, date`. 효과는 위의 음수 줄이다 |
+
+## 고정자산이 내는 것
+
+금액과 계정은 고정자산 모듈이 정해서 싣는다. 구독자는 상각을 다시 계산하지 않는다. 규칙은 [assets.md](assets.md).
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `AssetRegistered` | `number, name, kind, method, basis, rate, life_years, acquisition_date, in_service_date, cost, residual_value, end_value, opening_accumulated, last_plan_month, asset_account_id, accumulated_account_id, expense_account_id, counter_account_id, plan:[{year, first, last, months, annual, amount}]`. `counter_account_id` 가 없으면 구입은 이미 장부에 있다 |
+| `DepreciationPosted` | 실행 스트림. `number, through, date, total, lines:[{asset_id, asset_name, asset_number, from_month, to_month, amount, accumulated, book_value, done, expense_account_id, accumulated_account_id}]` |
+| `AssetDepreciated` | 자산 스트림. 자기 누계를 올리는 일이다. `run_id, through, amount`. 구독할 일이 없다 |
+| `AssetDisposed` | `number, name, date, kind(sale/scrap), cost, accumulated, catch_up, book_value, proceeds, gain_loss, asset_account_id, accumulated_account_id, expense_account_id, proceeds_account_id, gain_account_id, loss_account_id`. `accumulated` 는 처분 전 누계이고 `catch_up` 은 이번에 함께 잡는 상각이다. `gain_loss` 는 `proceeds - book_value` 다 |
 
 ## 인사가 내는 것
 
@@ -191,4 +204,5 @@
 | 급여 | `AttendanceClosed` | 명세서의 근무 시간. 근태가 없으면 사람이 적는다 |
 | 급여 | `Reverted` | 되돌린 입퇴사와 근태 마감을 지운다 |
 | 인사 | 없음 | 아무 이벤트도 듣지 않는다 |
+| 회계 | `AssetRegistered`, `DepreciationPosted`, `AssetDisposed` | 취득 대금, 감가상각, 처분 분개(처음부터 다시 읽는다) |
 | 분석 | 원장 전체 | 구독하지 않고 직접 읽는다 |

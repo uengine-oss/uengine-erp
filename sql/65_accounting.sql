@@ -13,7 +13,8 @@ select erp.module_put('{
   "not_rebuilt": "청구 모듈이 없던 기간에는 매출 전표를 만들 수 없습니다. 재고 전표만 과거로 올라가 손익이 어긋나지 않도록, 청구를 시작한 날을 고르고 그 전은 기초 잔액 전표로 넣으세요.",
   "subscribes": [{"name": "accounting.books", "handler": "erp.books_on_event", "replay": true, "since_option": "books_since",
     "events": ["InvoicePosted", "InvoiceResetToDraft", "InvoiceCancelled", "PaymentPosted", "PaymentCancelled",
-               "PickingValidated", "StockAdjusted", "StockScrapped", "BankLineBooked", "BankLineUnbooked", "PayrollPosted", "PayrollPaid"]}],
+               "PickingValidated", "StockAdjusted", "StockScrapped", "BankLineBooked", "BankLineUnbooked", "PayrollPosted", "PayrollPaid",
+               "AssetRegistered", "DepreciationPosted", "AssetDisposed"]}],
   "publishes": [{"event": "JournalEntryPosted", "fields": ["number", "date", "origin_type", "origin_id", "lines"]}]
 }'::jsonb);
 
@@ -30,6 +31,8 @@ create table if not exists erp.gl_lines (
   due_date date
 );
 alter table erp.gl_lines add column if not exists grids jsonb;
+-- The year-end transfer of profit and loss. A report of what a year earned has to read past it, or every closed year shows nothing.
+alter table erp.gl_lines add column if not exists closing boolean not null default false;
 create index if not exists gl_lines_account_date_idx on erp.gl_lines (account_id, date);
 create index if not exists gl_lines_date_idx on erp.gl_lines (date);
 create index if not exists gl_lines_move_idx on erp.gl_lines (move_id);
@@ -42,9 +45,10 @@ create or replace view public.erp_gl_lines with (security_invoker = on) as selec
 
 create or replace function erp.gl_apply(ev erp.events, r jsonb) returns void
 language sql as $$
-  insert into erp.gl_lines(event_seq, move_id, date, account_id, partner_id, debit, credit, name, due_date, grids)
+  insert into erp.gl_lines(event_seq, move_id, date, account_id, partner_id, debit, credit, name, due_date, grids, closing)
   values (ev.seq, (r ->> 'move_id')::uuid, (r ->> 'date')::date, (r ->> 'account_id')::uuid, (r ->> 'partner_id')::uuid,
-          erp.num(r -> 'debit'), erp.num(r -> 'credit'), r ->> 'name', (r ->> 'due_date')::date, nullif(r -> 'grids', '[]'::jsonb))
+          erp.num(r -> 'debit'), erp.num(r -> 'credit'), r ->> 'name', (r ->> 'due_date')::date, nullif(r -> 'grids', '[]'::jsonb),
+          coalesce((r ->> 'closing')::boolean, false))
 $$;
 
 create or replace function erp.gl_reset() returns void
@@ -514,11 +518,68 @@ begin
   perform erp.books_entry(ev, erp.seed_id('gl:' || ev.seq), erp.books_date(d ->> 'date', ev), d ->> 'number', null, rows_);
 end $$;
 
+-- Fixed assets. The asset module has already decided every amount and account, and put them in the event; a
+-- company that turns the books on years later reads the same figures. Nothing here works out a depreciation.
+create or replace function erp.books_on_asset_registered(ev erp.events) returns void
+language plpgsql as $$
+declare
+  d jsonb := ev.data;
+  counter text := d ->> 'counter_account_id';
+  cost numeric := erp.num(d -> 'cost');
+begin
+  -- No counter account means the purchase is already in the books, through a bill or an opening balance.
+  if counter is null then return; end if;
+  perform erp.books_entry(ev, erp.seed_id('gl:' || ev.seq), erp.books_date(d ->> 'acquisition_date', ev), d ->> 'number', null, jsonb_build_array(
+    erp.books_row(coalesce(d ->> 'asset_account_id', erp.seed_id('비품')::text), null, d ->> 'name', cost),
+    erp.books_row(counter, null, d ->> 'name', -cost)));
+end $$;
+
+-- One entry for a whole run, one line per account: a company with a hundred assets does not want two hundred lines a month.
+-- What each asset was charged stays on the run.
+create or replace function erp.books_on_depreciation(ev erp.events) returns void
+language plpgsql as $$
+declare
+  d jsonb := ev.data;
+  label_ text := format('감가상각 %s', left(coalesce(d ->> 'through', ''), 7));
+  rows_ jsonb;
+begin
+  select coalesce(jsonb_agg(erp.books_row(acct, null, label_, amt) order by side, acct), '[]'::jsonb) into rows_ from (
+    select 1 as side, coalesce(l ->> 'expense_account_id', erp.seed_id('감가상각비')::text) as acct, sum(erp.num(l -> 'amount')) as amt
+      from jsonb_array_elements(coalesce(d -> 'lines', '[]'::jsonb)) l group by 2
+    union all
+    select 2, coalesce(l ->> 'accumulated_account_id', erp.seed_id('비품 감가상각누계액')::text), -sum(erp.num(l -> 'amount'))
+      from jsonb_array_elements(coalesce(d -> 'lines', '[]'::jsonb)) l group by 2) x;
+  perform erp.books_entry(ev, erp.seed_id('gl:' || ev.seq), erp.books_date(d ->> 'date', ev), d ->> 'number', null, rows_);
+end $$;
+
+create or replace function erp.books_on_asset_disposed(ev erp.events) returns void
+language plpgsql as $$
+declare
+  d jsonb := ev.data;
+  name_ text := coalesce(d ->> 'name', '자산 처분');
+  catch_up numeric := erp.num(d -> 'catch_up');
+  accumulated numeric := erp.num(d -> 'accumulated');
+  gain numeric := erp.num(d -> 'gain_loss');
+  held text := coalesce(d ->> 'accumulated_account_id', erp.seed_id('비품 감가상각누계액')::text);
+begin
+  perform erp.books_entry(ev, erp.seed_id('gl:' || ev.seq), erp.books_date(d ->> 'date', ev), d ->> 'number', null, jsonb_build_array(
+    erp.books_row(coalesce(d ->> 'expense_account_id', erp.seed_id('감가상각비')::text), null, '처분 전 감가상각', catch_up),
+    erp.books_row(held, null, '처분 전 감가상각', -catch_up),
+    erp.books_row(held, null, name_, accumulated + catch_up),
+    erp.books_row(coalesce(d ->> 'proceeds_account_id', erp.seed_id('보통예금')::text), null, name_, erp.num(d -> 'proceeds')),
+    erp.books_row(coalesce(d ->> 'asset_account_id', erp.seed_id('비품')::text), null, name_, -erp.num(d -> 'cost')),
+    case when gain > 0 then erp.books_row(coalesce(d ->> 'gain_account_id', erp.seed_id('유형자산처분이익')::text), null, name_, -gain)
+         else erp.books_row(coalesce(d ->> 'loss_account_id', erp.seed_id('유형자산처분손실')::text), null, name_, -gain) end));
+end $$;
+
 create or replace function erp.books_on_event(ev erp.events) returns void
 language plpgsql as $$
 begin
   case
     when ev.event_type in ('PayrollPosted', 'PayrollPaid') then perform erp.books_on_payroll(ev);
+    when ev.event_type = 'AssetRegistered' then perform erp.books_on_asset_registered(ev);
+    when ev.event_type = 'DepreciationPosted' then perform erp.books_on_depreciation(ev);
+    when ev.event_type = 'AssetDisposed' then perform erp.books_on_asset_disposed(ev);
     when ev.event_type = 'InvoicePosted' then perform erp.books_on_invoice(ev);
     when ev.event_type = 'BankLineBooked' then perform erp.books_on_bank_line(ev);
     when ev.event_type = 'BankLineUnbooked' then perform erp.books_withdraw(ev);
@@ -787,7 +848,7 @@ begin
       select g.account_id, a.state ->> 'code' as code, a.state ->> 'name' as name, a.state ->> 'account_type' as kind,
              sum(g.credit - g.debit) as amount
         from erp.gl_lines g join erp.records a on a.id = g.account_id
-       where a.state ->> 'account_type' in ('income', 'expense')
+       where a.state ->> 'account_type' in ('income', 'expense') and not g.closing
          and (p_from is null or g.date >= p_from) and (p_to is null or g.date <= p_to)
        group by 1, 2, 3, 4 having sum(g.credit - g.debit) <> 0
     )
@@ -863,16 +924,43 @@ end $$;
 ------------------------------------------------------------------------------------------------
 -- Master data seeds set account fields that belong to this module, and they run while every module is still
 -- off, which validation refuses. The module counts as on for that one step of company setup.
--- Goods received but not yet billed. Another account may already hold the usual code on an upgraded company.
+-- Goods received but not yet billed, and what fixed assets and year-end work need. Only new accounts with nothing on
+-- them, so no balance of a company that upgrades can move. Another account may already hold the usual code there.
 create or replace function erp.books_seed_accounts() returns void
 language plpgsql as $$
 declare
-  code_ text := '147';
+  r record;
+  code_ text;
   seed_ record;
 begin
-  if not exists (select 1 from erp.records where id = erp.seed_id('미착품')) then
-    if exists (select 1 from erp.records r where r.type = 'account' and not r.deleted and r.state ->> 'code' = code_) then code_ := '1470'; end if;
-    perform erp.seed_put('account', '미착품', jsonb_build_object('code', code_, 'name', '미착품', 'account_type', 'asset_current'));
+  for r in select * from (values
+      ('147', '미착품', 'asset_current'),
+      ('109', '대손충당금', 'asset_current'), ('120', '미수금', 'asset_current'),
+      ('150', '제품', 'asset_current'), ('153', '원재료', 'asset_current'), ('169', '재공품', 'asset_current'),
+      ('202', '건물', 'asset_non_current'), ('203', '건물 감가상각누계액', 'asset_non_current'),
+      ('204', '구축물', 'asset_non_current'), ('205', '구축물 감가상각누계액', 'asset_non_current'),
+      ('206', '기계장치', 'asset_non_current'), ('207', '기계장치 감가상각누계액', 'asset_non_current'),
+      ('208', '차량운반구', 'asset_non_current'), ('209', '차량운반구 감가상각누계액', 'asset_non_current'),
+      ('210', '공구와기구', 'asset_non_current'), ('211', '공구와기구 감가상각누계액', 'asset_non_current'),
+      ('213', '비품 감가상각누계액', 'asset_non_current'),
+      ('253', '미지급금', 'liability_current'), ('265', '미지급배당금', 'liability_current'),
+      ('351', '이익준비금', 'equity'),
+      ('501', '원재료비', 'expense'), ('504', '임금', 'expense'), ('518', '제조 감가상각비', 'expense'),
+      ('818', '감가상각비', 'expense'),
+      ('914', '유형자산처분이익', 'income'), ('970', '유형자산처분손실', 'expense')
+    ) t(code, name, account_type) loop
+    continue when exists (select 1 from erp.records where id = erp.seed_id(r.name));
+    code_ := r.code;
+    while exists (select 1 from erp.records a where a.type = 'account' and not a.deleted and a.state ->> 'code' = code_) loop
+      code_ := code_ || '0';
+    end loop;
+    perform erp.seed_put('account', r.name, jsonb_build_object('code', code_, 'name', r.name, 'account_type', r.account_type));
+  end loop;
+  -- A company may already have a group over these codes. Same-length groups cannot overlap, and refusing would stop the upgrade.
+  if not exists (select 1 from erp.records g where g.id = erp.seed_id('계정 그룹:501'))
+     and not exists (select 1 from erp.records g where g.type = 'account_group' and not g.deleted and length(g.state ->> 'code_prefix_start') = 3
+                      and g.state ->> 'code_prefix_start' <= '600' and g.state ->> 'code_prefix_end' >= '501') then
+    perform erp.seed_put('account_group', '계정 그룹:501', jsonb_build_object('name', '제조원가', 'code_prefix_start', '501', 'code_prefix_end', '600'));
   end if;
   -- Where a payroll entry lands when its item names no account.
   for seed_ in select * from (values ('253', '미지급금', 'liability_current'), ('254', '예수금', 'liability_current'), ('802', '급여', 'expense')) t(code, name, account_type) loop

@@ -8,7 +8,7 @@
 
 ### Requirement: 모든 모델은 세 상태 중 하나로 보인다
 
-시스템은 아래 14개 모델을 `locked`(잠김), `insufficient`(근거 부족), `ready`(사용 가능) 중 하나로 알려야 한다(SHALL). 공개 함수 `erp_models` 는 모델마다 `id`, `kind`, `label`, `state`, `missing_modules`, `evidence` 를 돌려준다. 모듈이 한 번도 켜진 적 없으면 잠김이고, 근거는 아래 표를 따른다.
+시스템은 아래 15개 모델을 `locked`(잠김), `insufficient`(근거 부족), `ready`(사용 가능) 중 하나로 알려야 한다(SHALL). 공개 함수 `erp_models` 는 모델마다 `id`, `kind`, `label`, `state`, `missing_modules`, `evidence` 를 돌려준다. 모듈이 한 번도 켜진 적 없으면 잠김이고, 근거는 아래 표를 따른다.
 
 | 모델 | 이름 | 필요한 모듈 | 필요한 근거 | 모듈을 끈 뒤 |
 |---|---|---|---|---|
@@ -30,16 +30,17 @@
 | `cash_in` | 입금 예측 | 청구 | 입금 완료 청구서 100건 | 잠김 |
 | `whatif_terms` | 결제 조건 변경 | 청구 | 입금 완료 청구서 100건, 조건이 바뀐 거래처 3곳 | 잠김 |
 | `pnl_outlook` | 손익 전망 | 판매, 회계 | 전표가 있는 달 3개월 | 이력으로 계산 |
+| `depreciation_outlook` | 감가상각비 전망 | 고정자산 | 첫 취득부터 12개월 | 이력으로 계산 |
 
-#### Scenario: 첫 화면은 18개 모델을 세 상태로 보여 준다
+#### Scenario: 첫 화면은 21개 모델을 세 상태로 보여 준다
 
 - **WHEN** 김대표가 예측·what-if 메뉴를 연다
-- **THEN** 모델 카드 18장이 보이고, 근거가 넉넉한 회사의 `stat_sales`, `demand_sales`, `demand_true`, `stockout_risk`, `lead_time`, `whatif_policy`, `whatif_lead` 는 「사용 가능」 에 「열기」 다
+- **THEN** 모델 카드 21장이 보이고, 근거가 넉넉한 회사의 `stat_sales`, `demand_sales`, `demand_true`, `stockout_risk`, `lead_time`, `whatif_policy`, `whatif_lead` 는 「사용 가능」 에 「열기」 다
 
 #### Scenario: 어떤 모듈도 켜기 전에는 모두 잠겨 있다
 
 - **WHEN** 모듈을 하나도 켜지 않은 회사의 모델 목록을 읽는다
-- **THEN** 14개 모두 `locked` 이고 `missing_modules` 가 비어 있지 않다
+- **THEN** 15개 모두 `locked` 이고 `missing_modules` 가 비어 있지 않다
 - **AND** `demand_true` 의 안내에 「재고 모듈을 켜면」 이 있다
 
 #### Scenario: 판매만 켠 회사는 통계만 열리고 수요 예측은 근거를 기다린다
