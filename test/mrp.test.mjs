@@ -985,7 +985,7 @@ describe('undoing', () => {
     await k.settle()
     assert.equal(await stockOf(k, f.variant), 1)
     const plan = await undoPlan(k, o.correlation_id)
-    assert.ok(plan.blocked.some((b) => /팔린 제품 재고가 -2 로 음수/.test(b.reason)), JSON.stringify(plan.blocked))
+    assert.ok(plan.blocked.some((b) => /팔린 제품 재고가 음수가 됩니다\(-2\)/.test(b.reason)), JSON.stringify(plan.blocked))
     await rejects(call(k, k.adminId, 'erp_rollback_apply', 'correlation', JSON.stringify({ correlation_id: o.correlation_id }), plan.hash, true, '시도'), 'ERP_ROLLBACK_BLOCKED')
     assert.equal((await k.rec(o.id)).status, 'done')
     assert.equal(await stockOf(k, f.variant), 1)

@@ -281,7 +281,7 @@ test('shared totals: undoing a receipt whose goods already shipped on another or
   const plan = await preview('correlation', target)
   assert.deepEqual(plan.cascade, [], 'the streams really are causally independent')
   assert.equal(plan.blocked.length, 1)
-  assert.match(plan.blocked[0].reason, /SHARED 재고가 -10/)
+  assert.match(plan.blocked[0].reason, /SHARED 재고가 음수가 됩니다\(-10\)/)
   await rejects(applyPlan('correlation', target, plan.hash, true), 'ERP_ROLLBACK_BLOCKED')
   assert.equal((await stock('SHARED')).on_hand, 0)
 })
