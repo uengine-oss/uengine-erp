@@ -204,15 +204,26 @@ test('stock offsets run newest move first: the shipment comes back before the re
   await as('account_move', inv.id, 'post')
   await c.settle()
   assert.equal(await onHand(variant), 10)
+  // Someone else's order has since reserved what is left; the goods still go back, and that reservation gives way.
+  const other = await c.admin('sales_order', null, 'create', { partner_id: cust, lines: [{ variant_id: variant, qty: 10 }] })
+  await c.admin('sales_order', other.id, 'confirm', {})
+  await c.settle()
+  const otherOut = await picking(other.id)
+  await c.admin('picking', otherOut, 'check_availability', {})
+  assert.equal((await c.rec(otherOut)).status, 'ready')
 
   const plan = (await c.db.asUser(c.adminId, 'select public.erp_saga_plan($1) p', [saga])).rows[0].p
   assert.equal(plan.mode, 'compensate')
   assert.deepEqual(plan.compensations.map((x) => x.id), [inv.id, outId, inId], 'last moved, first offset')
+  assert.ok(plan.warnings.some((w) => w.id === inId && /예약/.test(w.message)), 'the preview says a reservation may give way')
   const done = (await c.db.asUser(c.adminId, 'select public.erp_saga_undo($1, $2, true, $3) r', [saga, plan.hash, '잘못 처리한 주문'])).rows[0].r
   assert.equal(done.mode, 'compensate')
   await c.settle()
   assert.equal(await onHand(variant), 0, 'both moves are back, nothing left short')
   assert.equal((await c.db.query(`select count(*)::int n from erp.records where type = 'picking' and status not in ('done', 'cancelled') and state ->> 'origin_id' in ($1, $2)`, [so.id, po.id])).rows[0].n, 0, 'no backorder waits')
+  const after_ = await c.rec(otherOut)
+  assert.notEqual(after_.status, 'ready'); assert.equal(Number(after_.state.moves[0].reserved), 0)
+  assert.equal(Number((await c.db.query(`select coalesce(sum(reserved), 0) r from erp.quants where variant_id = $1`, [variant])).rows[0].r), 0)
   assert.deepEqual(await c.verifyProjection(), [])
 })
 

@@ -1006,13 +1006,18 @@ begin
     when 'compensate' then
       -- What a saga runs to take stock work back: goods that moved come back by a real return, done at once
       -- because the people who undo this are not at the dock. Work not yet done is simply cancelled.
+      -- The return takes all of what moved, with its lots, not only what it could reserve: goods another order has
+      -- reserved still go back, and that order's newest reservation gives way as with any move. The saga's preview
+      -- already refused it if stock would go negative.
       s := erp.require_state(p_id, 'picking');
       if s ->> 'state' = 'done' then
-        select jsonb_agg(jsonb_build_object('id', m_ ->> 'id', 'qty', erp.num(m_ -> 'done'))) into rows_
+        select jsonb_agg(jsonb_strip_nulls(jsonb_build_object('id', m_ ->> 'id', 'qty', erp.num(m_ -> 'done'), 'lots', nullif(m_ -> 'lots', 'null'::jsonb)))) into rows_
           from jsonb_array_elements(s -> 'moves') m_ where erp.num(m_ -> 'done') > 0;
         new_id := gen_random_uuid();
         perform erp.picking_make_return(new_id, jsonb_build_object('return_of', p_id, 'moves', coalesce(rows_, '[]'::jsonb), 'note', p ->> 'reason'));
-        perform erp.dispatch('picking', new_id, 'validate', '{}'::jsonb);
+        select jsonb_agg(jsonb_build_object('id', m_ ->> 'id', 'done', erp.num(m_ -> 'demand'))) into rows_
+          from jsonb_array_elements(erp.state_of(new_id) -> 'moves') m_;
+        perform erp.dispatch('picking', new_id, 'validate', jsonb_build_object('moves', rows_));
         return new_id;
       elsif s ->> 'state' <> 'cancelled' then
         perform erp.picking_cancel(p_id);
@@ -2373,7 +2378,7 @@ end $$;
 select erp.catalog_put('{
   "type": "picking", "module": "inventory", "sort": 200, "label": "입출고 전표", "label_en": "Transfer",
   "external_events": ["PickingValidated"],
-  "compensate": {"command": "compensate", "label": "반품 처리"},
+  "compensate": {"command": "compensate", "label": "반품 처리", "warning": "물건을 실제로 되돌립니다. 그 재고를 다른 주문이 잡아 두었다면 가장 늦게 잡은 예약부터 풀립니다"},
   "fields": [
     {"name": "number", "label": "번호", "type": "text", "readonly": true, "list": true, "search": true},
     {"name": "picking_type", "label": "유형", "type": "enum", "required": true, "default": "internal", "list": true,
