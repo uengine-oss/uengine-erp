@@ -1025,6 +1025,295 @@ begin
     from z);
 end $$;
 
+-- Approved claims by the month the money was spent and the department the person was in when it was approved. Every approval
+-- states both, so nothing here reads the module's records and a claim cancelled or undone since simply is not among them.
+create or replace function public.erp_expense_trend(p_from date, p_to date, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  asof timestamptz := coalesce(p_as_of, now());
+  undone uuid[] := public.erp_undone(asof);
+begin
+  if p_from is null or p_to is null or p_from > p_to then raise exception 'ERP_INVALID: 기간이 올바르지 않습니다'; end if;
+  return (
+    with ok as (
+      select distinct on (e.stream_id) e.data, (e.data ->> 'date')::date as day
+        from public.erp_events e
+       where e.event_type = 'ExpenseApproved' and e.occurred_at <= asof and not e.correlation_id = any (undone)
+         and not exists (select 1 from public.erp_events c where c.stream_id = e.stream_id and c.event_type = 'ExpenseCancelled' and c.occurred_at <= asof and not c.correlation_id = any (undone))
+       order by e.stream_id, e.seq desc
+    ), rows_ as (
+      select to_char(day, 'YYYY-MM') as period, data ->> 'department_id' as department_id, coalesce(data ->> 'department_name', '(부서 없음)') as department_name,
+             sum((data ->> 'amount')::numeric) as amount, count(*) as claims
+        from ok where day between p_from and p_to group by 1, 2, 3
+    )
+    select jsonb_build_object('from', p_from, 'to', p_to,
+      'rows', coalesce(jsonb_agg(jsonb_build_object('period', period, 'department_id', department_id, 'department_name', department_name, 'amount', amount, 'claims', claims) order by period, department_name), '[]'::jsonb),
+      'total', coalesce(sum(amount), 0), 'claims', coalesce(sum(claims), 0))
+      from rows_);
+end $$;
+
+-- Every deal as the ledger last stated it, and how far it ever got. Won counts as having passed every stage: a deal closed from
+-- the first stage still reached the end. A deleted deal is not among them, and neither is anything undone.
+create or replace function public.erp_crm_deals(p_as_of timestamptz)
+returns table(id uuid, number text, name text, stage text, reached int, amount numeric, expected_close date, partner_id text, partner_name text, owner_id text, lost_reason text, closed_on date, created_on date)
+language sql stable set search_path = public, pg_temp as $$
+  with undone as materialized (select public.erp_undone(p_as_of) as u),
+  ev as (
+    select e.stream_id, e.seq, e.event_type, e.data from public.erp_events e, undone
+     where e.stream_type = 'opportunity' and e.event_type in ('OpportunityCreated', 'OpportunityChanged', 'OpportunityStageChanged', 'OpportunityWon', 'OpportunityLost', 'OpportunityReopened', 'OpportunityDeleted')
+       and e.occurred_at <= p_as_of and not e.correlation_id = any (undone.u)
+  ), newest as (
+    select distinct on (stream_id) * from ev order by stream_id, seq desc
+  ), level_ as (
+    select stream_id, max(case data ->> 'stage' when 'new' then 0 when 'talk' then 1 when 'proposal' then 2 when 'negotiation' then 3 when 'won' then 4 else 0 end) as lvl,
+           max(case data ->> 'stage_before' when 'talk' then 1 when 'proposal' then 2 when 'negotiation' then 3 else 0 end) as before_lvl,
+           min(data ->> 'created_on') as created_on
+      from ev group by stream_id
+  )
+  select n.stream_id, n.data ->> 'number', n.data ->> 'name', n.data ->> 'stage', greatest(l.lvl, l.before_lvl),
+         coalesce((n.data ->> 'expected_amount')::numeric, 0), (n.data ->> 'expected_close')::date, n.data ->> 'partner_id', coalesce(n.data ->> 'partner_name', n.data ->> 'company_name'),
+         n.data ->> 'owner_id', n.data ->> 'lost_reason', coalesce(n.data ->> 'won_on', n.data ->> 'lost_on')::date, l.created_on::date
+    from newest n join level_ l using (stream_id)
+   where n.event_type <> 'OpportunityDeleted'
+$$;
+
+-- A proportion with its 80% interval, the Wilson form quote conversion uses. With nothing decided there is nothing to say.
+create or replace function public.erp_rate_band(p_hits numeric, p_n numeric) returns jsonb
+language sql immutable as $$
+  select case when p_n > 0 then jsonb_build_object('rate', round(p, 4),
+      'low', round(greatest(0, (p + z * z / (2 * p_n) - z * sqrt(p * (1 - p) / p_n + z * z / (4 * p_n * p_n))) / (1 + z * z / p_n)), 4),
+      'high', round(least(1, (p + z * z / (2 * p_n) + z * sqrt(p * (1 - p) / p_n + z * z / (4 * p_n * p_n))) / (1 + z * z / p_n)), 4))
+    else jsonb_build_object('rate', null, 'low', null, 'high', null) end
+    from (select p_hits / nullif(p_n, 0) as p, 1.2816::numeric as z) x
+$$;
+
+-- For each stage: how many got that far, how many of those are decided, and how often that ended in a win. Open deals are left out of
+-- the rate: counting them as lost reads a recent pipeline too low.
+create or replace function public.erp_crm_funnel(p_from date default null, p_to date default null, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  asof timestamptz := coalesce(p_as_of, now());
+  stages jsonb := '[{"stage":"new","label":"신규","lvl":0},{"stage":"talk","label":"상담","lvl":1},{"stage":"proposal","label":"제안","lvl":2},{"stage":"negotiation","label":"협상","lvl":3}]';
+begin
+  if p_from > p_to then raise exception 'ERP_INVALID: 기간이 올바르지 않습니다'; end if;
+  return (
+    with d as (select * from public.erp_crm_deals(asof) x where (p_from is null or x.created_on >= p_from) and (p_to is null or x.created_on <= p_to)),
+    per as (
+      select s ->> 'stage' as stage, s ->> 'label' as label, (s ->> 'lvl')::int as lvl,
+             count(*) filter (where d.reached >= (s ->> 'lvl')::int) as reached,
+             count(*) filter (where d.reached >= (s ->> 'lvl')::int and d.stage = 'won') as won,
+             count(*) filter (where d.reached >= (s ->> 'lvl')::int and d.stage = 'lost') as lost
+        from jsonb_array_elements(stages) s left join d on true group by 1, 2, 3
+    )
+    select jsonb_build_object('from', p_from, 'to', p_to,
+      'deals', (select count(*) from d), 'won', (select count(*) from d where d.stage = 'won'), 'lost', (select count(*) from d where d.stage = 'lost'),
+      'open', (select count(*) from d where d.stage not in ('won', 'lost')),
+      'median_days', (select round(percentile_cont(0.5) within group (order by (d.closed_on - d.created_on))::numeric, 1) from d where d.stage = 'won' and d.closed_on is not null),
+      'stages', coalesce((select jsonb_agg(jsonb_build_object('stage', p.stage, 'label', p.label, 'reached', p.reached, 'won', p.won, 'lost', p.lost, 'decided', p.won + p.lost,
+          'next_rate', case when p.reached > 0 and n.reached is not null then round(n.reached::numeric / p.reached, 4) end) || public.erp_rate_band(p.won, p.won + p.lost) order by p.lvl)
+        from per p left join per n on n.lvl = p.lvl + 1), '[]'::jsonb),
+      'lost_reasons', coalesce((select jsonb_agg(jsonb_build_object('reason', x.reason, 'count', x.n) order by x.n desc, x.reason) from (select lost_reason as reason, count(*) as n from d where d.stage = 'lost' group by 1) x), '[]'::jsonb))
+  );
+end $$;
+
+-- What the open deals may come to. With too few decided deals to know how often a stage ends in a win, it gives only the honest range:
+-- none of it, or all of it. Summing each stage's bounds makes the band wider than it is, which errs on the side of saying less.
+create or replace function public.erp_crm_forecast(p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  asof timestamptz := coalesce(p_as_of, now());
+  funnel jsonb := public.erp_crm_funnel(null, null, asof);
+  decided int := (funnel ->> 'won')::int + (funnel ->> 'lost')::int;
+  ready boolean := decided >= 20;
+begin
+  return (
+    with open_ as (select * from public.erp_crm_deals(asof) x where x.stage not in ('won', 'lost')),
+    per as (
+      select s ->> 'stage' as stage, s ->> 'label' as label, count(o.id) as deals, coalesce(sum(o.amount), 0) as amount,
+             (s ->> 'rate')::numeric as rate, (s ->> 'low')::numeric as low, (s ->> 'high')::numeric as high, (s ->> 'decided')::int as decided_here, array_position(erp_stages.a, s ->> 'stage') as pos
+        from (select array['new', 'talk', 'proposal', 'negotiation'] as a) erp_stages, jsonb_array_elements(funnel -> 'stages') s left join open_ o on o.stage = s ->> 'stage'
+       group by 1, 2, 5, 6, 7, 8, 9
+    )
+    select jsonb_build_object('as_of', asof, 'ready', ready, 'decided', decided, 'need', 20,
+      'open', (select count(*) from open_), 'pipeline', (select coalesce(sum(amount), 0) from open_),
+      'range', jsonb_build_object('low', 0, 'high', (select coalesce(sum(amount), 0) from open_)),
+      'stages', coalesce((select jsonb_agg(jsonb_build_object('stage', p.stage, 'label', p.label, 'deals', p.deals, 'amount', p.amount, 'decided', p.decided_here)
+          || case when ready and p.rate is not null then jsonb_build_object('rate', p.rate, 'low', p.low, 'high', p.high, 'expected', round(p.amount * p.rate), 'expected_low', round(p.amount * p.low), 'expected_high', round(p.amount * p.high)) else '{}'::jsonb end
+        order by p.pos) from per p), '[]'::jsonb),
+      'expected', case when ready and not exists (select 1 from per p where p.amount > 0 and p.rate is null) then jsonb_build_object(
+          'mid', (select round(sum(p.amount * coalesce(p.rate, 0))) from per p), 'low', (select round(sum(p.amount * coalesce(p.low, 0))) from per p), 'high', (select round(sum(p.amount * coalesce(p.high, 0))) from per p)) end,
+      'by_month', coalesce((select jsonb_agg(jsonb_build_object('month', m.month, 'deals', m.n, 'amount', m.amount) order by m.month nulls last) from (
+          select to_char(expected_close, 'YYYY-MM') as month, count(*) as n, sum(amount) as amount from open_ group by 1) m), '[]'::jsonb))
+  );
+end $$;
+
+-- Customers who have ordered more than once and have now gone longer than they usually do. It reads orders from the ledger, so it needs
+-- sales history and not the sales module's tables, and it leaves out anyone already being talked to.
+create or replace function public.erp_crm_repurchase(p_on date default null, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  tz text := public.erp_analytics_tz();
+  asof timestamptz := coalesce(p_as_of, now());
+  on_ date := coalesce(p_on, (asof at time zone tz)::date);
+  undone uuid[] := public.erp_undone(asof);
+begin
+  return (
+    with orders as (
+      select e.data ->> 'partner_id' as partner, max(e.data ->> 'partner_name') as name, public.erp_biz_day(e.data ->> 'date_order', e.occurred_at, tz) as day, (e.data ->> 'amount_total')::numeric as amount, e.stream_id
+        from public.erp_events e
+       where e.event_type = 'SalesOrderConfirmed' and e.occurred_at <= asof and not e.correlation_id = any (undone)
+         and not exists (select 1 from public.erp_events x where x.stream_id = e.stream_id and x.version > e.version and x.event_type = 'SalesOrderCancelled' and x.occurred_at <= asof and not x.correlation_id = any (undone))
+       group by 1, 3, 4, 5
+    ), gaps as (
+      select partner, day - lag(day) over (partition by partner order by day) as gap from orders
+    ), per as (
+      select o.partner, max(o.name) as name, count(*) as orders, max(o.day) as last_order, round(avg(o.amount)) as avg_amount,
+             (select percentile_cont(0.5) within group (order by g.gap) from gaps g where g.partner = o.partner and g.gap > 0) as typical
+        from orders o group by 1
+    ), talking as (
+      select distinct partner_id from public.erp_crm_deals(asof) where stage not in ('won', 'lost') and partner_id is not null
+    ), cand as (
+      select p.*, on_ - p.last_order as since from per p where p.orders >= 2 and p.typical is not null and on_ - p.last_order >= p.typical and p.partner not in (select partner_id from talking)
+    )
+    select jsonb_build_object('on', on_, 'repeat_customers', (select count(*) from per where orders >= 2), 'customers', (select count(*) from per),
+      'rows', coalesce((select jsonb_agg(jsonb_build_object('partner_id', c.partner, 'name', c.name, 'orders', c.orders, 'last_order', c.last_order, 'avg_amount', c.avg_amount,
+          'typical_gap', round(c.typical::numeric, 1), 'days_since', c.since) order by c.since / c.typical desc, c.partner) from cand c), '[]'::jsonb))
+  );
+end $$;
+
+-- Every task as the ledger last stated it, with the hours that still stand against it.
+create or replace function public.erp_project_tasks(p_as_of timestamptz)
+returns table(task uuid, name text, project_id text, project_name text, stage text, planned numeric, deadline date, started_on date, done_on date, person text, logged numeric)
+language sql stable set search_path = public, pg_temp as $$
+  with undone as materialized (select public.erp_undone(p_as_of) as u),
+  ev as (
+    select distinct on (e.stream_id) e.stream_id, e.event_type, e.data from public.erp_events e, undone
+     where e.stream_type = 'project_task' and e.event_type in ('TaskCreated', 'TaskChanged', 'TaskStageChanged', 'TaskDeleted')
+       and e.occurred_at <= p_as_of and not e.correlation_id = any (undone.u)
+     order by e.stream_id, e.seq desc
+  ), hours as (
+    select t.data ->> 'task_id' as task, sum((t.data ->> 'hours')::numeric) as h from (
+      select distinct on (e.stream_id) e.event_type, e.data from public.erp_events e, undone
+       where e.stream_type = 'time_entry' and e.event_type in ('TimeLogged', 'TimeChanged', 'TimeRemoved')
+         and e.occurred_at <= p_as_of and not e.correlation_id = any (undone.u)
+       order by e.stream_id, e.seq desc) t
+     where t.event_type <> 'TimeRemoved' group by 1
+  )
+  select ev.stream_id, ev.data ->> 'name', ev.data ->> 'project_id', ev.data ->> 'project_name', ev.data ->> 'stage', (ev.data ->> 'planned_hours')::numeric, (ev.data ->> 'deadline')::date,
+         (ev.data ->> 'started_on')::date, (ev.data ->> 'done_on')::date, ev.data ->> 'person_name', coalesce(h.h, 0)
+    from ev left join hours h on h.task = ev.stream_id::text
+   where ev.event_type <> 'TaskDeleted'
+$$;
+
+-- How long finished tasks really took against what was planned. Only tasks with both a plan and hours can say anything.
+create or replace function public.erp_project_effort(p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare asof timestamptz := coalesce(p_as_of, now());
+begin
+  return (
+    with t as (select * from public.erp_project_tasks(asof)),
+    done_ as (select * from t where t.stage = 'done'),
+    measured as (select *, logged / planned as ratio from done_ where planned > 0 and logged > 0)
+    select jsonb_build_object('tasks', (select count(*) from t), 'done', (select count(*) from done_), 'measured', (select count(*) from measured), 'need', 20,
+      'median_ratio', (select round(percentile_cont(0.5) within group (order by ratio)::numeric, 3) from measured),
+      'p10_ratio', (select round(percentile_cont(0.1) within group (order by ratio)::numeric, 3) from measured),
+      'p90_ratio', (select round(percentile_cont(0.9) within group (order by ratio)::numeric, 3) from measured),
+      'planned', (select coalesce(sum(planned), 0) from measured), 'logged', (select coalesce(sum(logged), 0) from measured),
+      'median_days', (select percentile_cont(0.5) within group (order by (done_on - started_on)) from done_ where done_on is not null and started_on is not null),
+      'by_project', coalesce((select jsonb_agg(jsonb_build_object('project_id', p.project_id, 'name', p.name, 'tasks', p.n, 'planned', p.planned, 'logged', p.logged, 'ratio', case when p.planned > 0 then round(p.logged / p.planned, 3) end) order by p.logged desc, p.project_id) from (
+          select project_id, max(project_name) as name, count(*) as n, sum(coalesce(planned, 0)) as planned, sum(logged) as logged from done_ group by 1) p), '[]'::jsonb))
+  );
+end $$;
+
+-- Whether what is left fits in the days left. The sure part comes first: a date gone by is overdue whatever any model says. To go further it
+-- needs the measured overrun and hours going onto the project lately, and it says "모름" rather than guess without them.
+create or replace function public.erp_project_risk(p_on date default null, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  tz text := public.erp_analytics_tz();
+  asof timestamptz := coalesce(p_as_of, now());
+  on_ date := coalesce(p_on, (asof at time zone tz)::date);
+  effort jsonb := public.erp_project_effort(asof);
+  ready boolean := (effort ->> 'measured')::int >= 20;
+  mid numeric := coalesce((effort ->> 'median_ratio')::numeric, 1);
+  hi numeric := coalesce((effort ->> 'p90_ratio')::numeric, 1);
+  undone uuid[] := public.erp_undone(asof);
+begin
+  return (
+    with latest as (
+      select distinct on (e.stream_id) e.stream_id, e.event_type, e.data from public.erp_events e
+       where e.stream_type = 'project' and e.event_type in ('ProjectCreated', 'ProjectChanged', 'ProjectDone', 'ProjectCancelled', 'ProjectReopened', 'ProjectDeleted', 'ProjectOriginCancelled')
+         and e.occurred_at <= asof and not e.correlation_id = any (undone)
+       order by e.stream_id, e.seq desc
+    ), open_ as (
+      select stream_id::text as id, data ->> 'number' as number, data ->> 'name' as name, (data ->> 'date_end')::date as due from latest where event_type <> 'ProjectDeleted' and data ->> 'stage' = 'open'
+    ), work as (
+      select t.project_id, count(*) as open_tasks, sum(greatest(coalesce(t.planned, 0) - t.logged, 0)) as plain,
+             sum(greatest(coalesce(t.planned, 0) * mid - t.logged, 0)) as left_mid, sum(greatest(coalesce(t.planned, 0) * hi - t.logged, 0)) as left_hi,
+             count(*) filter (where t.planned is null or t.planned = 0) as unplanned
+        from public.erp_project_tasks(asof) t where t.stage in ('todo', 'doing', 'review') group by 1
+    ), pace as (
+      -- Hours per day over the last four weeks, including days nobody logged anything: what the project actually gets.
+      select x.project_id, sum(x.hours) / 28.0 as per_day from (
+        select distinct on (e.stream_id) e.event_type, e.data ->> 'project_id' as project_id, (e.data ->> 'hours')::numeric as hours, (e.data ->> 'date')::date as day
+          from public.erp_events e
+         where e.stream_type = 'time_entry' and e.event_type in ('TimeLogged', 'TimeChanged', 'TimeRemoved') and e.occurred_at <= asof and not e.correlation_id = any (undone)
+         order by e.stream_id, e.seq desc) x
+       where x.event_type <> 'TimeRemoved' and x.day > on_ - 28 and x.day <= on_ group by 1
+    ), rows_ as (
+      select o.id, o.number, o.name, o.due, o.due - on_ as days_left, coalesce(w.open_tasks, 0) as open_tasks, coalesce(w.plain, 0) as planned_left, coalesce(w.unplanned, 0) as unplanned,
+             coalesce(w.left_mid, 0) as left_mid, coalesce(w.left_hi, 0) as left_hi, p.per_day,
+             case when p.per_day > 0 then ceil(coalesce(w.left_mid, 0) / p.per_day) end as days_mid, case when p.per_day > 0 then ceil(coalesce(w.left_hi, 0) / p.per_day) end as days_hi
+        from open_ o left join work w on w.project_id = o.id left join pace p on p.project_id = o.id
+    )
+    select jsonb_build_object('on', on_, 'ready', ready, 'measured', effort -> 'measured', 'need', 20, 'median_ratio', effort -> 'median_ratio', 'p90_ratio', effort -> 'p90_ratio',
+      'rows', coalesce(jsonb_agg(jsonb_build_object('id', r.id, 'number', r.number, 'name', r.name, 'due', r.due, 'days_left', r.days_left, 'open_tasks', r.open_tasks, 'planned_left', r.planned_left, 'unplanned', r.unplanned,
+          'per_day', round(r.per_day, 2), 'days_mid', r.days_mid, 'days_hi', r.days_hi,
+          'risk', case when r.due is null then 'no_date'
+                       when r.days_left < 0 then 'overdue'
+                       when r.open_tasks = 0 then 'ok'
+                       when not ready or r.per_day is null or r.unplanned > 0 then 'unknown'
+                       when r.days_mid > r.days_left then 'late'
+                       when r.days_hi > r.days_left then 'at_risk'
+                       else 'ok' end) order by r.due nulls last, r.number), '[]'::jsonb))
+      from rows_ r);
+end $$;
+
+-- Hours logged against hours at work. Only where the attendance module's events exist and the caller may read them: otherwise it says so
+-- and compares nothing. Reads the ledger, so it needs no attendance table and no such module on.
+create or replace function public.erp_time_vs_attendance(p_from date, p_to date, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  asof timestamptz := coalesce(p_as_of, now());
+  undone uuid[] := public.erp_undone(asof);
+begin
+  if p_from is null or p_to is null or p_from > p_to then raise exception 'ERP_INVALID: 기간이 올바르지 않습니다'; end if;
+  if not exists (select 1 from public.erp_events e where e.event_type in ('AttendanceEntered', 'AttendanceCorrected', 'AttendanceCheckedOut') and e.occurred_at <= asof) then
+    return jsonb_build_object('available', false, 'from', p_from, 'to', p_to, 'rows', '[]'::jsonb);
+  end if;
+  return (
+    with worked as (
+      select distinct on (e.data ->> 'employee_id', e.data ->> 'date') e.data ->> 'employee_id' as employee, (e.data ->> 'date')::date as day, coalesce((e.data ->> 'worked_minutes')::numeric, 0) / 60 as hours
+        from public.erp_events e
+       where e.event_type in ('AttendanceEntered', 'AttendanceCorrected', 'AttendanceCheckedOut') and e.occurred_at <= asof and not e.correlation_id = any (undone)
+         and (e.data ->> 'date')::date between p_from and p_to
+       order by e.data ->> 'employee_id', e.data ->> 'date', e.seq desc
+    ), logged as (
+      select x.employee, max(x.person) as person, x.day, sum(x.hours) as hours from (
+        select distinct on (e.stream_id) e.event_type, e.data ->> 'employee_id' as employee, e.data ->> 'person_name' as person, (e.data ->> 'date')::date as day, (e.data ->> 'hours')::numeric as hours
+          from public.erp_events e
+         where e.stream_type = 'time_entry' and e.event_type in ('TimeLogged', 'TimeChanged', 'TimeRemoved') and e.occurred_at <= asof and not e.correlation_id = any (undone)
+         order by e.stream_id, e.seq desc) x
+       where x.event_type <> 'TimeRemoved' and x.employee is not null and x.day between p_from and p_to group by 1, 3
+    )
+    select jsonb_build_object('available', true, 'from', p_from, 'to', p_to,
+      'rows', coalesce(jsonb_agg(jsonb_build_object('employee_id', l.employee, 'name', l.person, 'date', l.day, 'logged', round(l.hours, 2), 'worked', round(w.hours, 2),
+          'problem', case when w.employee is null then 'no_attendance' else 'over' end) order by l.day, l.person)
+        filter (where w.employee is null or l.hours > w.hours), '[]'::jsonb),
+      'days', count(*), 'matched', count(*) filter (where w.employee is not null and l.hours <= w.hours))
+      from logged l left join worked w on w.employee = l.employee and w.day = l.day);
+end $$;
+
 -- Every model and its state. Thresholds come from experiments/whatif/results-thresholds.json and match web/src/lib/forecast/thresholds.ts.
 -- Modules on and off, and what counts as evidence, are all read from the ledger, using its indexes.
 create or replace function public.erp_models(p_as_of timestamptz default null) returns jsonb
@@ -1034,7 +1323,7 @@ declare
   asof timestamptz := coalesce(p_as_of, now());
   today date := ((asof at time zone tz) + interval '1 second')::date;
   spans jsonb := public.erp_module_spans(asof);
-  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계","hr":"인사","payroll":"급여","mrp":"제조","assets":"고정자산","timeoff":"휴가","attendance":"근태"}';
+  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계","hr":"인사","payroll":"급여","mrp":"제조","assets":"고정자산","timeoff":"휴가","attendance":"근태","expense":"경비","crm":"CRM","project":"프로젝트"}';
   readable text[] := erp.readable_types();
   m record;
   missing text[];
@@ -1058,6 +1347,9 @@ declare
   asset_first date; asset_months int := 0;
   leave_months int := 0; leave_since date; people_now int := 0;
   work_days int := 0; work_weeks int := 0; work_since date;
+  expense_months int := 0; expense_first date;
+  deals_decided int := 0; deals_first date; repeat_customers int := 0;
+  tasks_measured int := 0; project_first date;
   span jsonb;
   a date; b date;
 begin
@@ -1121,6 +1413,15 @@ begin
   select count(distinct (e.data ->> 'date')), count(distinct date_trunc('week', (e.data ->> 'date')::date)), min((e.data ->> 'date')::date) into work_days, work_weeks, work_since
     from public.erp_events e where e.stream_type = 'attendance_day' and e.event_type in ('AttendanceCheckedOut', 'AttendanceEntered', 'AttendanceCorrected') and e.occurred_at <= asof;
 
+  select count(distinct date_trunc('month', (e.data ->> 'date')::date)), min((e.data ->> 'date')::date) into expense_months, expense_first
+    from public.erp_events e where e.event_type = 'ExpenseApproved' and e.occurred_at <= asof;
+
+  select count(*) filter (where d.stage in ('won', 'lost')), min(d.created_on) into deals_decided, deals_first from public.erp_crm_deals(asof) d;
+  select count(*) into repeat_customers from (
+    select e.data ->> 'partner_id' from public.erp_events e where e.event_type = 'SalesOrderConfirmed' and e.occurred_at <= asof group by 1 having count(*) >= 2) x;
+
+  select count(*) filter (where t.stage = 'done' and t.planned > 0 and t.logged > 0), min(t.started_on) into tasks_measured, project_first from public.erp_project_tasks(asof) t;
+
   -- The drop what-if asks for stockouts. Counted only when stock history exists, because this one walks every stock change.
   stock_out_cases := 0;
   if stock_days > 0 then
@@ -1155,7 +1456,13 @@ begin
       ('leave_burn', 'forecast', '연차 소진 전망', array['timeoff'], true, array['leave_request', 'leave_grant']),
       ('whatif_leave_policy', 'whatif', '연차 부여 정책 변경', array['timeoff'], false, array['leave_request', 'leave_grant']),
       ('overtime_risk', 'forecast', '주 52시간 초과 위험', array['attendance'], true, array['attendance_day']),
-      ('stat_overtime', 'stat', '부서별 초과근무 추이', array['attendance'], false, array['attendance_day'])
+      ('stat_overtime', 'stat', '부서별 초과근무 추이', array['attendance'], false, array['attendance_day']),
+      ('stat_expense', 'stat', '부서별 경비 추이', array['expense'], false, array['expense']),
+      ('crm_conversion', 'stat', '단계별 전환율', array['crm'], false, array['opportunity']),
+      ('crm_forecast', 'forecast', '파이프라인 수주 전망', array['crm'], false, array['opportunity']),
+      ('crm_repurchase', 'forecast', '재구매 후보', array['crm', 'sales'], false, array['opportunity', 'sales_order']),
+      ('project_effort', 'stat', '작업 소요 실측', array['project'], false, array['project_task', 'time_entry']),
+      ('project_risk', 'forecast', '납기 지연 위험', array['project'], false, array['project', 'project_task', 'time_entry'])
     ) as t(id, kind, label, modules, needs_current, types)
   loop
     missing := '{}'; stale := '{}';
@@ -1198,6 +1505,11 @@ begin
       when 'whatif_leave_policy' then have := people_now; need := 1; unit_ := '명'; since_ := first_hire; msg := '재직 직원';
       when 'overtime_risk' then have := work_days; need := 20; unit_ := '일'; since_ := work_since; msg := '퇴근까지 찍힌 날';
       when 'stat_overtime' then have := work_weeks; need := 4; unit_ := '주'; since_ := work_since; msg := '근태 기록';
+      when 'stat_expense' then have := expense_months; need := 3; unit_ := '개월'; since_ := expense_first; msg := '승인 경비';
+      when 'crm_conversion' then have := deals_decided; need := 20; unit_ := '건'; since_ := deals_first; msg := '수주·실주';
+      when 'crm_forecast' then have := deals_decided; need := 20; unit_ := '건'; since_ := deals_first; msg := '수주·실주';
+      when 'project_effort', 'project_risk' then have := tasks_measured; need := 20; unit_ := '건'; since_ := project_first; msg := '계획과 기록이 있는 완료 작업';
+      when 'crm_repurchase' then have := repeat_customers; need := 3; unit_ := '곳'; since_ := first_sale; msg := '두 번 이상 주문한 고객';
     end case;
 
     ok := have >= need;
@@ -1216,6 +1528,8 @@ begin
     else msg := format('%s %s%s 필요 (지금 %s%s)', msg, need, unit_, have, unit_);
     end if;
     if m.id = 'whatif_drop' and not ok then msg := msg || '. 대체율을 몰라 0~100% 범위로만 보여 줍니다'; end if;
+    if m.id = 'crm_forecast' and not ok then msg := msg || '. 전환율을 몰라 0~전체 범위로만 보여 줍니다'; end if;
+    if m.id = 'project_risk' and not ok then msg := msg || '. 실측이 없어 지난 납기만 말합니다'; end if;
 
     if cardinality(missing) > 0 then
       msg := (select string_agg(labels ->> x, '·') from unnest(missing) x) || ' 모듈을 켜면 열립니다';

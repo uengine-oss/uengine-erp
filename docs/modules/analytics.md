@@ -26,6 +26,9 @@ SQL 은 사실을 돌려주고, 계산은 브라우저에서 한다. 모든 함�
 | `erp_quote_conversion(p_from, p_to, p_as_of)` | `{quotes, won, lost, open, rate, low, high, decided_rate, median_days}`. `low`·`high` 는 80% 구간 |
 | `erp_headcount(p_on, p_as_of)`, `erp_headcount_trend(p_from, p_to, p_as_of)` | 그날의 재직 인원과 부서, 달별 입퇴사와 인원. 업무 날짜와 원장 시점이 따로다. `docs/modules/hr.md` 참고 |
 | `erp_mrp_lead_times(p_as_of)`, `erp_mrp_materials(p_weeks, p_as_of)`, `erp_mrp_whatif(p_variant_id, p_factor, p_as_of)` | 실측 제조 기간, 자재 소요, 생산량 변경 시 자재 소진일. `docs/modules/mrp.md` 참고 |
+| `erp_expense_trend(p_from, p_to, p_as_of)` | 승인 경비를 지출한 달과 승인 때의 부서로. `docs/modules/expense.md` 참고 |
+| `erp_crm_funnel(p_from, p_to, p_as_of)`, `erp_crm_forecast(p_as_of)`, `erp_crm_repurchase(p_on, p_as_of)` | 단계별 전환율, 수주 전망(모자라면 범위), 재구매 후보. `docs/modules/crm.md` 참고 |
+| `erp_project_effort(p_as_of)`, `erp_project_risk(p_on, p_as_of)`, `erp_time_vs_attendance(p_from, p_to, p_as_of)` | 작업 소요 실측, 납기 지연 판단, 근태 대조. `docs/modules/project.md` 참고 |
 
 도우미: `erp_analytics_tz`, `erp_biz_day`, `erp_undone`, `erp_module_spans`, `erp_unit_maps`, `erp_location_map`, `erp_sales_lines`, `erp_mrp_done_rows`, `erp_mrp_part_use`.
 
@@ -37,7 +40,7 @@ SQL 은 사실을 돌려주고, 계산은 브라우저에서 한다. 모든 함�
 
 `잠김`은 필요한 모듈이 한 번도 켜진 적 없을 때다. 켰다가 끈 경우는 모델마다 다르다.
 
-- 이력만 읽는 모델(`stat_sales`, `quote_conversion`, `demand_sales`, `demand_true`, `quarter_outlook`, `whatif_drop`, `whatif_price`, `lead_time`, `pnl_outlook`, `depreciation_outlook`, `stat_headcount`, `payroll_cost`, `whatif_headcount`, `mrp_lead_time`)은 쌓인 이력으로 계속 계산하고 `stale_modules` 에 그 모듈을 적는다(M8).
+- 이력만 읽는 모델(`stat_sales`, `quote_conversion`, `demand_sales`, `demand_true`, `quarter_outlook`, `whatif_drop`, `whatif_price`, `lead_time`, `pnl_outlook`, `depreciation_outlook`, `stat_headcount`, `payroll_cost`, `whatif_headcount`, `mrp_lead_time`)은 쌓인 이력으로 계속 계산하고 `stale_modules`, `stat_expense`, `crm_conversion`, `crm_forecast`, `crm_repurchase`, `project_effort`, `project_risk` 에 그 모듈을 적는다(M8).
 - 지금 재고나 미결 청구서가 있어야 하는 모델(`stockout_risk`, `whatif_policy`, `whatif_realloc`, `whatif_lead`, `reorder_plan`, `cash_in`, `whatif_terms`, `mrp_materials`, `whatif_production`)은 잠긴다.
 
 문서를 읽을 권한이 없는 사람에게 그 문서로 계산하는 모델은 `state: locked, forbidden: true` 이고 건수도 0 이다.

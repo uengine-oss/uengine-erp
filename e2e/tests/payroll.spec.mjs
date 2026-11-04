@@ -82,7 +82,7 @@ test('S17-0. 인사 없이는 켜지 않고, 켜면 메뉴와 역할이 생긴�
   await expect(dialog(page)).toContainText('급여 모듈 켜기')
   await expect(dialog(page)).toContainText('요율과 세액표는 제품에 들어 있지 않으므로')
   await page.getByTestId('dlg-confirm').click()
-  await expect(dialog(page)).toContainText('인사 모듈을 먼저 켜세요')
+  await expect(dialog(page)).toContainText('인사 모듈이 먼저 켜져 있어야')
   await shot(page, 'payroll-01-needs-people')
   await page.getByRole('button', { name: '취소' }).click()
 

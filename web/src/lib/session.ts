@@ -130,7 +130,7 @@ export function catalogOf(type: string): CatalogDoc | undefined {
 export function hasRole(roles: string[] | undefined): boolean {
   const mine = session.me?.roles ?? []
   if (mine.includes('admin')) return true
-  // '*' is any member: asking for your own leave is not a job title.
-  return (roles ?? []).some((r) => (r === '*' && !!session.me) || mine.includes(r))
+  // 'member' means anyone in the company. The handler decides whose document it is, and refuses the rest.
+  return (roles ?? []).some((r) => r === 'member' ? !!session.me : mine.includes(r))
 }
 export const isAdmin = () => (session.me?.roles ?? []).includes('admin')

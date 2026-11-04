@@ -189,6 +189,39 @@ begin
   return out_;
 end $$;
 
+-- A date has to look like one: the database's own cast also reads 'today' and 'infinity'. An empty value is no date.
+create or replace function erp.strict_date(p jsonb, p_label text) returns date
+language plpgsql as $$
+declare
+  t text := case when jsonb_typeof(p) = 'string' then nullif(btrim(p #>> '{}'), '') end;
+  s text;
+begin
+  if p is null or jsonb_typeof(p) = 'null' or (jsonb_typeof(p) = 'string' and t is null) then return null; end if;
+  if t is not null and t ~ '^\d{4}-\d{2}-\d{2}($|[T ])' then s := erp.try_date(t); end if;
+  if s is null then perform erp.fail('ERP_INVALID', format('%s 항목은 날짜여야 합니다', p_label)); end if;
+  return s::date;
+end $$;
+
+-- clean_payload for a document that takes people at their word: a field that does not exist or that only the system
+-- writes is refused rather than dropped.
+create or replace function erp.strict_payload(p_type text, p_payload jsonb, p_current jsonb default '{}'::jsonb) returns jsonb
+language plpgsql as $$
+declare
+  p jsonb := coalesce(p_payload, '{}'::jsonb);
+  d jsonb := erp.catalog_of(p_type);
+  f jsonb;
+  k text;
+begin
+  if jsonb_typeof(p) <> 'object' then perform erp.fail('ERP_INVALID', '요청 형식이 올바르지 않습니다'); end if;
+  for k in select jsonb_object_keys(p) loop
+    select value into f from jsonb_array_elements(d -> 'fields') where value ->> 'name' = k;
+    if f is null then perform erp.fail('ERP_UNKNOWN_FIELD', format('%s 에 없는 항목입니다: %s', d ->> 'label', k)); end if;
+    if coalesce((f ->> 'readonly')::boolean, false) then perform erp.fail('ERP_INVALID', format('%s 항목은 직접 적을 수 없습니다', f ->> 'label')); end if;
+    if f ->> 'type' = 'date' then perform erp.strict_date(p -> k, f ->> 'label'); end if;
+  end loop;
+  return erp.clean_payload(p_type, p, p_current);
+end $$;
+
 ------------------------------------------------------------------------------------------------
 -- Row events: a screen sends a whole collection, the ledger records what actually changed.
 ------------------------------------------------------------------------------------------------

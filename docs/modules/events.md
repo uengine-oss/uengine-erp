@@ -200,6 +200,54 @@
 
 `AttendanceClosed` 의 `from, to` 는 이 달에서 그 사람에 대해 말할 수 있는 날짜다. 입사, 퇴사, 모듈을 켠 날로 좁혀진다. 듣는 쪽은 그 밖의 날을 알 수 없다고 봐야 한다. `not_attended_dates` 는 소정근로일 중 일한 기록이 없고 출근으로 치거나 소정근로일에서 빼는 휴가도 아닌 날이다. `suspended_dates` 는 근로 의무가 정지된 휴가의 날이다. `overtime_minutes` 는 그 달에 끝나는 주의 합이며, 주마다 하루 8시간 초과의 합과 40시간 초과 중 큰 값이다.
 
+## 경비가 내는 것
+
+공통 사실: `number, employee_id, employee_name, department_id, department_name, category_id, category_name, account_id, date, title, amount`. 경비 ID 는 `ev.stream_id` 다. `date` 는 지출일이고 `account_id` 는 없을 수 있다. 부서는 그 일이 있을 때의 부서다.
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `ExpenseSubmitted` | 공통 사실 + `approver_id, approver_name, approver_user_id, receipt_count, no_receipt_reason, possible_duplicates` |
+| `ExpenseApproved` | 공통 사실 + `accounting_date, self_approved, approved_by_name, receipt_count` |
+| `ExpenseRefused` | 공통 사실. 사유는 이벤트의 `reason` 이다 |
+| `ExpensePaid` | 공통 사실 + `paid_on, paid_from(bank, cash), accounting_date` |
+| `ExpenseCancelled` | 공통 사실 + `was(취소 전 상태), accounting_date, paid_on`. 사유는 이벤트의 `reason` 이다 |
+| `ExpenseReceiptAttached` | `number, receipt_id, sha256, mime, size`. **파일 이름과 위치는 없다** |
+| `ExpenseReceiptRemoved` | `number, receipt_id` |
+
+## CRM 이 내는 것
+
+공통 사실: `number, name, stage, partner_id, partner_name, company_name, expected_amount, expected_close, owner_id, source`. 영업 기회 ID 는 `ev.stream_id` 다. `stage` 는 그 이벤트 뒤의 단계다. `owner_id` 는 구성원 레코드 ID 다. 담당자 연락처는 어떤 이벤트에도 없다.
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `OpportunityCreated` | 공통 사실 + `created_on` |
+| `OpportunityChanged` | `changed:{칸:{from, to}}` + 공통 사실 |
+| `OpportunityStageChanged` | `from, to` + 공통 사실 |
+| `OpportunityWon` | `won_on, make_quote, stage_before` + 공통 사실. 구독자는 `make_quote` 가 거짓이면 견적을 만들지 않는다 |
+| `OpportunityLost` | `lost_on, lost_reason, lost_note, stage_before` + 공통 사실 |
+| `OpportunityReopened` | `was(won, lost)` + 공통 사실 |
+| `OpportunityDeleted` | `number` |
+| `OpportunityPrivateChanged`, `OpportunityPrivateErased` | `opportunity_id, fields` / `opportunity_id, erased_at`. **값은 없다.** `sales`, `admin` 만 읽는다 |
+
+## 프로젝트가 내는 것
+
+프로젝트의 공통 사실: `number, name, stage, partner_id, partner_name, manager_id, date_start, date_end, origin_type, origin_id, origin_number`.
+작업의 공통 사실: `number, name, project_id, project_name, stage, planned_hours, deadline, employee_id, member_id, person_name, started_on, done_on, origin_line_id`.
+시간의 공통 사실: `task_id, task_name, project_id, project_name, employee_id, member_id, person_name, user_id, department_name, date, hours`. `stage` 는 그 이벤트 뒤의 단계다. 인사가 꺼져 있으면 `employee_id` 는 `null` 이다.
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `ProjectCreated`, `ProjectCancelled`, `ProjectOriginCancelled` | 프로젝트 공통 사실 |
+| `ProjectChanged` | `changed:{칸:{from, to}}` + 프로젝트 공통 사실 |
+| `ProjectDone` | `done_on` + 프로젝트 공통 사실 |
+| `ProjectReopened` | `was` + 프로젝트 공통 사실 |
+| `ProjectDeleted` | `number` |
+| `TaskCreated`, `TaskDeleted` | 작업 공통 사실 |
+| `TaskChanged` | `changed` + 작업 공통 사실 |
+| `TaskStageChanged` | `from, to` + 작업 공통 사실 |
+| `TimeLogged`, `TimeRemoved` | 시간 공통 사실 |
+| `TimeChanged` | `changed` + 시간 공통 사실 |
+
 ## 기초데이터가 내는 것
 
 | 이벤트 | `data` 의 사실 |
@@ -222,6 +270,7 @@
 | 판매 | `PickingStateChanged`, `PickingValidated` | 납품 상태, `qty_delivered` |
 | 판매 | `InvoiceDrafted`, `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled` | 청구 상태, `qty_invoiced` |
 | 판매 | `ModuleEnabled` | 재고·청구가 켜진 시점을 기록해 그 뒤의 주문만 추적 대상으로 본다 |
+| 판매 | `OpportunityWon`, `OpportunityReopened` | 견적 초안(`origin_type: opportunity`, `origin_id`). 다시 열면 보내지 않은 초안을 취소한다. 켠 뒤의 이벤트만 듣는다 |
 | 구매 | `ReorderRequested` | 견적 요청 초안 |
 | 구매 | `PickingStateChanged`, `PickingValidated` | 입고 상태, `qty_received` |
 | 구매 | `InvoiceDrafted`, `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled` | 청구 상태, `qty_billed` |
@@ -239,4 +288,9 @@
 | 휴가 | `Reverted` | 자기가 남긴 것은 함께 돌아왔으므로 다시 계산만 한다 |
 | 근태 | `EmployeeHired`, `EmployeeChanged`, `EmployeeLeft` | 자기 복사본. 처음부터 다시 읽는다 |
 | 근태 | `LeaveApproved`, `LeaveCancelled` | 그 날들을 결근으로 잡지 않는다. 처음부터 다시 읽는다 |
+| 회계 | `ExpenseApproved`, `ExpensePaid`, `ExpenseCancelled` | 경비 분개(처음부터 다시 읽는다) |
+| 인사 | 없음 | 아무 이벤트도 듣지 않는다 |
+| 경비 | 없음 | 아무 이벤트도 듣지 않는다. 직원은 명령을 처리하는 동안 `erp.peek` 로 읽는다 |
+| CRM | 없음 | 아무 이벤트도 듣지 않는다 |
+| 프로젝트 | `SalesOrderConfirmed`, `SalesOrderLineAdded`, `SalesOrderLineQtyChanged`, `SalesOrderCancelled` | 프로젝트를 요청하는 서비스 줄에서 프로젝트와 작업을 만들고 따라간다 |
 | 분석 | 원장 전체 | 구독하지 않고 직접 읽는다 |

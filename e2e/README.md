@@ -28,7 +28,7 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | `ERP_TEST_PG` | SQL 시험이 쓸 Postgres. 기본값은 `postgres://postgres:postgres@127.0.0.1:56322/postgres` |
 | `SETUP_CODE` | HTTP 시험이 회사를 만들 때 쓰는 설치 코드 |
 
-브라우저 시험은 한 번에 하나만 돈다(`workers: 1`). 브라우저 시험과 `reset-local`·`install-local` 은 postgres DB 를 초기화하고 :5301 을 쓰므로, 같은 스택을 여러 작업이 함께 쓰면 `lockf /tmp/uengine-erp-e2e.lock <명령>` 으로 감싼다. SQL 시험은 임시 DB 를 쓰므로 잠금이 필요 없다.
+`expense.spec.mjs` 와 `api.e2e.mjs` 는 실제 Storage API 에 파일을 올린다. `supabase/config.toml` 의 `[storage] enabled = true` 로 스택을 띄워야 한다. 브라우저 시험은 한 번에 하나만 돈다(`workers: 1`). 브라우저 시험과 `reset-local`·`install-local` 은 postgres DB 를 초기화하고 :5301 을 쓰므로, 같은 스택을 여러 작업이 함께 쓰면 `lockf /tmp/uengine-erp-e2e.lock <명령>` 으로 감싼다. SQL 시험은 임시 DB 를 쓰므로 잠금이 필요 없다.
 
 ## 테스트 카탈로그
 
@@ -75,6 +75,7 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
 | 새 회사는 판매만 켜진 채로 시작한다 | `growth.test.mjs` 1<br>`modules.spec.mjs` 4<br>`growth.spec.mjs` 1<br>`bus.test.mjs` 1 | SQL, 브라우저 | ✅ |
+| 다른 모듈 없이 일할 수 없는 모듈은 그렇게 밝힌다 | `expense.test.mjs` 1<br>`expense.spec.mjs` 1 | SQL, 브라우저 | ✅ |
 | 켜기 전에 무엇이 열리고 무엇을 다시 만들 수 없는지 알려 준다 | `modules.spec.mjs` 1<br>`growth.spec.mjs` 1<br>`accounting.test.mjs` 1 | SQL, 브라우저 | ✅ |
 | 켠 모듈은 그 뒤의 이벤트부터 받고 고른 만큼만 과거를 읽는다 | `modules.spec.mjs` 1<br>`bus.test.mjs` 5<br>`growth.test.mjs` 2<br>`growth.spec.mjs` 1 | SQL, 브라우저 | ✅ |
 | 모듈 사이의 통로는 원장 이벤트 하나다 | `growth.test.mjs` 1<br>`growth.spec.mjs` 1<br>`bus.test.mjs` 1 | SQL, 브라우저 | ✅ |
@@ -385,7 +386,7 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 입퇴사로 4대보험 목록을 내려받는다 | `payroll.test.mjs` 1<br>`payroll.spec.mjs` 1 | SQL, 브라우저 | ✅ |
 | 인건비 전망은 세 상태로 보이고 원장만 읽는다 | `payroll.test.mjs` 1<br>`payroll.spec.mjs` 3 | SQL, 브라우저 | ✅ |
 | 끄고 켜도 남고, 구독자가 고장 나도 발행자는 멈추지 않는다 | `payroll.test.mjs` 2 | SQL | ✅ |
-### 14. 제조 (spec `erp-mrp`)
+### 15. 제조 (spec `erp-mrp`)
 
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
@@ -407,7 +408,7 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | MCP 로 명세와 지시를 다루고 권한을 지킨다 | `mrp.test.mjs` 3<br>`api.e2e.mjs` 1 | SQL, HTTP | ✅ |
 | 제조 기간, 자재 소요, 생산량 변경은 세 상태로 보이고 원장만 읽는다 | `mrp.test.mjs` 7<br>`mrp.spec.mjs` 3 | SQL, 브라우저 | ✅ |
 | 가상 회사에 제조가 더해져도 다른 수치는 그대로다 | `mrp.test.mjs` 2<br>`hr.test.mjs` 1 | SQL | ✅ |
-### 13. 고정자산 (spec `erp-assets`)
+### 16. 고정자산 (spec `erp-assets`)
 
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
@@ -425,7 +426,7 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 ### 시험 목록에 더해진 파일
 
 `test/assets.test.mjs`, `test/books.test.mjs`, `e2e/tests/books.spec.mjs`. `books.spec.mjs` 는 모든 입력을 사람 속도(단계마다 1초)로 넣는 직렬 시험이라 하나만 따로 돌리지 않는다. 날짜에 기대는 한 시험(감가상각비 전망의 근거 부족)은 2027-01 부터 건너뛴다.
-### 14. 휴가 (spec `erp-timeoff`)
+### 17. 휴가 (spec `erp-timeoff`)
 
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
@@ -447,7 +448,7 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | REST 와 MCP 는 카탈로그에서 저절로 나온다 | `timeoff.test.mjs` 2 | SQL | ✅ |
 | 가상 회사에 휴가와 근태가 더해져도 다른 수치는 그대로다 | `attendance.test.mjs` 2<br>`hr.test.mjs` 1 | SQL | ✅ |
 
-### 15. 근태 (spec `erp-attendance`)
+### 18. 근태 (spec `erp-attendance`)
 
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
@@ -461,6 +462,63 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 끄면 기록은 남고 다시 켜면 밀린 휴가를 받는다 | `attendance.test.mjs` 1 | SQL | ✅ |
 | 위험과 추이는 원장만 읽는다 | `attendance.test.mjs` 1<br>`attendance.spec.mjs` 1 | SQL, 브라우저 | ✅ |
 | 업무 수치를 흔들지 않고 어떤 조합에서도 동작한다 | `isolation.test.mjs` 8 | SQL | ✅ |
+
+### 19. 경비 (spec `erp-expense`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 경비는 꺼진 채 시작하고 인사가 있어야 켠다 | `expense.test.mjs` 1<br>`expense.spec.mjs` 1<br>`isolation.test.mjs` 5 | SQL, 브라우저 | ✅ |
+| 신청은 본인이나 담당자가 하고 승인은 상사나 관리자가 한다 | `expense.test.mjs` 3<br>`expense.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 금액과 날짜의 경계가 지켜진다 | `expense.test.mjs` 4 | SQL | ✅ |
+| 신청에는 영수증이나 없는 사유가 있어야 한다 | `expense.test.mjs` 4<br>`expense.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 영수증은 관계된 사람만 열고 지우는 데 규칙이 있다 | `expense.test.mjs` 2<br>`expense.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 같은 날 같은 금액은 승인자에게 보인다 | `expense.test.mjs` 1 | SQL | ✅ |
+| 이벤트는 구독자에게 필요한 사실을 싣는다 | `expense.test.mjs` 1 | SQL | ✅ |
+| 회계가 켜져 있으면 전표가 생기고 나중에 켜도 같다 | `expense.test.mjs` 4<br>`expense.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 잠긴 기간은 승인, 지급, 취소를 막는다 | `expense.test.mjs` 1 | SQL | ✅ |
+| 지급한 경비는 되돌리지 않고 보상한다 | `expense.test.mjs` 4 | SQL | ✅ |
+| MCP 는 구성원의 권한만큼만 한다 | `expense.test.mjs` 1 | SQL | ✅ |
+| 부서별 경비 추이는 세 상태로 보이고 원장만 읽는다 | `expense.test.mjs` 1<br>`expense.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 경비 유형은 회계 담당자가 다룬다 | `expense.test.mjs` 1 | SQL | ✅ |
+| 가상 회사에 경비가 더해져도 판매와 재고 수치는 그대로다 | `expense.test.mjs` 2 | SQL | ✅ |
+
+### 20. CRM (spec `erp-crm`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| CRM 은 꺼진 채 시작하고 다른 모듈 없이 동작한다 | `crm.test.mjs` 1<br>`crm.spec.mjs` 1<br>`isolation.test.mjs` 7 | SQL, 브라우저 | ✅ |
+| 쓰기는 sales 와 관리자, 읽기는 모든 구성원이다 | `crm.test.mjs` 1<br>`crm.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 단계는 넷이고 건너뛰거나 되돌릴 수 있다 | `crm.test.mjs` 1<br>`crm.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 잘못된 값은 칸 이름으로 알려 주고 아무것도 남기지 않는다 | `crm.test.mjs` 1<br>`crm.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 수주에는 거래처나 회사명이 있어야 하고 실주에는 사유가 있어야 한다 | `crm.test.mjs` 2<br>`crm.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 수주가 판매에서 견적 초안이 된다 | `crm.test.mjs` 5<br>`crm.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 담당자 연락처는 원장 밖에 두고 지울 수 있다 | `crm.test.mjs` 1<br>`crm.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 되돌릴 수 없는 상태가 없으므로 사가는 되돌리기다 | `crm.test.mjs` 2 | SQL | ✅ |
+| MCP 는 구성원의 권한만큼만 한다 | `crm.test.mjs` 1 | SQL | ✅ |
+| 전환율은 근거가 찰 때까지 믿을 만하지 않다고 말한다 | `crm.test.mjs` 2<br>`crm.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 수주 전망은 근거가 모자라면 범위로만 말한다 | `crm.test.mjs` 1<br>`crm.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 재구매 후보는 주문 이력을 세어 보여 준다 | `crm.test.mjs` 1<br>`crm.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 꺼도 이력과 전환율이 남는다 | `crm.test.mjs` 1 | SQL | ✅ |
+| 가상 회사에 영업 기회가 더해져도 다른 수치는 그대로다 | `crm.test.mjs` 1 | SQL | ✅ |
+
+### 21. 프로젝트 (spec `erp-project`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 프로젝트는 꺼진 채 시작하고 다른 모듈 없이 동작한다 | `project.test.mjs` 2<br>`project.spec.mjs` 3<br>`isolation.test.mjs` 5 | SQL, 브라우저 | ✅ |
+| 시간은 작업의 스트림에 쓰지 않는다 | `project.test.mjs` 1 | SQL | ✅ |
+| 담당자는 인사가 켜져 있으면 직원이고 아니면 구성원이다 | `project.test.mjs` 2<br>`project.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 담당자와 프로젝트 담당만 일을 옮긴다 | `project.test.mjs` 1<br>`project.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 시간과 날짜의 경계가 지켜진다 | `project.test.mjs` 3<br>`project.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 단계와 끝남의 규칙이 지켜진다 | `project.test.mjs` 2<br>`project.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 서비스 주문이 프로젝트가 될 수 있다 | `project.test.mjs` 4<br>`project.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 되돌릴 수 없는 상태가 없으므로 사가는 되돌리기다 | `project.test.mjs` 2 | SQL | ✅ |
+| MCP 는 구성원의 권한만큼만 한다 | `project.test.mjs` 1 | SQL | ✅ |
+| 작업 소요 실측은 계획과 기록이 있는 완료 작업으로만 센다 | `project.test.mjs` 1<br>`project.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 납기 지연은 아는 만큼만 말한다 | `project.test.mjs` 1<br>`project.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 근태와의 대조는 근태 이벤트가 있을 때만 한다 | `project.test.mjs` 1<br>`project.spec.mjs` 1 | SQL, 브라우저 | ◐ |
+| 꺼도 이력과 분석이 남는다 | `project.test.mjs` 1 | SQL | ✅ |
+| 가상 회사에 프로젝트가 더해져도 다른 수치는 그대로다 | `project.test.mjs` 1 | SQL | ✅ |
 
 ## 단계별 시험 수
 

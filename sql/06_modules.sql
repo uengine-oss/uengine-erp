@@ -79,7 +79,15 @@ language sql stable as $$
    where r.id = p_id and r.type = p_type and not r.deleted and erp.module_on(c.module)
 $$;
 
--- {id, label, label_en, description, sort, default_on, requires:[id], options:[{name,label,type}],
+-- The same exception by a public field rather than an id: "the employee this account belongs to".
+create or replace function erp.peek_by(p_type text, p_match jsonb) returns jsonb
+language sql stable as $$
+  select r.state || jsonb_build_object('id', r.id) from erp.records r join erp.catalog c on c.type = r.type
+   where r.type = p_type and not r.deleted and r.state @> p_match and erp.module_on(c.module)
+   order by r.created_at desc, r.id limit 1
+$$;
+
+-- {id, label, label_en, description, sort, default_on, requires:[module ids], options:[{name,label,type}],
 --  subscribes:[{name, handler, events:[..], replay, since_option}], publishes:[{event, fields:[..]}]}
 create or replace function erp.module_put(p_doc jsonb) returns void
 language plpgsql as $$

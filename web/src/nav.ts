@@ -6,6 +6,7 @@
 import type { Component } from 'vue'
 import type { AskOptions } from './lib/ui'
 import { cancelOrders, checkPickings, exportMoves, payMoves } from './lib/bulk'
+import { isAdmin, session } from './lib/session'
 import type { CatalogDoc, ErpRecord, Field, State } from './lib/types'
 
 type Loader = () => Promise<{ default: Component }>
@@ -17,6 +18,8 @@ export interface CommandRetry extends Partial<AskOptions> {
 }
 
 export interface CommandUi {
+  /** Shown only then. The database decides regardless: this just does not offer a button that would be refused. */
+  showIf?: (record: ErpRecord | null) => boolean
   /** Parameters people do not fill in: the screen supplies them, or only a refusal makes them matter. */
   hideParams?: string[]
   /** Parameters that depend on the document. */
@@ -60,11 +63,13 @@ export interface NavScreen {
   /** Filters offered above this type's list. */
   filters?: ListFilter[]
   /** Other ways to look at the list: a board by state, and with these, a calendar, a table of sums and columns. */
-  views?: { date?: string; amount?: string; groups?: string[] }
+  views?: { date?: string; amount?: string; groups?: string[]; moves?: boolean; title?: string; subtitle?: string }
   /** A word beside some rows of the list, worked out by the database. */
   marks?: (rows: ErpRecord[]) => Promise<Record<string, { label: string; color: string }>>
   /** Fields never drawn on the form. */
   hideFields?: string[]
+  /** Fields not drawn while this catalog type is on: a task's account field gives way to its employee field. */
+  hideWhenOn?: Record<string, string>
   /** States in which the form is display-only. The server refuses such edits anyway; this just does not offer them. */
   readonlyIn?: string[]
   /** How some commands are asked, where the catalog's parameters alone would not make a usable dialog. */
@@ -107,6 +112,21 @@ async function lateOrders(rows: ErpRecord[]): Promise<Record<string, { label: st
 const BACKORDER_FIELD: Field = {
   name: 'backorder', label: '남은 수량', type: 'enum', required: true, default: 'true',
   options: [{ value: 'true', label: '새 전표로 남겨 두기' }, { value: 'false', label: '버리기' }],
+}
+
+// Whoever was asked to approve. Someone with a manager never sees it on their own claim, even an admin.
+const mayApproveExpense = (r: ErpRecord | null) => {
+  const me = session.me?.user_id
+  if (!r || !me) return false
+  if (r.state.approver_user_id) return me === r.state.approver_user_id || (isAdmin() && me !== r.state.employee_user_id)
+  return isAdmin()
+}
+
+// A next step that has gone by. The list only reads what is on screen and says so beside it.
+function overdueActivity(rows: ErpRecord[]): Promise<Record<string, { label: string; color: string }>> {
+  const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(new Date())
+  const late = rows.filter((r) => r.state.next_activity_date && r.state.next_activity_date < today && !['won', 'lost'].includes(r.status ?? ''))
+  return Promise.resolve(Object.fromEntries(late.map((r) => [r.id, { label: '활동 지남', color: 'red' }])))
 }
 
 export const NAV: NavModule[] = [
@@ -369,6 +389,43 @@ export const NAV: NavModule[] = [
       { type: 'attendance_month', roles: ['hr'] },
       { type: 'attendance_policy', roles: ['hr'], formPanel: loader('LawNotice') },
       { type: 'holiday', needs: 'attendance_day', roles: ['hr'] },
+    ],
+  },
+  {
+    key: 'crm', label: 'CRM', icon: 'crm',
+    screens: [
+      {
+        type: 'opportunity', formPanel: loader('OpportunityPanel'), readonlyIn: ['won', 'lost'], marks: overdueActivity,
+        views: { date: 'next_activity_date', amount: 'expected_amount', groups: ['owner_id', 'partner_id'], moves: true, title: 'name', subtitle: 'company_name' },
+        advanced: ['source', 'note', 'created_on'],
+      },
+      { label: '영업 분석', route: '/crm/analysis', needs: 'opportunity', roles: ['sales'] },
+    ],
+  },
+  {
+    key: 'project', label: '프로젝트', icon: 'project',
+    screens: [
+      { type: 'project', formPanel: loader('ProjectPanel'), readonlyIn: ['done', 'cancelled'], advanced: ['note'], views: { date: 'date_end', groups: ['partner_id', 'manager_id'], title: 'name' } },
+      {
+        type: 'project_task', formPanel: loader('TaskTimePanel'), readonlyIn: ['done', 'cancelled'], hideWhenOn: { member_id: 'employee' }, hideFields: ['project_name', 'person_name'], advanced: ['note'],
+        views: { date: 'deadline', groups: ['project_name', 'person_name'], moves: true, title: 'name', subtitle: 'person_name' },
+      },
+      { type: 'time_entry', hideWhenOn: { member_id: 'employee' }, hideFields: ['task_name', 'person_name'] },
+      { label: '프로젝트 분석', route: '/project/analysis', needs: 'project_task' },
+    ],
+  },
+  {
+    key: 'expense', label: '경비', icon: 'expense',
+    screens: [
+      {
+        type: 'expense', formPanel: loader('ExpenseReceiptPanel'), readonlyIn: ['submitted', 'approved', 'paid', 'cancelled'],
+        hideFields: ['employee_name', 'department_name', 'possible_duplicates', 'receipt_count'],
+        advanced: ['note'],
+        views: { date: 'date', amount: 'amount', groups: ['department_name', 'employee_name'] },
+        commands: { approve: { showIf: mayApproveExpense }, refuse: { showIf: mayApproveExpense } },
+      },
+      { type: 'expense_category' },
+      { label: '부서별 추이', route: '/expense/trend', needs: 'expense' },
     ],
   },
   {

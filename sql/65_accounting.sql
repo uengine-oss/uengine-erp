@@ -14,7 +14,7 @@ select erp.module_put('{
   "subscribes": [{"name": "accounting.books", "handler": "erp.books_on_event", "replay": true, "since_option": "books_since",
     "events": ["InvoicePosted", "InvoiceResetToDraft", "InvoiceCancelled", "PaymentPosted", "PaymentCancelled",
                "PickingValidated", "StockAdjusted", "StockScrapped", "BankLineBooked", "BankLineUnbooked", "PayrollPosted", "PayrollPaid",
-               "AssetRegistered", "DepreciationPosted", "AssetDisposed"]}],
+               "AssetRegistered", "DepreciationPosted", "AssetDisposed", "ExpenseApproved", "ExpensePaid", "ExpenseCancelled"]}],
   "publishes": [{"event": "JournalEntryPosted", "fields": ["number", "date", "origin_type", "origin_id", "lines"]}]
 }'::jsonb);
 
@@ -572,6 +572,26 @@ begin
          else erp.books_row(coalesce(d ->> 'loss_account_id', erp.seed_id('유형자산처분손실')::text), null, name_, -gain) end));
 end $$;
 
+-- Approval owes the person the money, payment settles it. Everything comes from the event, so turning this on late books the same.
+create or replace function erp.books_on_expense(ev erp.events) returns void
+language plpgsql as $$
+declare
+  d jsonb := ev.data;
+  amount_ numeric := erp.num(d -> 'amount');
+  label_ text := concat_ws(': ', d ->> 'employee_name', d ->> 'title');
+  owed text := erp.seed_id('미지급금')::text;
+begin
+  if ev.event_type = 'ExpenseApproved' then
+    perform erp.books_entry(ev, erp.seed_id('gl:' || ev.seq), erp.books_date(d ->> 'accounting_date', ev), d ->> 'number', null, jsonb_build_array(
+      erp.books_row(coalesce(d ->> 'account_id', erp.seed_id('잡비')::text), null, label_, amount_),
+      erp.books_row(owed, null, label_, -amount_)));
+  else
+    perform erp.books_entry(ev, erp.seed_id('gl:' || ev.seq), erp.books_date(d ->> 'paid_on', ev), d ->> 'number', null, jsonb_build_array(
+      erp.books_row(owed, null, label_, amount_),
+      erp.books_row(erp.seed_id(case when d ->> 'paid_from' = 'cash' then '현금' else '보통예금' end)::text, null, label_, -amount_)));
+  end if;
+end $$;
+
 create or replace function erp.books_on_event(ev erp.events) returns void
 language plpgsql as $$
 begin
@@ -584,7 +604,8 @@ begin
     when ev.event_type = 'BankLineBooked' then perform erp.books_on_bank_line(ev);
     when ev.event_type = 'BankLineUnbooked' then perform erp.books_withdraw(ev);
     when ev.event_type = 'PaymentPosted' then perform erp.books_on_payment(ev);
-    when ev.event_type in ('InvoiceResetToDraft', 'InvoiceCancelled', 'PaymentCancelled') then perform erp.books_withdraw(ev);
+    when ev.event_type in ('InvoiceResetToDraft', 'InvoiceCancelled', 'PaymentCancelled', 'ExpenseCancelled') then perform erp.books_withdraw(ev);
+    when ev.event_type in ('ExpenseApproved', 'ExpensePaid') then perform erp.books_on_expense(ev);
     when ev.event_type = 'PickingValidated' then perform erp.books_on_picking(ev);
     when ev.event_type in ('StockAdjusted', 'StockScrapped') then perform erp.books_on_stock_change(ev);
     else null;
@@ -924,7 +945,7 @@ end $$;
 ------------------------------------------------------------------------------------------------
 -- Master data seeds set account fields that belong to this module, and they run while every module is still
 -- off, which validation refuses. The module counts as on for that one step of company setup.
--- Goods received but not yet billed, and what fixed assets and year-end work need. Only new accounts with nothing on
+-- Goods received but not yet billed, and what fixed assets, year-end work and claims need. Only new accounts with nothing on
 -- them, so no balance of a company that upgrades can move. Another account may already hold the usual code there.
 create or replace function erp.books_seed_accounts() returns void
 language plpgsql as $$
@@ -947,6 +968,7 @@ begin
       ('351', '이익준비금', 'equity'),
       ('501', '원재료비', 'expense'), ('504', '임금', 'expense'), ('518', '제조 감가상각비', 'expense'),
       ('818', '감가상각비', 'expense'),
+      ('811', '복리후생비', 'expense'), ('812', '여비교통비', 'expense'), ('813', '기업업무추진비', 'expense'), ('814', '통신비', 'expense'), ('830', '소모품비', 'expense'), ('848', '잡비', 'expense'),
       ('914', '유형자산처분이익', 'income'), ('970', '유형자산처분손실', 'expense')
     ) t(code, name, account_type) loop
     continue when exists (select 1 from erp.records where id = erp.seed_id(r.name));

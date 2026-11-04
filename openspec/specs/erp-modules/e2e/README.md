@@ -17,6 +17,7 @@ source scripts/local-env.sh && npm run test:e2e -- modules.spec.mjs growth.spec.
 |---|---|---|---|
 | 새 회사는 판매만 켜진다 | `growth.test.mjs › S1. a new company starts with sales alone`<br>`modules.spec.mjs › S1. 판매만 켜져 있으면 메뉴에 판매만 있고, 재고 명령은 거부된다`<br>`growth.spec.mjs › S1. 판매만 켜진 회사: 메뉴에는 판매뿐이고, 견적을 보내고 주문으로 확정한다` | SQL, 브라우저 | ✅ |
 | 꺼진 모듈의 명령은 거부되고 그 유형은 보이지 않는다 | `growth.test.mjs › S1. a new company starts with sales alone`<br>`bus.test.mjs › a module that is off gets nothing and blocks nothing, and its commands are refused`<br>`modules.spec.mjs › S1. 판매만 켜져 있으면 메뉴에 판매만 있고, 재고 명령은 거부된다` | SQL, 브라우저 | ✅ |
+| 켜는 순서와 끄는 순서 | `expense.test.mjs › S13. it starts off, cannot be turned on before people, and people cannot be turned off under it`<br>`expense.spec.mjs › S13-0. 인사 없이는 경비를 켤 수 없고, 메뉴에도 없으며 통계는 잠겨 있다` | SQL, 브라우저 | ✅ |
 | 설치된 모듈이 없으면 빈 상태로 안내한다 | `modules.spec.mjs › 모듈이 하나도 없으면 빈 상태로 안내한다` | 브라우저 | ✅ |
 | 모듈 정보를 읽지 못해도 안내하고 카드는 그려진다 | `modules.spec.mjs › 모듈 정보를 읽지 못하면 오류와 다시 시도를 보여 주고, 예측 목록이 실패해도 카드는 그려진다` | 브라우저 | ✅ |
 | 관리자가 아니면 모듈 메뉴와 배너가 없다 | `modules.spec.mjs › 비관리자에게는 모듈 메뉴와 배너가 없고, 주소로 와도 안내만 나오며, 재촉은 그대로 돈다` | 브라우저 | ✅ |

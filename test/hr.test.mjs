@@ -931,8 +931,8 @@ const BEFORE = {
 }
 const SHORT = { inventory: '2023-11-11', purchase: '2023-11-21', invoicing: '2023-12-01', accounting: '2023-12-11', end: '2024-01-10' }
 // Stories that came later are left out too: what the hash guards is the sales story.
-const isPeopleStep = (s) => ['employee', 'department', 'holiday', 'leave_request', 'leave_policy', 'attendance_day', 'attendance_month', 'work'].includes(s.type) || s.story === 'mrp'
-  || (s.type === 'module' && ['hr', 'timeoff', 'attendance'].includes(s.payload?.id)) || (s.type === 'member' && s.payload?.name === '한인사')
+const isPeopleStep = (s) => ['employee', 'department', 'holiday', 'leave_request', 'leave_policy', 'attendance_day', 'attendance_month', 'work', 'expense', 'opportunity', 'project', 'project_task', 'time_entry'].includes(s.type) || s.story === 'mrp'
+  || (s.type === 'module' && ['hr', 'timeoff', 'attendance', 'expense', 'crm', 'project'].includes(s.payload?.id)) || (s.type === 'member' && s.payload?.name === '한인사')
 const hashOf = (stages, keep = () => true) => {
   const h = crypto.createHash('sha256')
   let steps = 0

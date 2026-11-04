@@ -1141,14 +1141,14 @@ select erp.catalog_put('{
   ],
   "states": [{"value": "pending", "label": "승인 대기", "color": "amber"}, {"value": "approved", "label": "승인", "color": "green"}, {"value": "rejected", "label": "반려", "color": "red"}, {"value": "cancelled", "label": "취소", "color": "gray"}],
   "transitions": [
-    {"command": "approve", "to": "approved", "from": ["pending"], "label": "승인", "roles": ["*"], "primary": true},
-    {"command": "reject", "to": "rejected", "from": ["pending"], "label": "반려", "roles": ["*"],
+    {"command": "approve", "to": "approved", "from": ["pending"], "label": "승인", "roles": ["member"], "primary": true},
+    {"command": "reject", "to": "rejected", "from": ["pending"], "label": "반려", "roles": ["member"],
      "params": [{"name": "reject_reason", "label": "반려 사유", "type": "text", "required": true, "help": "원장 밖에 저장합니다. 신청자, 상사, 인사 담당자만 봅니다."}]},
-    {"command": "cancel", "to": "cancelled", "from": ["pending", "approved"], "label": "휴가 취소", "roles": ["*"], "no_reason": true}
+    {"command": "cancel", "to": "cancelled", "from": ["pending", "approved"], "label": "휴가 취소", "roles": ["member"], "no_reason": true}
   ],
   "write_roles": ["hr"],
-  "commands": {"create": {"roles": ["*"]}},
-  "extra_commands": {"erase_private": {"roles": ["*"], "label": "사유 지우기", "api_only": true}}
+  "commands": {"create": {"roles": ["member"]}},
+  "extra_commands": {"erase_private": {"roles": ["member"], "label": "사유 지우기", "api_only": true}}
 }'::jsonb);
 
 -- The private row's audit trail. It holds no words, and words that are gone do not come back, so going back is refused.

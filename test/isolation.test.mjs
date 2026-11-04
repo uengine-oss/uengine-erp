@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { company, rejects } from './lib/harness.mjs'
 
-const FILES = { sales: '30_sales.sql', inventory: '40_inventory.sql', purchase: '50_purchase.sql', invoicing: ['60_invoicing.sql', '62_bank.sql', '63_voucher.sql'], accounting: ['65_accounting.sql', '68_books.sql'], assets: '66_assets.sql', krtax: '66_krtax.sql', hr: '67_hr.sql', timeoff: '67a_timeoff.sql', attendance: '67b_attendance.sql', payroll: '67c_payroll.sql', mrp: '67g_mrp.sql', analytics: '70_analytics.sql' }
+const FILES = { sales: '30_sales.sql', inventory: '40_inventory.sql', purchase: '50_purchase.sql', invoicing: ['60_invoicing.sql', '62_bank.sql', '63_voucher.sql'], accounting: ['65_accounting.sql', '68_books.sql'], assets: '66_assets.sql', krtax: '66_krtax.sql', hr: '67_hr.sql', timeoff: '67a_timeoff.sql', attendance: '67b_attendance.sql', payroll: '67c_payroll.sql', mrp: '67g_mrp.sql', expense: '67d_expense.sql', crm: '67e_crm.sql', project: '67f_project.sql', analytics: '70_analytics.sql' }
 const read = (f) => { try { return fs.readFileSync(new URL(`../sql/${f}`, import.meta.url), 'utf8') } catch { return null } }
 const stripComments = (s) => s.replace(/--.*$/gm, '')
 
@@ -41,7 +41,7 @@ for (const m of mods) {
 test('analysis reads the ledger, not any module table', () => {
   const a = mods.find((m) => m.id === 'analytics')
   if (!a) return
-  for (const t of ['erp.quants', 'erp.gl_lines', 'erp.employee_private', 'public.erp_employee_private', 'erp.leave_request_private', 'erp.payroll_slips', 'erp.payroll_profile', 'erp.payroll_people', 'public.erp_payroll_slips', 'public.erp_payroll_profiles']) assert.ok(!a.src.includes(t), t)
+  for (const t of ['erp.quants', 'erp.gl_lines', 'erp.employee_private', 'public.erp_employee_private', 'erp.leave_request_private', 'erp.payroll_slips', 'erp.payroll_profile', 'erp.payroll_people', 'public.erp_payroll_slips', 'public.erp_payroll_profiles', 'erp.expense_receipts', 'public.erp_expense_receipts', 'erp.opportunity_private', 'public.erp_opportunity_private']) assert.ok(!a.src.includes(t), t)
   // Dates in a calendar and a pure sum are what it calls. Nothing it reads is a record of leave or attendance.
   for (const t of ['leave_request', 'leave_grant', 'attendance_day', 'attendance_person', 'attendance_leave', 'leave_person']) {
     assert.ok(!new RegExp(`(erp_records|erp\\.records)[^;]*type\\s*=\\s*'${t}'`).test(a.src), `${t} read from its records`)
@@ -66,6 +66,13 @@ test('neither of the two modules asks whether the other is on', () => {
   assert.ok(!/module_on\(\s*'attendance'/.test(t.src))
   assert.ok(!/module_on\(\s*'timeoff'/.test(a.src))
   assert.ok(/"requires": \["hr"\]/.test(t.src) && /"requires": \["hr"\]/.test(a.src), 'each needs people and says so in one place')
+})
+
+test('nobody else reads or writes what a module keeps outside the ledger', () => {
+  for (const [owner, table] of [['crm', /opportunity_private/], ['expense', /expense_receipts/]]) {
+    for (const m of mods) if (m.id !== owner) assert.ok(!table.test(m.src.replace(/'OpportunityPrivate[A-Za-z]*'/g, '')), `${m.id} mentions ${table}`)
+  }
+  for (const id of ['crm', 'expense']) assert.match(mods.find((m) => m.id === id).src, /"subscribes": \[\]/, `${id} hears nobody`)
 })
 
 test('nobody else reads or writes the private table, and its module neither hears nor needs anyone', () => {
@@ -434,6 +441,99 @@ for (const on of [['hr', 'timeoff'], ['hr', 'attendance'], ['hr', 'timeoff', 'at
       const models = (await k.db.asUser(k.adminId, 'select public.erp_models() r')).rows[0].r
       assert.equal(models.find((x) => x.id === 'leave_burn').state === 'locked', !has('timeoff'))
       assert.equal(models.find((x) => x.id === 'overtime_risk').state === 'locked', !has('attendance'))
+    } finally { await k.close() }
+  })
+}
+
+// The back office beside everything else, in companies that have it and companies that do not.
+const OFFICE_STREAMS = ['employee', 'employee_private', 'department', 'expense', 'expense_category', 'opportunity', 'opportunity_private', 'project', 'project_task', 'time_entry']
+async function workInBackOffice(k, has) {
+  const quotes = []
+  if (has('crm')) {
+    const seller = await k.addMember('영업', ['sales'])
+    const lost = await seller.cmd('opportunity', null, 'create', { name: '실주 건', company_name: '회사' })
+    await seller.cmd('opportunity', lost.id, 'stage_talk', {})
+    await seller.cmd('opportunity', lost.id, 'lose', { lost_reason: 'price' })
+    const won = await seller.cmd('opportunity', null, 'create', { name: '수주 건', company_name: '회사', expected_amount: 500 })
+    await seller.cmd('opportunity', won.id, 'set_private', { phone: '010-1' })
+    await seller.cmd('opportunity', won.id, 'win', {})
+    quotes.push(won.id)
+    await k.settle()
+  }
+  if (has('project')) {
+    const lead = await k.addMember('프로젝트 담당', ['project'])
+    const worker = await k.addMember('작업자', ['viewer'])
+    const p = await lead.cmd('project', null, 'create', { name: '설치', date_end: '2099-01-01' })
+    const t = await lead.cmd('project_task', null, 'create', { project_id: p.id, name: '현장', planned_hours: 8, member_id: worker.record })
+    await worker.cmd('project_task', t.id, 'to_doing', {})
+    await worker.cmd('time_entry', null, 'create', { task_id: t.id, hours: 3 })
+    await worker.cmd('project_task', t.id, 'to_done', {})
+    await lead.cmd('project', p.id, 'finish', {})
+    await k.settle()
+  }
+  if (!has('expense')) return { quotes }
+  const d = await k.admin('department', null, 'create', { name: '영업' })
+  const boss = await k.addMember('상사', ['viewer'])
+  const staff = await k.addMember('직원', ['sales'])
+  const bossE = await k.admin('employee', null, 'create', { name: '상사', hire_date: '2024-01-01', department_id: d.id, member_id: boss.record })
+  await k.admin('employee', null, 'create', { name: '직원', hire_date: '2024-02-01', department_id: d.id, manager_id: bossE.id, member_id: staff.record })
+  const paid = await staff.cmd('expense', null, 'create', { title: '택시비', amount: 10000, no_receipt_reason: '시험' })
+  await staff.cmd('expense', paid.id, 'submit', {})
+  await boss.cmd('expense', paid.id, 'approve', {})
+  await k.admin('expense', paid.id, 'pay', {})
+  await k.settle()
+  return { paid, quotes }
+}
+for (const on of [['hr', 'expense'], ['hr', 'expense', 'sales'], ['hr', 'expense', 'accounting'], ['hr', 'expense', 'invoicing', 'accounting'], ['hr', 'expense', ...ALL],
+  ['crm'], ['crm', 'sales'], ['crm', 'inventory', 'purchase'], ['crm', 'hr', 'expense', 'accounting'], ['crm', 'hr', 'expense', ...ALL],
+  ['project'], ['project', 'sales'], ['project', 'hr'], ['project', 'crm', 'sales', 'invoicing'], ['project', 'crm', 'hr', 'expense', ...ALL]]) {
+  const has = (m) => on.includes(m)
+  test(`back office [${on.join(', ')}]: its work and the rest stay out of each other's way`, async () => {
+    const k = await company({ modules: on })
+    try {
+      const start = await counts(k)
+      const done = await workInBackOffice(k, has)
+      const afterOffice = await counts(k)
+      // Sales is the one that hears a win. The quote and a customer made from a name are its work, and only when it is on.
+      const mayWrite = new Set([...OFFICE_STREAMS, 'member', ...(has('accounting') && has('expense') ? ['journal_entry'] : []), ...(has('crm') && has('sales') ? ['sales_order', 'partner'] : [])])
+      for (const [type, n] of Object.entries(afterOffice)) if (!mayWrite.has(type)) assert.equal(n, start[type], `back-office work wrote on ${type}`)
+      if (has('accounting') && has('expense')) {
+        const tb = (await k.db.asUser(k.adminId, 'select public.erp_trial_balance() r')).rows[0].r
+        const sum = (f) => tb.rows.reduce((a, r) => a + Number(r[f] ?? 0), 0)
+        assert.ok(sum('debit') > 0); assert.equal(sum('debit'), sum('credit'))
+      } else {
+        assert.equal(afterOffice.journal_entry ?? 0, 0, 'no books, no entries')
+      }
+      if (has('crm')) {
+        const made = (await k.db.query(`select id from erp.records where type = 'sales_order' and state ->> 'origin_id' = $1`, [done.quotes[0]])).rows
+        assert.equal(made.length, has('sales') ? 1 : 0, 'a quote only when sales is there to hear it')
+      }
+      const partner = (await k.admin('partner', null, 'create', { name: '거래처' })).id
+      const p = await k.admin('product', null, 'create', { name: '제품', list_price: 1000, standard_price: 600 })
+      if (has('sales')) {
+        const o = await k.admin('sales_order', null, 'create', { partner_id: partner, lines: [{ variant_id: p.state.variants[0].id, qty: 3 }] })
+        await k.admin('sales_order', o.id, 'confirm', {})
+      }
+      await k.settle()
+      const end = await counts(k)
+      // Goods on an order ask for no project, so nothing moves here even with both on.
+      for (const type of OFFICE_STREAMS) assert.equal(end[type], afterOffice[type], `business work wrote on ${type}`)
+      if (has('project') && has('sales')) {
+        const service = await k.admin('product', null, 'create', { name: '용역', type: 'service', list_price: 1000, creates_project: true })
+        const o = await k.admin('sales_order', null, 'create', { partner_id: partner, lines: [{ variant_id: service.state.variants[0].id, qty: 1 }] })
+        await k.admin('sales_order', o.id, 'confirm', {})
+        await k.settle()
+        assert.equal((await k.db.query(`select id from erp.records where type = 'project' and state ->> 'origin_id' = $1`, [o.id])).rows.length, 1, 'a service that asks becomes a project')
+      }
+      assert.equal((await k.settle()).failing, 0)
+      assert.deepEqual(await k.verifyProjection(), [])
+      const models = (await k.db.asUser(k.adminId, 'select public.erp_models() r')).rows[0].r
+      assert.equal(models.find((m) => m.id === 'stat_expense').state, has('expense') ? 'insufficient' : 'locked')
+      assert.equal(models.find((m) => m.id === 'crm_forecast').state, has('crm') ? 'insufficient' : 'locked')
+      assert.equal(models.find((m) => m.id === 'crm_repurchase').state, has('crm') && has('sales') ? 'insufficient' : 'locked')
+      assert.equal(models.find((m) => m.id === 'project_effort').state, has('project') ? 'insufficient' : 'locked')
+      assert.equal(models.find((m) => m.id === 'project_risk').state, has('project') ? 'insufficient' : 'locked')
+      assert.equal(models.find((m) => m.id === 'demand_sales').state, has('sales') ? 'insufficient' : 'locked')
     } finally { await k.close() }
   })
 }

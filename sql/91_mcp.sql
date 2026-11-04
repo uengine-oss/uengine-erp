@@ -71,6 +71,8 @@ begin
     from erp.api_keys k left join erp.members m on m.user_id = k.user_id);
 end $$;
 
+-- The list of types grows with every module and goes into the agent's context with each tool that carries it, so only reading does.
+-- The others name a type the agent has already read, and the kernel refuses a wrong one either way.
 create or replace function erp.mcp_tools() returns jsonb
 language sql stable as $$
   with t as (select coalesce(jsonb_agg(d ->> 'type'), '[]'::jsonb) e from jsonb_array_elements(public.erp_catalog()) d

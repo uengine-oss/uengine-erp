@@ -600,8 +600,8 @@ select erp.catalog_put('{
   "write_roles": ["hr"],
   "commands": {},
   "extra_commands": {
-    "check_in": {"roles": ["*"], "label": "출근", "api_only": true},
-    "check_out": {"roles": ["*"], "label": "퇴근", "api_only": true},
+    "check_in": {"roles": ["member"], "label": "출근", "api_only": true},
+    "check_out": {"roles": ["member"], "label": "퇴근", "api_only": true},
     "correct": {"roles": ["hr"], "label": "기록 정정", "reason_required": true, "confirm": "고친 값과 사유, 원래 값이 원장에 남습니다.",
       "params": [{"name": "check_in", "label": "출근 시각", "type": "datetime"}, {"name": "check_out", "label": "퇴근 시각", "type": "datetime"}, {"name": "break_minutes", "label": "휴게(분)", "type": "integer", "help": "비우면 근태 기준대로 계산합니다."}]}
   }

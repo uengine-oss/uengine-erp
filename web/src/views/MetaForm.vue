@@ -73,7 +73,8 @@ function toggleHistory() {
 
 const view = computed<State>(() => asOf.value?.state ?? draft.value)
 const fields = computed<Field[]>(() => (doc.value
-  ? formFields(doc.value, isNew.value).filter((f) => !(f.name === 'state' && doc.value?.states?.length) && !screen.value?.hideFields?.includes(f.name))
+  ? formFields(doc.value, isNew.value).filter((f) => !(f.name === 'state' && doc.value?.states?.length) && !screen.value?.hideFields?.includes(f.name)
+    && !(screen.value?.hideWhenOn?.[f.name] && catalogOf(screen.value.hideWhenOn[f.name])))
   : []))
 const lineFields = computed(() => fields.value.filter((f) => f.type === 'lines'))
 // With line tables, totals read best under the lines, like the foot of a printed document.
@@ -430,7 +431,9 @@ async function runCommand(command: string, label: string, def: Pick<CommandDef, 
   }
 }
 
-const transitions = computed(() => (doc.value && !isNew.value && !timeTraveling.value ? visibleTransitions(doc.value, status.value) : []))
+const transitions = computed(() => (doc.value && !isNew.value && !timeTraveling.value
+  ? visibleTransitions(doc.value, status.value).filter((t) => screen.value?.commands?.[t.command]?.showIf?.(record.value) ?? true)
+  : []))
 const extraCommands = computed(() => (doc.value && !isNew.value && !timeTraveling.value ? visibleExtraCommands(doc.value) : []))
 const isActive = computed(() => record.value?.state?.active !== false)
 
