@@ -10,6 +10,7 @@ const TYPE_LABELS: Record<string, string> = {
   stock_replenishment: '보충 요청', stock_rfq_watch: '구매 초안 수량', sales_order: '견적·주문', quote_template: '견적 양식', purchase_order: '구매 주문',
   account_move: '청구서', payment: '입금·지급', journal: '분개장', payment_method: '결제 수단', bank_statement: '은행 명세서', bank_line: '은행 거래',
   employee: '직원', employee_private: '직원 개인정보 기록', department: '부서',
+  bom: '자재 명세', manufacturing_order: '제조 지시',
 }
 
 /** A type's name for people, also when its module is off. A type nobody here has heard of is still a document. */
@@ -57,6 +58,10 @@ const EXACT: Record<string, string> = {
   PaymentPosted: '결제 게시', PaymentCancelled: '결제 취소', PaymentAllocated: '결제 배분',
   EmployeeHired: '입사', EmployeeChanged: '직원 정보 변경', EmployeeLeft: '퇴사', EmployeePrivateChanged: '개인정보 변경', EmployeePrivateErased: '개인정보 지움',
   DepartmentCreated: '부서 생성', DepartmentChanged: '부서 변경', DepartmentArchived: '부서 보관', DepartmentUnarchived: '부서 보관 해제', DepartmentDeleted: '부서 삭제',
+  BomCreated: '자재 명세 생성', BomChanged: '자재 명세 변경', BomArchived: '자재 명세 보관', BomUnarchived: '자재 명세 보관 해제', BomDeleted: '자재 명세 삭제',
+  ManufacturingOrderCreated: '제조 지시 생성', ManufacturingOrderChanged: '제조 지시 변경', ManufacturingOrderDeleted: '제조 지시 삭제', ManufacturingReorderLinked: '재주문 요청 연결',
+  ManufacturingConfirmed: '제조 확정', ManufacturingStarted: '제조 시작', ManufacturingDone: '제조 완료', ManufacturingCancelled: '제조 취소', ManufacturingResetToDraft: '제조 지시 초안으로',
+  ManufacturingReversed: '제조 상쇄', ManufacturingPlanChanged: '제조 계획 수량 변경', ManufacturingStockApplied: '재고 반영',
 }
 
 // Modules name row events <Type><Column>Added/Changed/Removed/Reordered, so endings cover new ones too.
