@@ -3,7 +3,7 @@
 // and fills it again from the first event. Compare asks one question both ways and times each.
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { messageOf } from '../../lib/api'
-import { fmtBytes, fmtDateTime, fmtNumber } from '../../lib/format'
+import { fmtBytes, fmtDateTime, fmtNumber, josa } from '../../lib/format'
 import { agoText, compareReadModels, readModelStatus, rebuildReadModels, tickReadModels, type Comparison, type ModelStatus, type ReadModelStatus } from '../../lib/readModels'
 import { isAdmin } from '../../lib/session'
 import { ask, toast } from '../../lib/ui'
@@ -67,7 +67,7 @@ async function rebuild(m: ModelStatus | null) {
       await tickReadModels(4000)
     }
     const work = (status.value?.models ?? []).filter((x) => !m || x.name === m.name).reduce((a, x) => a + Number(x.rebuild_ms ?? 0), 0)
-    toast(`${what}을(를) 다시 만들었습니다. ${secs(performance.now() - t0)} 걸렸습니다(계산 ${secs(work)}).`)
+    toast(`${josa(what, '을', '를')} 다시 만들었습니다. ${secs(performance.now() - t0)} 걸렸습니다(계산 ${secs(work)}).`)
   } catch (e) {
     toast(e instanceof Error && !('code' in e) ? e.message : messageOf(e), 'error')
   } finally {
