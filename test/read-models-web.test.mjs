@@ -3,7 +3,6 @@
 // that is behind, or rows someone may read only record by record, and it reads the ledger as before.
 import { test, before, after, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import pg from 'pg'
 import { company } from './lib/harness.mjs'
 import { catchUp, freshQuery } from './lib/read-models.mjs'
 import { END, VARIANT_IDS, WAREHOUSE_IDS, dayOf, isoOf, makeWorld, observe } from '../experiments/whatif/world.mjs'
@@ -11,8 +10,6 @@ import { makeCashWorld } from '../experiments/whatif/cash-world.mjs'
 import { FIXTURE_SQL, companyEvents, seed } from '../experiments/whatif/ledger-events.mjs'
 import { buildPanel, cashIn, demandSales, demandTrue, leadTime, loadLedger, pnlOutlook, reorderPlan, stockoutRisk, whatIfDrop, whatIfLead, whatIfPolicy, whatIfRealloc, whatIfTerms } from '../web/src/lib/forecast/index.ts'
 
-const ADMIN_PG = process.env.ERP_TEST_PG || 'postgres://postgres:postgres@127.0.0.1:56322/postgres'
-const urlFor = (name) => { const u = new URL(ADMIN_PG); u.pathname = '/' + name; return u.toString() }
 
 describe('the analytics loader and the read models', () => {
   let c, calls
@@ -29,7 +26,8 @@ describe('the analytics loader and the read models', () => {
     const journal = ['2026-07', '2026-08', '2026-09', '2026-10'].map((month, i) => ({ month, rev: 400_000_000 + i * 2_000_000, cogs: 240_000_000, opex: 90_000_000 }))
     c = await company({ modules: [] })
     await c.db.query(FIXTURE_SQL)
-    await seed({ query: (sql, params) => freshQuery(c, sql, params) }, companyEvents(obs, { end: END, inventory: dayOf('2025-01-01'), purchase: dayOf('2025-07-01'), invoicing: BIL, accounting: dayOf('2026-07-01'), cash, journal }))
+    // Small transactions: a long one would hold back every other test file's bus and feeds in this cluster for its whole length.
+    await seed({ query: (sql, params) => freshQuery(c, sql, params) }, companyEvents(obs, { end: END, inventory: dayOf('2025-01-01'), purchase: dayOf('2025-07-01'), invoicing: BIL, accounting: dayOf('2026-07-01'), cash, journal }), 250)
     await catchUp(c, 120000)
   })
   after(async () => { await c.close() })
@@ -83,12 +81,10 @@ describe('the analytics loader and the read models', () => {
   })
 
   test('a model that is behind sends the loader back to the ledger, with the same numbers', async () => {
-    // Another worker holds the sales model, so the loader's own catching up cannot take in what just arrived.
-    const other = new pg.Client({ connectionString: urlFor(c.db.name) })
-    await other.connect()
+    // The worker waits (as while a demo is built), so the loader's own catching up cannot take in what just arrived. A paused
+    // worker rather than a held lock: a long open transaction would hold back every other test file's bus in this cluster.
+    await c.db.query(`insert into erp.meta(key, value) values ('bus_paused', 'true')`)
     try {
-      await other.query('begin')
-      await other.query(`select 1 from erp.read_models where name = 'sales_day' for update`)
       await seed({ query: (sql, params) => freshQuery(c, sql, params) }, [{ t: 'sales_order', id: '00000000-0000-4000-8000-00000000abcd', ev: 'SalesOrderConfirmed', at: `${isoOf(END - 1)}T10:00:00+09:00`,
         data: { set: { number: 'LATE', state: 'sale' }, number: 'LATE', region: 'seoul', warehouse_id: WAREHOUSE_IDS[0], date_order: isoOf(END - 1),
           lines: [{ line_id: '00000000-0000-4000-8000-00000000abce', product_id: null, variant_id: VARIANT_IDS[0], name: 'x', qty: 7, unit_price: 10, discount: 0, subtotal: 70, cost: 5, type: 'goods' }] } }])
@@ -97,7 +93,7 @@ describe('the analytics loader and the read models', () => {
       assert.equal(late.readModels, false)
       assert.ok(calls.includes('erp_read_model_series') && calls.includes('erp_sales_daily'))
       assert.ok(late.sales.some((r) => r[1] === VARIANT_IDS[0] && r[0] === isoOf(END - 1) && Number(r[4]) >= 7), 'the new order is in what the ledger gave')
-    } finally { await other.query('rollback'); await other.end() }
+    } finally { await c.db.query(`delete from erp.meta where key = 'bus_paused'`) }
     await catchUp(c)
     const kept = await loadLedger(rpc)
     assert.equal(kept.readModels, true)

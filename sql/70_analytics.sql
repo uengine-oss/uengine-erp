@@ -175,7 +175,8 @@ declare
   asof timestamptz := coalesce(p_as_of, now());
   out_ jsonb;
 begin
-  select coalesce(jsonb_agg(jsonb_build_array(day, variant_id, region, warehouse_id, q, r, c)), '[]'::jsonb) into out_ from (
+  -- In a fixed order, so two readers of the same ledger get the same rows in the same order whatever plan each got.
+  select coalesce(jsonb_agg(jsonb_build_array(day, variant_id, region, warehouse_id, q, r, c) order by day, variant_id, region, warehouse_id), '[]'::jsonb) into out_ from (
     select day, variant_id, region, warehouse_id, sum(qty) as q, sum(revenue) as r, sum(cost) as c
       from public.erp_sales_lines(p_from::timestamp at time zone tz, p_to::timestamp at time zone tz, asof, tz, public.erp_undone(asof), public.erp_unit_maps())
      group by 1, 2, 3, 4) x;
