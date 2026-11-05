@@ -5,7 +5,7 @@ import {
   classifyKey, clearSetupCode, conn, issueSetupCode, loadSetupCode, normalizeUrl, projectRef, SECRET_KEY_MESSAGE, setConn, sqlEditorUrl,
 } from '../lib/conn'
 import { probeStatus, rpc, type ApiError } from '../lib/api'
-import { installSql, setupCodeSql } from '../lib/install'
+import { APP_VERSION, installParts, installSql, setupCodeSql, type InstallPart } from '../lib/install'
 import { boot, session, signIn } from '../lib/session'
 import { copyText, toast } from '../lib/ui'
 import ConnectionProblem from '../components/ConnectionProblem.vue'
@@ -63,6 +63,8 @@ async function routeByStatus() {
   if (probe.kind === 'error') { connectError.value = probe.message; step.value = 'connect'; return }
   if (probe.kind === 'missing') { await openInstall(); return }
   session.status = probe.status
+  // Some parts ran, not all (or an upgrade is half done): carry on with the parts.
+  if (probe.status.installed === false) { await openInstall(probe.status.install); return }
   if (!probe.status.initialized) { openCompany(); return }
   session.phase = 'idle'
   await router.replace({ name: 'login' })
@@ -78,9 +80,18 @@ async function submitConnect() {
 /* Step 2: install */
 const setupCode = ref('')
 const sqlText = ref('')
-const sqlSize = computed(() => `${Math.ceil(sqlText.value.length / 1024)} KB`)
+const sqlSize = computed(() => `${Math.ceil(new TextEncoder().encode(sqlText.value).length / 1024)} KB`)
 const copied = ref(false)
 const copyFailed = ref(false)
+// The cloud SQL Editor refuses the whole script, so it comes in parts cut at module boundaries: basic sales first.
+const parts = ref<InstallPart[]>([])
+const doneParts = ref<number[]>([])
+const copiedPart = ref(0)
+const nextPart = computed(() => parts.value.find((p) => !doneParts.value.includes(p.n))?.n ?? 0)
+const partKB = (p: InstallPart) => `${Math.ceil(p.bytes / 1024)} KB`
+function takeProgress(install?: { version: string; total: number; done: number[] } | null) {
+  doneParts.value = install && install.version === APP_VERSION && install.total === parts.value.length ? install.done : []
+}
 let pollTimer: ReturnType<typeof setInterval> | undefined
 
 const editorLink = computed(() => sqlEditorUrl(conn.value?.url))
@@ -95,6 +106,7 @@ async function pollNow() {
   if (step.value !== 'install') return
   const probe = await probeStatus()
   if (step.value !== 'install' || probe.kind !== 'ok') return
+  if (probe.status.installed === false) { takeProgress(probe.status.install); return }
   stopPolling()
   session.status = probe.status
   toast('설치를 확인했습니다.')
@@ -106,10 +118,13 @@ async function pollNow() {
   }
 }
 
-async function openInstall() {
+async function openInstall(progress?: { version: string; total: number; done: number[] } | null) {
   const url_ = conn.value!.url
   setupCode.value = loadSetupCode(url_) ?? issueSetupCode(url_)
   sqlText.value = await installSql(setupCode.value)
+  parts.value = await installParts(setupCode.value)
+  takeProgress(progress)
+  copiedPart.value = 0
   copied.value = false
   step.value = 'install'
   stopPolling()
@@ -123,6 +138,14 @@ async function copySql() {
   copied.value = ok
   copyFailed.value = !ok
 }
+
+async function copyPart(p: InstallPart) {
+  const ok = await copyText(p.sql)
+  copiedPart.value = ok ? p.n : 0
+  copyFailed.value = !ok
+  if (!ok) partText.value = p.sql
+}
+const partText = ref('')
 
 /* Step 3: company */
 const company = ref({ name: '', currency: 'KRW', adminName: '', email: '', password: '', password2: '' })
@@ -256,15 +279,8 @@ onBeforeUnmount(stopPolling)
     <!-- 2. Install -->
     <template v-else-if="step === 'install'">
       <h1 class="split-title">데이터베이스 설치</h1>
-      <p class="split-lead" data-testid="why-sql">공개 키로는 표를 만들 수 없어서 SQL 을 한 번 직접 실행해야 합니다. 키나 데이터는 우리에게 오지 않습니다.</p>
+      <p class="split-lead" data-testid="why-sql">공개 키로는 표를 만들 수 없어서 SQL 을 직접 실행합니다. Supabase SQL Editor 는 한 번에 실행할 수 있는 크기가 정해져 있어, 모듈별로 {{ parts.length }}개로 나눴습니다. 키나 데이터는 우리에게 오지 않습니다.</p>
       <ol class="how">
-        <li>
-          <div class="row">
-            <button type="button" class="btn btn-primary" data-testid="copy-sql" @click="copySql"><Icon :name="copied ? 'check' : 'copy'" :size="13" />{{ copied ? '복사했습니다' : 'SQL 복사' }}</button>
-            <span class="muted small">{{ sqlSize }} · 이 설치 전용 코드 포함</span>
-          </div>
-          <p v-if="copyFailed" class="err-text small" style="margin-top: 4px">복사하지 못했습니다. 아래 'SQL 내용 보기'에서 직접 복사하세요.</p>
-        </li>
         <li>
           <template v-if="hasRef">
             <a class="btn" :href="editorLink" target="_blank" rel="noopener noreferrer" data-testid="sql-editor-link"><Icon name="external" :size="13" />이 프로젝트의 SQL Editor 열기</a>
@@ -273,13 +289,37 @@ onBeforeUnmount(stopPolling)
             <span data-testid="sql-editor-local">이 주소는 로컬 프로젝트입니다. 프로젝트의 SQL 실행 도구를 여세요.</span>
           </template>
         </li>
-        <li>붙여 넣고 <b>Run</b> 을 누릅니다. 여러 번 실행해도 데이터는 지워지지 않습니다.</li>
+        <li>아래 단추를 <b>1번부터 차례로</b> 누르면 그 부분이 복사됩니다. SQL Editor 에 붙여 넣고 <b>Run</b> 을 누르세요.</li>
+        <li>실행이 끝나면 여기에 체크가 표시됩니다. 같은 부분을 다시 실행해도 데이터는 지워지지 않습니다.</li>
       </ol>
-      <div class="banner banner-info" data-testid="install-waiting">
-        <span class="spin"></span><span>실행을 기다리는 중입니다. 끝나면 자동으로 다음 단계로 넘어갑니다.</span>
+      <div class="install-parts" data-testid="install-parts">
+        <button
+          v-for="p in parts" :key="p.n" type="button" class="part"
+          :class="{ done: doneParts.includes(p.n), next: p.n === nextPart, copied: copiedPart === p.n && !doneParts.includes(p.n) }"
+          :data-testid="`copy-part-${p.n}`" :data-done="doneParts.includes(p.n) ? 'true' : 'false'" @click="copyPart(p)"
+        >
+          <span class="part-no"><Icon v-if="doneParts.includes(p.n)" name="check" :size="12" /><template v-else>{{ p.n }}</template></span>
+          <span class="part-text">
+            <b>{{ p.label }}</b>
+            <small v-if="doneParts.includes(p.n)">실행됨 · 다시 눌러 복사할 수 있습니다</small>
+            <small v-else-if="copiedPart === p.n">복사했습니다. SQL Editor 에 붙여 넣고 Run</small>
+            <small v-else>{{ partKB(p) }} · 눌러서 복사{{ p.n === parts.length ? ' · 이 설치 전용 코드 포함' : '' }}</small>
+          </span>
+          <Icon v-if="!doneParts.includes(p.n)" name="copy" :size="13" />
+        </button>
       </div>
-      <details style="margin-top: 14px">
-        <summary>SQL 내용 보기</summary>
+      <p v-if="copyFailed" class="err-text small" style="margin-top: 6px">복사하지 못했습니다. 아래 칸에서 직접 복사하세요.</p>
+      <textarea v-if="copyFailed && partText" class="sqlbox" style="margin-top: 6px" readonly :value="partText" aria-label="설치 SQL 부분"></textarea>
+      <div class="banner banner-info" data-testid="install-waiting">
+        <span class="spin"></span><span>{{ doneParts.length }}/{{ parts.length }} 실행됨. 모두 끝나면 자동으로 다음 단계로 넘어갑니다.</span>
+      </div>
+      <details style="margin-top: 14px" data-testid="install-whole">
+        <summary>한 번에 설치하기(psql·Supabase CLI·로컬 프로젝트)</summary>
+        <p class="muted small" style="margin-top: 6px">클라우드 SQL Editor 는 이 크기를 거부합니다. psql 이나 로컬 Supabase 처럼 크기 제한이 없는 곳에서만 쓰세요.</p>
+        <div class="row">
+          <button type="button" class="btn" data-testid="copy-sql" @click="copySql"><Icon :name="copied ? 'check' : 'copy'" :size="13" />{{ copied ? '복사했습니다' : '전체 SQL 복사' }}</button>
+          <span class="muted small">{{ sqlSize }} · 이 설치 전용 코드 포함</span>
+        </div>
         <textarea class="sqlbox" style="margin-top: 6px" readonly :value="sqlText" data-testid="install-sql" aria-label="설치 SQL"></textarea>
       </details>
       <p style="margin-top: 12px"><button type="button" class="btn btn-ghost btn-sm" @click="stopPolling(); step = 'connect'">접속 정보 변경</button></p>
@@ -368,4 +408,15 @@ onBeforeUnmount(stopPolling)
 .choice input { margin-top: 3px; flex: none; }
 .choice b { display: block; font-weight: 600; }
 .choice small { color: var(--text-2); font-size: 12px; }
+.install-parts { display: grid; gap: 8px; margin: 14px 0 12px; }
+.install-parts .part { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: inherit; cursor: pointer; font: inherit; }
+.install-parts .part:hover { border-color: var(--navy-600); }
+.install-parts .part.next { border-color: var(--navy-700); box-shadow: 0 0 0 2px var(--navy-100); }
+.install-parts .part.done { opacity: .78; }
+.install-parts .part-no { flex: none; display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--ink-100); font-weight: 700; font-size: 13px; }
+.install-parts .part.next .part-no { background: var(--navy-700); color: #fff; }
+.install-parts .part.done .part-no { background: var(--green-fg); color: #fff; }
+.install-parts .part-text { flex: 1; display: grid; gap: 2px; min-width: 0; }
+.install-parts .part-text small { color: var(--text-3); }
+.install-parts .part.copied .part-text small { color: var(--navy-700); font-weight: 600; }
 </style>

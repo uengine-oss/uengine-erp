@@ -67,15 +67,33 @@ test('함수가 없으면 설치 단계로 가고, 복사한 SQL 을 실행하�
   await expect(page.getByTestId('install-waiting')).toBeVisible()
   await shot(page, '02-setup-install')
 
-  await page.getByTestId('copy-sql').click()
-  await expect(page.getByTestId('copy-sql')).toContainText('복사했습니다')
-  const copied = await page.evaluate(() => navigator.clipboard.readText())
-  const code = copied.match(/select erp\.set_setup_code\('([0-9a-f]{48})'\);\s*$/)
-  expect(code, 'SQL 끝에 설치 코드').not.toBeNull()
-  // The code waits in localStorage only until the company exists.
-  expect(await page.evaluate(() => localStorage.getItem('erp.setup'))).toContain(code[1])
-
-  await sql(copied)
+  // The cloud SQL Editor refuses the whole script, so it comes in parts cut at module boundaries, basic sales first.
+  const parts = page.locator('[data-testid^="copy-part-"]')
+  const total = await parts.count()
+  expect(total).toBeGreaterThan(1)
+  await expect(page.getByTestId('copy-part-1')).toContainText('기본(판매)')
+  await expect(page.getByTestId('copy-part-1')).toHaveClass(/next/)
+  for (let n = 1; n <= total; n++) {
+    await page.getByTestId(`copy-part-${n}`).click()
+    await expect(page.getByTestId(`copy-part-${n}`)).toContainText('복사했습니다')
+    const copied = await page.evaluate(() => navigator.clipboard.readText())
+    expect(copied, `${n}번 머리`).toContain(`-- uEngine ERP 설치 ${n}/${total}`)
+    const code = copied.match(/select erp\.set_setup_code\('([0-9a-f]{48})'\);\s*$/)
+    if (n < total) {
+      expect(code, '설치 코드는 마지막 부분에만').toBeNull()
+      await sql(copied)
+      await expect(page.getByTestId(`copy-part-${n}`)).toHaveAttribute('data-done', 'true', { timeout: 15_000 })
+      await expect(page.getByTestId(`copy-part-${n + 1}`)).toHaveClass(/next/)
+      await expect(page.getByTestId('install-waiting')).toContainText(`${n}/${total} 실행됨`)
+      await expect(page.getByRole('heading', { name: '데이터베이스 설치' })).toBeVisible()
+      if (n === 1) await shot(page, '02b-setup-install-part')
+    } else {
+      expect(code, 'SQL 끝에 설치 코드').not.toBeNull()
+      // The code waits in localStorage only until the company exists.
+      expect(await page.evaluate(() => localStorage.getItem('erp.setup'))).toContain(code[1])
+      await sql(copied)
+    }
+  }
   await expect(page.getByRole('heading', { name: '회사 만들기' })).toBeVisible({ timeout: 15_000 })
 })
 

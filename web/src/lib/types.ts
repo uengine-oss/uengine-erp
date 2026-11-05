@@ -127,7 +127,10 @@ export interface Me {
 }
 
 export interface ErpStatus {
+  /** Every part of the install has run (the install goes out in parts for the cloud SQL Editor). */
   installed: boolean
+  /** Which parts of which version have run so far, while an install or upgrade is under way. */
+  install?: { version: string; total: number; done: number[] } | null
   version: string | null
   /** The oldest app this database still accepts writes from. */
   min_app_version?: string | null

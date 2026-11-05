@@ -12,6 +12,18 @@ create table if not exists erp.meta (
   value jsonb not null
 );
 
+-- The install goes out whole and in parts (the cloud SQL Editor refuses the whole). Each part records itself here at its end;
+-- a part of another version starts the count again, so an upgrade half done does not pass for installed.
+create or replace function erp.install_part_done(p_part int, p_total int, p_version text) returns void
+language sql as $$
+  insert into erp.meta(key, value) values ('install', jsonb_build_object('version', p_version, 'total', p_total, 'done', jsonb_build_array(p_part)))
+  on conflict (key) do update set value = case
+    when erp.meta.value ->> 'version' = p_version and (erp.meta.value ->> 'total')::int = p_total
+      then jsonb_set(erp.meta.value, '{done}', (select to_jsonb(array_agg(distinct x order by x))
+                                                  from (select jsonb_array_elements_text(erp.meta.value -> 'done')::int as x union select p_part) d))
+    else excluded.value end
+$$;
+
 create table if not exists erp.events (
   seq bigserial primary key,
   stream_type text not null,
@@ -1001,7 +1013,10 @@ end $$;
 create or replace function public.erp_status() returns jsonb
 language sql stable security definer set search_path = erp, pg_temp as $$
   select jsonb_build_object(
-    'installed', true,
+    -- Installed once every part of the version being installed has run. An install from before the parts has no record and is whole.
+    'installed', exists (select 1 from erp.meta where key = 'schema_version')
+                 and coalesce((select jsonb_array_length(value -> 'done') >= (value ->> 'total')::int from erp.meta where key = 'install'), true),
+    'install', (select value from erp.meta where key = 'install'),
     'version', (select value #>> '{}' from erp.meta where key = 'schema_version'),
     'min_app_version', erp.min_app_version(),
     'initialized', exists (select 1 from erp.members),
