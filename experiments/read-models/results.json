@@ -1,5 +1,5 @@
 {
- "started": "2026-11-05T02:17:30.325Z",
+ "started": "2026-11-05T03:05:07.909Z",
  "runs": 5,
  "machine": {
   "host_cpu": "Apple M4 Max",
@@ -9,18 +9,18 @@
   "node": "v25.2.1",
   "database": "local Supabase stack in a colima VM (profile erp: 8 vCPU, 14 GiB, aarch64), other VMs running beside it",
   "load_average_at_start": [
-   141.1,
-   108.5,
-   94.8
+   47,
+   152.1,
+   207.1
   ],
   "load_average_at_end": [
-   62.6,
-   112.7,
-   107.6
+   52.6,
+   98.8,
+   171.1
   ]
  },
  "build": {
-  "seconds": 250,
+  "seconds": 118,
   "steps": 21397
  },
  "postgres": "PostgreSQL 17.6 on aarch64-unknown-linux-gnu, compiled by gcc (GCC) 15.2.0, 64-bit",
@@ -31,23 +31,23 @@
   "last_event": "2026-10-31 09:00:00+00"
  },
  "first_catch_up": {
-  "ms": 2567.3,
+  "ms": 1235.3,
   "parts": [
    {
-    "ms": 2364,
+    "ms": 1224.4,
     "models": [
      {
-      "ms": 1938.6,
+      "ms": 836.4,
       "name": "sales_day",
       "events": 45240
      },
      {
-      "ms": 106,
+      "ms": 156.4,
       "name": "stock_day",
       "events": 45240
      },
      {
-      "ms": 123.1,
+      "ms": 55.3,
       "name": "gl_day",
       "events": 45240
      }
@@ -57,40 +57,40 @@
   ]
  },
  "dashboard": {
-  "read_models_server_ms": 17.8,
+  "read_models_server_ms": 17.03,
   "read_models_server_runs": [
-   38.12,
-   15.1,
-   14.79,
-   28.25,
-   17.8
+   23.51,
+   16.45,
+   17.34,
+   17.03,
+   16.7
   ],
-  "ledger_server_ms": 1366.15,
+  "ledger_server_ms": 974.03,
   "ledger_server_runs": [
-   1307.24,
-   1366.15,
-   1255.44,
-   1552.21,
-   2105.39
+   871.65,
+   1090.07,
+   1215.14,
+   974.03,
+   924.17
   ],
-  "read_models_ms": 137.7,
+  "read_models_ms": 23.7,
   "read_models_runs": [
-   137.7,
-   29.2,
-   167.6,
-   152,
-   60.7,
-   40.6,
-   145.7
+   142.1,
+   21.2,
+   23.4,
+   21.7,
+   23.7,
+   29.8,
+   27.9
   ],
-  "server_read_ms": 51.5,
-  "ledger_one_statement_ms": 1334,
+  "server_read_ms": 15.8,
+  "ledger_one_statement_ms": 926,
   "ledger_runs": [
-   2546.1,
-   2099.3,
-   1334,
-   1282.2,
-   1288.6
+   882.1,
+   1397,
+   901.1,
+   1143.8,
+   926
   ],
   "same_answer": true,
   "answer": {
@@ -218,112 +218,112 @@
   }
  },
  "ledger_series_batched": {
-  "total_ms": 3219.5,
-  "server_ms": 1606.1,
+  "total_ms": 1370.5,
+  "server_ms": 1095,
   "calls": 25,
   "runs": [
    {
     "sales": {
-     "ms": 1836.2,
-     "server_ms": 763.2,
+     "ms": 751,
+     "server_ms": 480.4,
      "calls": 12,
-     "slowest_ms": 307.6
+     "slowest_ms": 106.9
     },
     "stock": {
-     "ms": 711.7,
-     "server_ms": 96.3,
+     "ms": 159.6,
+     "server_ms": 53.6,
      "calls": 12,
-     "slowest_ms": 93.1
+     "slowest_ms": 52.2
     },
-    "journal_ms": 956.5,
-    "total_ms": 3504.4,
-    "server_ms": 1766.2,
+    "journal_ms": 612.3,
+    "total_ms": 1522.9,
+    "server_ms": 1208.5,
     "calls": 25
    },
    {
     "sales": {
-     "ms": 1759.8,
-     "server_ms": 869,
+     "ms": 806.7,
+     "server_ms": 522,
      "calls": 12,
-     "slowest_ms": 234.8
+     "slowest_ms": 173
     },
     "stock": {
-     "ms": 868.5,
-     "server_ms": 120.5,
+     "ms": 206.5,
+     "server_ms": 50.9,
      "calls": 12,
-     "slowest_ms": 164.1
+     "slowest_ms": 49.8
     },
-    "journal_ms": 2112,
-    "total_ms": 4740.3,
-    "server_ms": 2956.6,
+    "journal_ms": 552,
+    "total_ms": 1565.2,
+    "server_ms": 1121.6,
     "calls": 25
    },
    {
     "sales": {
-     "ms": 1853.3,
-     "server_ms": 797.5,
+     "ms": 643,
+     "server_ms": 449.6,
      "calls": 12,
-     "slowest_ms": 366.5
+     "slowest_ms": 60.2
     },
     "stock": {
-     "ms": 621.5,
-     "server_ms": 84,
+     "ms": 177.3,
+     "server_ms": 53,
      "calls": 12,
-     "slowest_ms": 140.1
+     "slowest_ms": 22.5
     },
-    "journal_ms": 744.7,
-    "total_ms": 3219.5,
-    "server_ms": 1606.1,
+    "journal_ms": 550.2,
+    "total_ms": 1370.5,
+    "server_ms": 1059.4,
     "calls": 25
    },
    {
     "sales": {
-     "ms": 1730.1,
-     "server_ms": 733.2,
+     "ms": 515.6,
+     "server_ms": 439.5,
      "calls": 12,
-     "slowest_ms": 282.2
+     "slowest_ms": 46.7
     },
     "stock": {
-     "ms": 692.7,
-     "server_ms": 175.8,
+     "ms": 91.4,
+     "server_ms": 47.6,
      "calls": 12,
-     "slowest_ms": 110.9
+     "slowest_ms": 11.7
     },
-    "journal_ms": 654.7,
-    "total_ms": 3077.5,
-    "server_ms": 1515.2,
+    "journal_ms": 572.3,
+    "total_ms": 1179.3,
+    "server_ms": 1095,
     "calls": 25
    },
    {
     "sales": {
-     "ms": 1064.8,
-     "server_ms": 578.4,
+     "ms": 535.7,
+     "server_ms": 442.8,
      "calls": 12,
-     "slowest_ms": 168.2
+     "slowest_ms": 56.3
     },
     "stock": {
-     "ms": 455.5,
-     "server_ms": 63.8,
+     "ms": 148.8,
+     "server_ms": 51.8,
      "calls": 12,
-     "slowest_ms": 85.1
+     "slowest_ms": 23.5
     },
-    "journal_ms": 795.8,
-    "total_ms": 2316.1,
-    "server_ms": 1499.5,
+    "journal_ms": 552.2,
+    "total_ms": 1236.7,
+    "server_ms": 1035.9,
     "calls": 25
    }
   ]
  },
  "read_model_series": {
-  "ms": 245.9,
+  "ms": 143.5,
   "runs": [
-   670.6,
-   200.1,
-   237.1,
-   245.9,
-   301.5
+   148.2,
+   144.3,
+   133.7,
+   143.5,
+   130.9
   ],
-  "server_ms": 228.4,
+  "server_ms": 84.7,
   "rows": {
    "sales": 16427,
    "stock": 10116,
@@ -331,22 +331,22 @@
   }
  },
  "analytics_load": {
-  "ledger_ms": 3794.3,
-  "read_models_ms": 1504.3,
+  "ledger_ms": 1609.6,
+  "read_models_ms": 495.7,
   "runs": {
    "ledger": [
-    3969.6,
-    6122.3,
-    3499.6,
-    3794.3,
-    3025.8
+    1618.5,
+    1580.4,
+    1609.6,
+    1422.4,
+    1689.2
    ],
    "read_models": [
-    2084.1,
-    1837.2,
-    1389.2,
-    998.7,
-    1504.3
+    577.3,
+    538.1,
+    495.7,
+    447.8,
+    487.2
    ]
   },
   "used_read_models": true,
@@ -364,14 +364,14 @@
   "pnl_outlook": true
  },
  "materialized_view": {
-  "create_ms": 448.8,
-  "refresh_ms": 554.3,
+  "create_ms": 442.9,
+  "refresh_ms": 420.1,
   "refresh_runs": [
-   427.9,
-   626.3,
-   637.4,
-   411.1,
-   554.3
+   390.6,
+   407.8,
+   420.1,
+   496.7,
+   442.6
   ],
   "rows": 16427
  },
@@ -379,46 +379,68 @@
   "new_events": 36,
   "this_month_revenue_before": "0",
   "materialized_view_after_new_orders": "0",
-  "read_model_after_its_refresh": "804000.000000000000",
-  "read_model_refresh_ms": 35.9,
+  "read_model_after_its_refresh": "1004000.000000000000",
+  "read_model_refresh_ms": 14.7,
   "read_model_refresh": {
-   "ms": 9.1,
+   "ms": 11.7,
    "models": [
     {
-     "ms": 3.4,
+     "ms": 3.5,
      "name": "sales_day",
      "events": 36
     },
     {
-     "ms": 3.3,
+     "ms": 4.6,
      "name": "stock_day",
      "events": 36
     },
     {
-     "ms": 1.6,
+     "ms": 2.4,
      "name": "gl_day",
      "events": 36
     }
    ],
    "applied": 108
   },
-  "materialized_view_refresh_ms": 566.1,
-  "materialized_view_after_refresh": "804000.000000000000"
+  "materialized_view_refresh_ms": 405.3,
+  "materialized_view_after_refresh": "1004000.000000000000"
  },
  "batch_cost": {
   "about_100": {
    "events": 108,
-   "ms": 23.2,
+   "ms": 11.6,
    "per_model_ms": {
-    "sales_day": 2.4,
-    "stock_day": 3.7,
+    "sales_day": 2.6,
+    "stock_day": 3.2,
     "gl_day": 1.4
    },
    "runs": [
     {
      "events": 108,
-     "wall_ms": 23.2,
-     "server_ms": 8.3,
+     "wall_ms": 10.5,
+     "server_ms": 7.7,
+     "models": [
+      {
+       "ms": 2.6,
+       "name": "sales_day",
+       "events": 108
+      },
+      {
+       "ms": 3.2,
+       "name": "stock_day",
+       "events": 108
+      },
+      {
+       "ms": 1.4,
+       "name": "gl_day",
+       "events": 108
+      }
+     ]
+    },
+    {
+     "events": 108,
+     "wall_ms": 11.6,
+     "server_ms": 7.3,
      "models": [
       {
        "ms": 2.4,
@@ -426,7 +448,51 @@
        "events": 108
       },
       {
-       "ms": 3.7,
+       "ms": 3,
+       "name": "stock_day",
+       "events": 108
+      },
+      {
+       "ms": 1.4,
+       "name": "gl_day",
+       "events": 108
+      }
+     ]
+    },
+    {
+     "events": 108,
+     "wall_ms": 9.2,
+     "server_ms": 7.3,
+     "models": [
+      {
+       "ms": 2.4,
+       "name": "sales_day",
+       "events": 108
+      },
+      {
+       "ms": 3.1,
+       "name": "stock_day",
+       "events": 108
+      },
+      {
+       "ms": 1.4,
+       "name": "gl_day",
+       "events": 108
+      }
+     ]
+    },
+    {
+     "events": 108,
+     "wall_ms": 17.3,
+     "server_ms": 10.5,
+     "models": [
+      {
+       "ms": 2.6,
+       "name": "sales_day",
+       "events": 108
+      },
+      {
+       "ms": 5.6,
        "name": "stock_day",
        "events": 108
       },
@@ -439,87 +505,21 @@
     },
     {
      "events": 108,
-     "wall_ms": 10.6,
-     "server_ms": 6.8,
+     "wall_ms": 19.1,
+     "server_ms": 11.7,
      "models": [
       {
-       "ms": 2.1,
+       "ms": 3.8,
        "name": "sales_day",
        "events": 108
       },
       {
-       "ms": 3,
+       "ms": 5.4,
        "name": "stock_day",
        "events": 108
       },
       {
-       "ms": 1.2,
-       "name": "gl_day",
-       "events": 108
-      }
-     ]
-    },
-    {
-     "events": 108,
-     "wall_ms": 8.5,
-     "server_ms": 6.8,
-     "models": [
-      {
-       "ms": 2.4,
-       "name": "sales_day",
-       "events": 108
-      },
-      {
-       "ms": 2.8,
-       "name": "stock_day",
-       "events": 108
-      },
-      {
-       "ms": 1.1,
-       "name": "gl_day",
-       "events": 108
-      }
-     ]
-    },
-    {
-     "events": 108,
-     "wall_ms": 38.9,
-     "server_ms": 12.7,
-     "models": [
-      {
-       "ms": 2.9,
-       "name": "sales_day",
-       "events": 108
-      },
-      {
-       "ms": 6.3,
-       "name": "stock_day",
-       "events": 108
-      },
-      {
-       "ms": 2.8,
-       "name": "gl_day",
-       "events": 108
-      }
-     ]
-    },
-    {
-     "events": 108,
-     "wall_ms": 56.5,
-     "server_ms": 8.4,
-     "models": [
-      {
-       "ms": 2.3,
-       "name": "sales_day",
-       "events": 108
-      },
-      {
-       "ms": 4,
-       "name": "stock_day",
-       "events": 108
-      },
-      {
-       "ms": 1.4,
+       "ms": 1.7,
        "name": "gl_day",
        "events": 108
       }
@@ -529,30 +529,30 @@
   },
   "about_1000": {
    "events": 1092,
-   "ms": 69.8,
+   "ms": 16.3,
    "per_model_ms": {
-    "sales_day": 10,
-    "stock_day": 16,
-    "gl_day": 7.6
+    "sales_day": 5.1,
+    "stock_day": 5.3,
+    "gl_day": 2.8
    },
    "runs": [
     {
      "events": 1092,
-     "wall_ms": 96,
-     "server_ms": 64.7,
+     "wall_ms": 15.7,
+     "server_ms": 14.6,
      "models": [
       {
-       "ms": 35.5,
+       "ms": 5.1,
        "name": "sales_day",
        "events": 1092
       },
       {
-       "ms": 19.3,
+       "ms": 5.3,
        "name": "stock_day",
        "events": 1092
       },
       {
-       "ms": 3.3,
+       "ms": 2.5,
        "name": "gl_day",
        "events": 1092
       }
@@ -560,33 +560,11 @@
     },
     {
      "events": 1092,
-     "wall_ms": 38.7,
-     "server_ms": 36,
+     "wall_ms": 15.3,
+     "server_ms": 14.1,
      "models": [
       {
-       "ms": 10,
-       "name": "sales_day",
-       "events": 1092
-      },
-      {
-       "ms": 16,
-       "name": "stock_day",
-       "events": 1092
-      },
-      {
-       "ms": 7.6,
-       "name": "gl_day",
-       "events": 1092
-      }
-     ]
-    },
-    {
-     "events": 1092,
-     "wall_ms": 16.1,
-     "server_ms": 14.2,
-     "models": [
-      {
-       "ms": 4.9,
+       "ms": 5.3,
        "name": "sales_day",
        "events": 1092
       },
@@ -596,7 +574,7 @@
        "events": 1092
       },
       {
-       "ms": 2.3,
+       "ms": 2.2,
        "name": "gl_day",
        "events": 1092
       }
@@ -604,21 +582,21 @@
     },
     {
      "events": 1092,
-     "wall_ms": 69.8,
-     "server_ms": 53.6,
+     "wall_ms": 16.6,
+     "server_ms": 15.1,
      "models": [
       {
-       "ms": 7.3,
+       "ms": 5.1,
        "name": "sales_day",
        "events": 1092
       },
       {
-       "ms": 12.5,
+       "ms": 5.3,
        "name": "stock_day",
        "events": 1092
       },
       {
-       "ms": 31.8,
+       "ms": 2.8,
        "name": "gl_day",
        "events": 1092
       }
@@ -626,21 +604,43 @@
     },
     {
      "events": 1092,
-     "wall_ms": 74,
-     "server_ms": 43.9,
+     "wall_ms": 24.6,
+     "server_ms": 17.2,
      "models": [
       {
-       "ms": 11.2,
+       "ms": 5.6,
        "name": "sales_day",
        "events": 1092
       },
       {
-       "ms": 17.6,
+       "ms": 6.8,
        "name": "stock_day",
        "events": 1092
       },
       {
-       "ms": 10.9,
+       "ms": 3,
+       "name": "gl_day",
+       "events": 1092
+      }
+     ]
+    },
+    {
+     "events": 1092,
+     "wall_ms": 16.3,
+     "server_ms": 15.3,
+     "models": [
+      {
+       "ms": 4.6,
+       "name": "sales_day",
+       "events": 1092
+      },
+      {
+       "ms": 5.6,
+       "name": "stock_day",
+       "events": 1092
+      },
+      {
+       "ms": 3.2,
        "name": "gl_day",
        "events": 1092
       }
@@ -650,136 +650,136 @@
   }
  },
  "compare_12_months": {
-  "read_model_ms": 2.52,
-  "ledger_ms": 780.79,
+  "read_model_ms": 2.36,
+  "ledger_ms": 390.43,
   "same": true,
   "runs": [
    {
-    "rm": 14.06,
-    "ledger": 949.07,
+    "rm": 8.23,
+    "ledger": 451.9,
     "same": true,
     "events": 51276
    },
    {
-    "rm": 2.27,
-    "ledger": 780.79,
+    "rm": 2.36,
+    "ledger": 389.1,
     "same": true,
     "events": 51276
    },
    {
-    "rm": 5.76,
-    "ledger": 954.3,
+    "rm": 3.88,
+    "ledger": 390.43,
     "same": true,
     "events": 51276
    },
    {
-    "rm": 2.52,
-    "ledger": 744.02,
+    "rm": 2.28,
+    "ledger": 388.81,
     "same": true,
     "events": 51276
    },
    {
-    "rm": 2.27,
-    "ledger": 444.73,
+    "rm": 2.32,
+    "ledger": 392.22,
     "same": true,
     "events": 51276
    }
   ]
  },
  "rebuild": {
-  "wall_ms": 1755.9,
+  "wall_ms": 869.4,
   "per_model_ms": {
-   "sales_day": 1232,
-   "stock_day": 137.6,
-   "gl_day": 49.2
+   "sales_day": 606.2,
+   "stock_day": 99,
+   "gl_day": 49.9
   },
   "runs": [
    {
-    "wall_ms": 2301.2,
+    "wall_ms": 868.2,
     "passes": 1,
     "models": {
      "sales_day": {
-      "rebuild_ms": 1232,
+      "rebuild_ms": 598.9,
       "rows": 33363
      },
      "stock_day": {
-      "rebuild_ms": 450.6,
+      "rebuild_ms": 99,
       "rows": 10136
      },
      "gl_day": {
-      "rebuild_ms": 146.7,
+      "rebuild_ms": 53,
       "rows": 2274
      }
     }
    },
    {
-    "wall_ms": 1149.5,
+    "wall_ms": 868.4,
     "passes": 1,
     "models": {
      "sales_day": {
-      "rebuild_ms": 815,
+      "rebuild_ms": 619.2,
       "rows": 33363
      },
      "stock_day": {
-      "rebuild_ms": 112.6,
+      "rebuild_ms": 89.1,
       "rows": 10136
      },
      "gl_day": {
-      "rebuild_ms": 49,
+      "rebuild_ms": 48.9,
       "rows": 2274
      }
     }
    },
    {
-    "wall_ms": 1121.3,
+    "wall_ms": 894.5,
     "passes": 1,
     "models": {
      "sales_day": {
-      "rebuild_ms": 691.8,
+      "rebuild_ms": 603.5,
       "rows": 33363
      },
      "stock_day": {
-      "rebuild_ms": 137.6,
+      "rebuild_ms": 105.9,
       "rows": 10136
      },
      "gl_day": {
-      "rebuild_ms": 56.7,
+      "rebuild_ms": 47.6,
       "rows": 2274
      }
     }
    },
    {
-    "wall_ms": 1755.9,
+    "wall_ms": 869.4,
     "passes": 1,
     "models": {
      "sales_day": {
-      "rebuild_ms": 1343.3,
+      "rebuild_ms": 624.5,
       "rows": 33363
      },
      "stock_day": {
-      "rebuild_ms": 132.2,
+      "rebuild_ms": 97.7,
       "rows": 10136
      },
      "gl_day": {
-      "rebuild_ms": 49.2,
+      "rebuild_ms": 49.9,
       "rows": 2274
      }
     }
    },
    {
-    "wall_ms": 1837.2,
+    "wall_ms": 906.1,
     "passes": 1,
     "models": {
      "sales_day": {
-      "rebuild_ms": 1256.3,
+      "rebuild_ms": 606.2,
       "rows": 33363
      },
      "stock_day": {
-      "rebuild_ms": 259.3,
+      "rebuild_ms": 118.2,
       "rows": 10136
      },
      "gl_day": {
-      "rebuild_ms": 49.2,
+      "rebuild_ms": 53,
       "rows": 2274
      }
     }
@@ -789,14 +789,14 @@
  "sizes": [
   {
    "table": "events",
-   "bytes": 111697920,
+   "bytes": 111968256,
    "size": "107 MB",
    "rows": 51276
   },
   {
    "table": "records",
-   "bytes": 57376768,
-   "size": "55 MB",
+   "bytes": 79347712,
+   "size": "76 MB",
    "rows": 14556
   },
   {
@@ -825,8 +825,8 @@
   },
   {
    "table": "quants",
-   "bytes": 393216,
-   "size": "384 kB",
+   "bytes": 589824,
+   "size": "576 kB",
    "rows": 28
   },
   {
@@ -837,28 +837,28 @@
   }
  ],
  "books_from_gl_lines": {
-  "trial_summary": 21.6,
-  "trial_balance": 2.89,
-  "income_statement": 7.63,
-  "financial_position": 14.13,
-  "closing_status": 17.42
+  "trial_summary": 16.22,
+  "trial_balance": 2.8,
+  "income_statement": 7.49,
+  "financial_position": 10.92,
+  "closing_status": 12.36
  },
  "command_latency": {
   "without_worker": {
-   "median_ms": 14.3,
-   "p95_ms": 64.4,
+   "median_ms": 5.4,
+   "p95_ms": 8.8,
    "commands": 120,
    "worker_passes": 0
   },
   "with_worker_every_200ms": {
-   "median_ms": 28.3,
-   "p95_ms": 107.9,
+   "median_ms": 5.6,
+   "p95_ms": 9.3,
    "commands": 120,
-   "worker_passes": 24
+   "worker_passes": 6
   },
   "again_without_worker": {
-   "median_ms": 15.4,
-   "p95_ms": 107.3,
+   "median_ms": 5.25,
+   "p95_ms": 10.9,
    "commands": 120,
    "worker_passes": 0
   }
@@ -867,78 +867,23 @@
   {
    "as_of": "2024-10-31",
    "events_by_then": 2347,
-   "ledger_ms": 590.68,
-   "read_model_ms": 4.37
+   "ledger_ms": 530.34,
+   "read_model_ms": 3.73
   },
   {
    "as_of": "2025-10-31",
    "events_by_then": 14525,
-   "ledger_ms": 1829.81,
-   "read_model_ms": 4.14
+   "ledger_ms": 1061.09,
+   "read_model_ms": 4.02
   },
   {
    "as_of": "2026-10-31",
    "events_by_then": 45240,
-   "ledger_ms": 2739.63,
-   "read_model_ms": 5.63
+   "ledger_ms": 2308.67,
+   "read_model_ms": 4.67
   }
  ],
- "finished": "2026-11-05T02:25:36.414Z",
+ "finished": "2026-11-05T03:08:47.155Z",
  "command": "node scripts/build-sql.mjs && node experiments/read-models/measure.mjs",
- "git": "0594405",
- "command_latency_other_runs": {
-  "note": "The same 120 commands, measured by earlier runs of this script on the same day and machine (median and p95, ms). The read side never runs inside a command; the differences between runs follow the machine load, not the worker.",
-  "runs": [
-   {
-    "started": "2026-11-05T00:2x (first run, before the sales replay change)",
-    "without_worker": [
-     7.25,
-     18.4
-    ],
-    "with_worker_every_200ms": [
-     7.1,
-     16.7
-    ],
-    "again_without_worker": [
-     7.95,
-     21.8
-    ]
-   },
-   {
-    "started": "2026-11-05T01:56:09Z",
-    "load_average_at_start": [
-     93.1,
-     115.1,
-     96.2
-    ],
-    "without_worker": [
-     53.95,
-     171.6
-    ],
-    "with_worker_every_200ms": [
-     45.15,
-     218.3
-    ],
-    "again_without_worker": [
-     47.1,
-     131.3
-    ]
-   },
-   {
-    "started": "2026-11-05T02:1x (same demo with the earlier runs' extra orders)",
-    "without_worker": [
-     36.6,
-     131.9
-    ],
-    "with_worker_every_200ms": [
-     33.25,
-     120.2
-    ],
-    "again_without_worker": [
-     40.65,
-     145.1
-    ]
-   }
-  ]
- }
+ "git": "aa9c5d9"
 }
