@@ -25,6 +25,11 @@ jobs:
       - run: node scripts/build-sql.mjs
       - run: npm --prefix web ci
       - run: npm --prefix web run build
+      # The Docker bundle of the same commit goes beside the app, so the website's download link always serves the newest.
+      - run: node scripts/build-docker-bundle.mjs --no-web
+      - run: |
+          cp dist-docker/uengine-erp-docker-*.zip web/dist/uengine-erp-docker.zip
+          cd web/dist && sha256sum uengine-erp-docker.zip > uengine-erp-docker.zip.sha256
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

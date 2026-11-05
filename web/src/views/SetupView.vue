@@ -2,9 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  classifyKey, clearSetupCode, conn, issueSetupCode, loadSetupCode, normalizeUrl, projectRef, SECRET_KEY_MESSAGE, setConn, sqlEditorUrl,
+  adoptBundledConfig, bundledConfigPossible, classifyKey, clearSetupCode, conn, issueSetupCode, loadSetupCode, normalizeUrl, projectRef,
+  SECRET_KEY_MESSAGE, setConn, sqlEditorUrl,
 } from '../lib/conn'
-import { adoptBundledConfig, bundledConfigPossible } from '../lib/conn'
 import { probeStatus, rpc, type ApiError } from '../lib/api'
 import { APP_BUILD, installParts, installSql, setupCodeSql, type InstallPart } from '../lib/install'
 import { boot, session, signIn } from '../lib/session'
