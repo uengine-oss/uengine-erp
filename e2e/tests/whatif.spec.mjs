@@ -56,6 +56,7 @@ test.beforeAll(async () => {
 test('첫 화면은 모델을 세 상태로 보여 주고, 각자 무엇을 기다리는지 말한다', async ({ page }) => {
   await connectAndLogin(page)
   await page.locator('[data-module="analytics"]').click()
+  await page.locator('[data-screen="/analytics/models"]').click()
   await expect(page.getByTestId('analytics-home')).toBeVisible()
   await expect(page.getByTestId('model-card')).toHaveCount(33)
   for (const id of ['stat_sales', 'demand_sales', 'demand_true', 'stockout_risk', 'lead_time', 'whatif_policy', 'whatif_lead']) {

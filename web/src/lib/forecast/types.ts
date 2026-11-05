@@ -137,4 +137,6 @@ export interface LedgerData {
   rules: ReorderRule[]
   /** Registered fixed assets. Absent when no one has read them yet. */
   assets?: { decimals: number; assets: AssetHistoryRow[] }
+  /** Sales, stock and journal came from the read models (sql/72_read_models.sql) rather than the ledger's batches. */
+  readModels?: boolean
 }

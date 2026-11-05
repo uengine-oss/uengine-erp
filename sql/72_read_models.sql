@@ -547,6 +547,11 @@ begin
   if exists (select 1 from jsonb_array_elements(st -> 'models') x where x ->> 'name' = any (wanted) and (x ->> 'partial')::boolean) then
     return jsonb_build_object('current', false, 'partial', true);
   end if;
+  -- An event dated after this moment (only the demo's or a test's clock writes one) is in the models already but not yet
+  -- in the ledger's answer "as of now".
+  if exists (select 1 from public.erp_events e where e.occurred_at > now()) then
+    return jsonb_build_object('current', false, 'future', true);
+  end if;
   if p_sales then
     out_ := out_ || jsonb_build_object('sales', (
       select coalesce(jsonb_agg(jsonb_build_array(day, variant_id, region, warehouse_id, q, r, c)), '[]'::jsonb)

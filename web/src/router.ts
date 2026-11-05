@@ -39,6 +39,8 @@ export const router = createRouter({
         { path: 'r/:type/:id', name: 'record', component: RecordFormRoute, props: true },
         { path: 'events', name: 'events', component: EventsView, meta: { title: '이벤트 원장' } },
         { path: 'analytics', redirect: '/analytics/models' },
+        { path: 'analytics/dashboard', name: 'dashboard', component: () => import('./screens/analytics/DashboardView.vue'), meta: { title: '현황판' } },
+        { path: 'analytics/read-models', name: 'read-models', component: () => import('./screens/analytics/ReadModelsView.vue'), meta: { title: '읽기 모델' } },
         { path: 'analytics/models', name: 'analytics', component: () => import('./screens/analytics/AnalyticsHome.vue'), meta: { title: '예측·what-if' } },
         { path: 'analytics/models/:id', name: 'model', component: () => import('./screens/analytics/ModelView.vue'), props: true, meta: { title: '모델' } },
         { path: 'analytics/stats', name: 'stats', component: () => import('./screens/analytics/StatsView.vue'), meta: { title: '매출 통계' } },
