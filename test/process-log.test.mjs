@@ -297,6 +297,16 @@ test('pages of any size read the same log, a case can span pages, and the period
   assert.ok(bad.isError && /^ERP_INVALID/.test(bad.text), bad.text)
 })
 
+test('a past moment reads the company as it stood then, as the screens\' time view does', async () => {
+  const paid = (await c.db.query(`select min(occurred_at) at from erp.events where stream_id = $1`, [ids.pay1])).rows[0].at
+  const before_ = new Date(paid.getTime() - 1).toISOString()
+  const then = (await c.db.asUser(c.adminId, 'select public.erp_process_log(p_case => $1, p_limit => 1000, p_as_of => $2) r', ['sales_order', before_])).rows[0].r
+  assert.ok(then.rows.some((r) => r.document_id === ids.inv1), 'the invoice was there')
+  assert.ok(!then.rows.some((r) => r.document_kind === 'payment') && !then.documents.some((d) => d.id === ids.pay1), 'the payment was not yet')
+  assert.ok(then.rows.every((r) => Date.parse(r.timestamp) <= Date.parse(before_)))
+  assert.ok(!then.rows.some((r) => r.case_id === ids.po || r.case_id === ids.o2), 'nor the cases begun later')
+})
+
 test('MCP answers with the same rows, and the tool list stays under its budget', async () => {
   const screen = await page(clerk.id, { limit: 50 })
   const over = await mcp('erp_read', { process_log: { case: 'sales_order', limit: 50 } }, clerk.id)

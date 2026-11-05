@@ -137,12 +137,13 @@ begin
     -- Transfers and invoices made from the order. Backorders and credit notes keep the order as their origin.
     -- The containment alone goes to the state index; "offset 0" keeps the planner from scanning every transfer instead.
     select c.id as case_id, d.id, d.type from cases c
-      join lateral (select d.id, d.type from erp.records d where d.state @> jsonb_build_object('origin_id', c.id::text) offset 0) d on true
+      join lateral (select d.id, d.type, d.created_at from erp.records d where d.state @> jsonb_build_object('origin_id', c.id::text) offset 0) d on true
      where kind <> 'document' and d.type in ('picking', 'account_move') and erp.readable_row(d.type, d.id, readable, limited, seen)
+       and (as_of is null or d.created_at <= as_of)
   ), pays as materialized (
     -- Payments put on those invoices, also those taken off again. Reached only through an invoice the reader can open.
     select distinct k.case_id, p.id, p.type, k.id as via from kids k
-      join erp.events e on e.stream_id = k.id and e.event_type = 'InvoicePaymentApplied'
+      join erp.events e on e.stream_id = k.id and e.event_type = 'InvoicePaymentApplied' and (as_of is null or e.occurred_at <= as_of)
       join erp.records p on p.id = nullif(e.data ->> 'payment_id', '')::uuid
      where k.type = 'account_move' and erp.readable_row(p.type, p.id, readable, limited, seen)
   ), members as materialized (
