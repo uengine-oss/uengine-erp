@@ -97,21 +97,25 @@ language sql stable set search_path = public, pg_temp as $$
     from public.erp_records l left join tree t on t.id = l.id where l.type = 'location'
 $$;
 
--- One row per order line that still stands. Quantity is in the product's own unit.
-create or replace function public.erp_sales_lines(p_lo timestamptz, p_hi timestamptz, p_as_of timestamptz, p_tz text, p_undone uuid[], p_units jsonb)
+-- One row per order line that still stands. Quantity is in the product's own unit. p_streams narrows it to those orders:
+-- the read model (sql/72_read_models.sql) keeps each order's lines up to date with this same code, so the two cannot drift.
+-- The narrowing is spliced into the text, so a call for the whole ledger is planned as it always was.
+create or replace function public.erp_sales_lines(p_lo timestamptz, p_hi timestamptz, p_as_of timestamptz, p_tz text, p_undone uuid[], p_units jsonb, p_streams uuid[])
 returns table(day date, variant_id text, product_id text, region text, warehouse_id text, qty numeric, revenue numeric, cost numeric, stream_id uuid)
-language sql stable set search_path = public, pg_temp as $$
+language plpgsql stable set search_path = public, pg_temp as $fn$
+begin
+  return query execute format($q$
   with ev as (
     select e.stream_id, e.version, e.event_type, e.data, e.occurred_at
       from public.erp_events e
      where e.event_type in ('SalesOrderConfirmed', 'SalesOrderLineAdded', 'SalesOrderLineQtyChanged')
-       and e.occurred_at >= p_lo and e.occurred_at < p_hi and e.occurred_at <= p_as_of
-       and not e.correlation_id = any (p_undone)
+       and e.occurred_at >= $1 and e.occurred_at < $2 and e.occurred_at <= $3
+       and not e.correlation_id = any ($5) %s
        and not exists (
          select 1 from public.erp_events x
           where x.stream_id = e.stream_id and x.version > e.version
             and x.event_type in ('SalesOrderCancelled', 'SalesOrderConfirmed')
-            and x.occurred_at <= p_as_of and not x.correlation_id = any (p_undone))
+            and x.occurred_at <= $3 and not x.correlation_id = any ($5))
   ), confirmed as (
     select ev.stream_id, ev.occurred_at, ev.data as head, l, 1::numeric as sign_, null::numeric as delta
       from ev, jsonb_array_elements(ev.data -> 'lines') l where ev.event_type = 'SalesOrderConfirmed'
@@ -136,12 +140,12 @@ language sql stable set search_path = public, pg_temp as $$
   ), rows_ as (select * from confirmed union all select * from later),
   unit as (
     select r.*,
-           coalesce((p_units -> 'uom' ->> (r.l ->> 'uom_id'))::numeric, 1) / coalesce((p_units -> 'product' ->> (r.l ->> 'product_id'))::numeric, 1) as factor,
+           coalesce(($6 -> 'uom' ->> (r.l ->> 'uom_id'))::numeric, 1) / coalesce(($6 -> 'product' ->> (r.l ->> 'product_id'))::numeric, 1) as factor,
            coalesce(r.delta, (r.l ->> 'qty')::numeric) as q
       from rows_ r
      where r.l ->> 'variant_id' is not null and r.l ->> 'type' is distinct from 'service'
   )
-  select public.erp_biz_day(u.head ->> 'date_order', u.occurred_at, p_tz),
+  select public.erp_biz_day(u.head ->> 'date_order', u.occurred_at, $4),
          u.l ->> 'variant_id', u.l ->> 'product_id', u.head ->> 'region', u.head ->> 'warehouse_id',
          u.q * u.factor,
          -- Keep the line's own net price: a changed quantity moves revenue at what that line was sold for.
@@ -151,6 +155,15 @@ language sql stable set search_path = public, pg_temp as $$
          u.q * coalesce((u.l ->> 'cost')::numeric, 0),
          u.stream_id
     from unit u
+  $q$, case when p_streams is null then '' else 'and e.stream_id = any ($7)' end)
+  using p_lo, p_hi, p_as_of, p_tz, p_undone, p_units, p_streams;
+end $fn$;
+
+-- The whole ledger, as every caller before the read models asked for it.
+create or replace function public.erp_sales_lines(p_lo timestamptz, p_hi timestamptz, p_as_of timestamptz, p_tz text, p_undone uuid[], p_units jsonb)
+returns table(day date, variant_id text, product_id text, region text, warehouse_id text, qty numeric, revenue numeric, cost numeric, stream_id uuid)
+language sql stable set search_path = public, pg_temp as $$
+  select * from public.erp_sales_lines(p_lo, p_hi, p_as_of, p_tz, p_undone, p_units, null::uuid[])
 $$;
 
 -- Rows of [day, variant_id, region, warehouse_id, qty, revenue, cost]. Windows go by when the ledger recorded the event,
