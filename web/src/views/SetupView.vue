@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   classifyKey, clearSetupCode, conn, issueSetupCode, loadSetupCode, normalizeUrl, projectRef, SECRET_KEY_MESSAGE, setConn, sqlEditorUrl,
 } from '../lib/conn'
+import { adoptBundledConfig } from '../lib/conn'
 import { probeStatus, rpc, type ApiError } from '../lib/api'
 import { APP_BUILD, installParts, installSql, setupCodeSql, type InstallPart } from '../lib/install'
 import { boot, session, signIn } from '../lib/session'
@@ -223,7 +224,9 @@ async function copyReissue() {
   toast(ok ? 'SQL 을 복사했습니다. SQL Editor 에서 실행하세요.' : '복사하지 못했습니다.', ok ? 'ok' : 'error')
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // Docker bundle: erp-config.json beside the app connects this browser and supplies the setup code (lib/conn.ts).
+  if (route.query.change !== '1') await adoptBundledConfig()
   // "Change connection" opens step 1 as is; a plain visit continues from wherever setup stopped.
   if (conn.value && route.query.change !== '1') void routeByStatus()
 })

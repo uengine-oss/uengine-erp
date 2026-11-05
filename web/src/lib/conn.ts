@@ -183,3 +183,40 @@ export function inviteLink(c: Conn): string {
 export function portalLink(c: Conn, token: string): string {
   return `${location.origin}${location.pathname}#/portal/${encodeURIComponent(token)}?u=${encodeURIComponent(c.url)}&k=${encodeURIComponent(c.key)}`
 }
+
+/*
+ * Docker bundle (docker/ in the repository). Its web server answers ./erp-config.json with the address and public key
+ * of the Supabase stack beside it, and the setup code its installer stored, so the app skips the connect screen and the
+ * company step needs no SQL. GitHub Pages has no such file (404), so nothing changes there.
+ * Handing out the setup code lets whoever can open the page create the company while none exists. That is acceptable
+ * only because the bundle listens on 127.0.0.1. A server other people can reach must not serve this file with a code.
+ */
+export interface BundledConfig { url: string; key: string; setupCode: string | null }
+
+export async function fetchBundledConfig(): Promise<BundledConfig | null> {
+  try {
+    const res = await fetch('./erp-config.json', { cache: 'no-store', credentials: 'omit' })
+    if (!res.ok || !/json/i.test(res.headers.get('content-type') ?? '')) return null
+    const raw = (await res.json()) as Record<string, unknown>
+    const url = normalizeUrl(typeof raw.url === 'string' ? raw.url : '')
+    const key = typeof raw.key === 'string' ? raw.key.trim() : ''
+    const kind = classifyKey(key)
+    // The same checks as the connect form: a secret key is never stored or sent.
+    if (!url.ok || (kind !== 'anon' && kind !== 'publishable')) return null
+    const code = typeof raw.setupCode === 'string' && /^[A-Za-z0-9_-]{8,200}$/.test(raw.setupCode) ? raw.setupCode : null
+    return { url: url.url, key, setupCode: code }
+  } catch {
+    return null
+  }
+}
+
+/** Connects from erp-config.json when nothing is saved, and leaves its setup code where the company step reads it. */
+export async function adoptBundledConfig(): Promise<boolean> {
+  // A cloud project never comes with this file, so only a browser with no connection or a local one asks.
+  if (conn.value && !conn.value.url.startsWith('http://127.0.0.1')) return false
+  const cfg = await fetchBundledConfig()
+  if (!cfg) return false
+  if (!conn.value) setConn({ url: cfg.url, key: cfg.key })
+  if (conn.value?.url === cfg.url && cfg.setupCode) storageSet(SETUP_KEY, JSON.stringify({ url: cfg.url, code: cfg.setupCode }))
+  return true
+}
