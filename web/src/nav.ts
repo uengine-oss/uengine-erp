@@ -441,6 +441,8 @@ export const NAV: NavModule[] = [
   {
     key: 'analytics', label: '분석', icon: 'analytics',
     screens: [
+      { label: '현황판', route: '/analytics/dashboard' },
+      { label: '읽기 모델', route: '/analytics/read-models', adminOnly: true },
       { label: '예측·what-if', route: '/analytics/models' },
       { label: '매출 통계', route: '/analytics/stats' },
       { label: '견적 전환율', route: '/analytics/quotes' },

@@ -1,0 +1,944 @@
+{
+ "started": "2026-11-05T02:17:30.325Z",
+ "runs": 5,
+ "machine": {
+  "host_cpu": "Apple M4 Max",
+  "host_cores": 16,
+  "host_memory_gb": 128,
+  "os": "Darwin 25.0.0",
+  "node": "v25.2.1",
+  "database": "local Supabase stack in a colima VM (profile erp: 8 vCPU, 14 GiB, aarch64), other VMs running beside it",
+  "load_average_at_start": [
+   141.1,
+   108.5,
+   94.8
+  ],
+  "load_average_at_end": [
+   62.6,
+   112.7,
+   107.6
+  ]
+ },
+ "build": {
+  "seconds": 250,
+  "steps": 21397
+ },
+ "postgres": "PostgreSQL 17.6 on aarch64-unknown-linux-gnu, compiled by gcc (GCC) 15.2.0, 64-bit",
+ "company": {
+  "events": 45240,
+  "confirmed_orders": 3287,
+  "first_event": "2023-10-31 00:00:00+00",
+  "last_event": "2026-10-31 09:00:00+00"
+ },
+ "first_catch_up": {
+  "ms": 2567.3,
+  "parts": [
+   {
+    "ms": 2364,
+    "models": [
+     {
+      "ms": 1938.6,
+      "name": "sales_day",
+      "events": 45240
+     },
+     {
+      "ms": 106,
+      "name": "stock_day",
+      "events": 45240
+     },
+     {
+      "ms": 123.1,
+      "name": "gl_day",
+      "events": 45240
+     }
+    ],
+    "applied": 135720
+   }
+  ]
+ },
+ "dashboard": {
+  "read_models_server_ms": 17.8,
+  "read_models_server_runs": [
+   38.12,
+   15.1,
+   14.79,
+   28.25,
+   17.8
+  ],
+  "ledger_server_ms": 1366.15,
+  "ledger_server_runs": [
+   1307.24,
+   1366.15,
+   1255.44,
+   1552.21,
+   2105.39
+  ],
+  "read_models_ms": 137.7,
+  "read_models_runs": [
+   137.7,
+   29.2,
+   167.6,
+   152,
+   60.7,
+   40.6,
+   145.7
+  ],
+  "server_read_ms": 51.5,
+  "ledger_one_statement_ms": 1334,
+  "ledger_runs": [
+   2546.1,
+   2099.3,
+   1334,
+   1282.2,
+   1288.6
+  ],
+  "same_answer": true,
+  "answer": {
+   "sales": {
+    "top": [],
+    "trend": [
+     {
+      "qty": 2894,
+      "month": "2025-12",
+      "revenue": 521796000
+     },
+     {
+      "qty": 3047,
+      "month": "2026-01",
+      "revenue": 520443000
+     },
+     {
+      "qty": 2541,
+      "month": "2026-02",
+      "revenue": 460009000
+     },
+     {
+      "qty": 2293,
+      "month": "2026-03",
+      "revenue": 508787000
+     },
+     {
+      "qty": 2014,
+      "month": "2026-04",
+      "revenue": 457546000
+     },
+     {
+      "qty": 2000,
+      "month": "2026-05",
+      "revenue": 441470000
+     },
+     {
+      "qty": 2957,
+      "month": "2026-06",
+      "revenue": 594383000
+     },
+     {
+      "qty": 3626,
+      "month": "2026-07",
+      "revenue": 682054000
+     },
+     {
+      "qty": 3418,
+      "month": "2026-08",
+      "revenue": 657522000
+     },
+     {
+      "qty": 2342,
+      "month": "2026-09",
+      "revenue": 496358000
+     },
+     {
+      "qty": 1943,
+      "month": "2026-10",
+      "revenue": 426827000
+     }
+    ],
+    "last_month": {
+     "to": "2026-10-31",
+     "qty": 1943,
+     "from": "2026-10-01",
+     "orders": 92,
+     "revenue": 426827000
+    },
+    "this_month": {
+     "to": "2026-11-05",
+     "qty": 0,
+     "from": "2026-11-01",
+     "orders": 0,
+     "revenue": 0
+    },
+    "last_month_same": {
+     "to": "2026-10-05",
+     "qty": 289,
+     "from": "2026-10-01",
+     "orders": 15,
+     "revenue": 63691000
+    }
+   },
+   "stock": {
+    "qty": 3190,
+    "empty": 1,
+    "items": 21,
+    "by_warehouse": [
+     {
+      "qty": 2599,
+      "name": "수도권 창고",
+      "items": 10,
+      "warehouse_id": "aa5adfbe-2a10-4ea2-8910-6d0f28106b7c"
+     },
+     {
+      "qty": 393,
+      "name": "영남 창고",
+      "items": 5,
+      "warehouse_id": "ab5ae151-179a-41c5-849a-7d0c159a7e9f"
+     },
+     {
+      "qty": 198,
+      "name": "호남 창고",
+      "items": 6,
+      "warehouse_id": "a85adc98-c4eb-4bf0-87eb-90a9c6eb8f16"
+     }
+    ]
+   },
+   "books": {
+    "debit": 25616961500,
+    "credit": 25616961500,
+    "balanced": true,
+    "last_month": {
+     "income": 426827000,
+     "result": 32952800,
+     "expense": 393874200
+    },
+    "this_month": {
+     "income": 0,
+     "result": 0,
+     "expense": 0
+    }
+   }
+  }
+ },
+ "ledger_series_batched": {
+  "total_ms": 3219.5,
+  "server_ms": 1606.1,
+  "calls": 25,
+  "runs": [
+   {
+    "sales": {
+     "ms": 1836.2,
+     "server_ms": 763.2,
+     "calls": 12,
+     "slowest_ms": 307.6
+    },
+    "stock": {
+     "ms": 711.7,
+     "server_ms": 96.3,
+     "calls": 12,
+     "slowest_ms": 93.1
+    },
+    "journal_ms": 956.5,
+    "total_ms": 3504.4,
+    "server_ms": 1766.2,
+    "calls": 25
+   },
+   {
+    "sales": {
+     "ms": 1759.8,
+     "server_ms": 869,
+     "calls": 12,
+     "slowest_ms": 234.8
+    },
+    "stock": {
+     "ms": 868.5,
+     "server_ms": 120.5,
+     "calls": 12,
+     "slowest_ms": 164.1
+    },
+    "journal_ms": 2112,
+    "total_ms": 4740.3,
+    "server_ms": 2956.6,
+    "calls": 25
+   },
+   {
+    "sales": {
+     "ms": 1853.3,
+     "server_ms": 797.5,
+     "calls": 12,
+     "slowest_ms": 366.5
+    },
+    "stock": {
+     "ms": 621.5,
+     "server_ms": 84,
+     "calls": 12,
+     "slowest_ms": 140.1
+    },
+    "journal_ms": 744.7,
+    "total_ms": 3219.5,
+    "server_ms": 1606.1,
+    "calls": 25
+   },
+   {
+    "sales": {
+     "ms": 1730.1,
+     "server_ms": 733.2,
+     "calls": 12,
+     "slowest_ms": 282.2
+    },
+    "stock": {
+     "ms": 692.7,
+     "server_ms": 175.8,
+     "calls": 12,
+     "slowest_ms": 110.9
+    },
+    "journal_ms": 654.7,
+    "total_ms": 3077.5,
+    "server_ms": 1515.2,
+    "calls": 25
+   },
+   {
+    "sales": {
+     "ms": 1064.8,
+     "server_ms": 578.4,
+     "calls": 12,
+     "slowest_ms": 168.2
+    },
+    "stock": {
+     "ms": 455.5,
+     "server_ms": 63.8,
+     "calls": 12,
+     "slowest_ms": 85.1
+    },
+    "journal_ms": 795.8,
+    "total_ms": 2316.1,
+    "server_ms": 1499.5,
+    "calls": 25
+   }
+  ]
+ },
+ "read_model_series": {
+  "ms": 245.9,
+  "runs": [
+   670.6,
+   200.1,
+   237.1,
+   245.9,
+   301.5
+  ],
+  "server_ms": 228.4,
+  "rows": {
+   "sales": 16427,
+   "stock": 10116,
+   "journal": 44
+  }
+ },
+ "analytics_load": {
+  "ledger_ms": 3794.3,
+  "read_models_ms": 1504.3,
+  "runs": {
+   "ledger": [
+    3969.6,
+    6122.3,
+    3499.6,
+    3794.3,
+    3025.8
+   ],
+   "read_models": [
+    2084.1,
+    1837.2,
+    1389.2,
+    998.7,
+    1504.3
+   ]
+  },
+  "used_read_models": true,
+  "note": "receipts, lead times and payment delays still come from the ledger in batches either way"
+ },
+ "forecasts_identical": {
+  "demand_sales": true,
+  "demand_true": true,
+  "stockout_risk": true,
+  "whatif_policy": true,
+  "whatif_drop": true,
+  "whatif_realloc": true,
+  "whatif_lead": true,
+  "reorder_plan": true,
+  "pnl_outlook": true
+ },
+ "materialized_view": {
+  "create_ms": 448.8,
+  "refresh_ms": 554.3,
+  "refresh_runs": [
+   427.9,
+   626.3,
+   637.4,
+   411.1,
+   554.3
+  ],
+  "rows": 16427
+ },
+ "staleness": {
+  "new_events": 36,
+  "this_month_revenue_before": "0",
+  "materialized_view_after_new_orders": "0",
+  "read_model_after_its_refresh": "804000.000000000000",
+  "read_model_refresh_ms": 35.9,
+  "read_model_refresh": {
+   "ms": 9.1,
+   "models": [
+    {
+     "ms": 3.4,
+     "name": "sales_day",
+     "events": 36
+    },
+    {
+     "ms": 3.3,
+     "name": "stock_day",
+     "events": 36
+    },
+    {
+     "ms": 1.6,
+     "name": "gl_day",
+     "events": 36
+    }
+   ],
+   "applied": 108
+  },
+  "materialized_view_refresh_ms": 566.1,
+  "materialized_view_after_refresh": "804000.000000000000"
+ },
+ "batch_cost": {
+  "about_100": {
+   "events": 108,
+   "ms": 23.2,
+   "per_model_ms": {
+    "sales_day": 2.4,
+    "stock_day": 3.7,
+    "gl_day": 1.4
+   },
+   "runs": [
+    {
+     "events": 108,
+     "wall_ms": 23.2,
+     "server_ms": 8.3,
+     "models": [
+      {
+       "ms": 2.4,
+       "name": "sales_day",
+       "events": 108
+      },
+      {
+       "ms": 3.7,
+       "name": "stock_day",
+       "events": 108
+      },
+      {
+       "ms": 1.5,
+       "name": "gl_day",
+       "events": 108
+      }
+     ]
+    },
+    {
+     "events": 108,
+     "wall_ms": 10.6,
+     "server_ms": 6.8,
+     "models": [
+      {
+       "ms": 2.1,
+       "name": "sales_day",
+       "events": 108
+      },
+      {
+       "ms": 3,
+       "name": "stock_day",
+       "events": 108
+      },
+      {
+       "ms": 1.2,
+       "name": "gl_day",
+       "events": 108
+      }
+     ]
+    },
+    {
+     "events": 108,
+     "wall_ms": 8.5,
+     "server_ms": 6.8,
+     "models": [
+      {
+       "ms": 2.4,
+       "name": "sales_day",
+       "events": 108
+      },
+      {
+       "ms": 2.8,
+       "name": "stock_day",
+       "events": 108
+      },
+      {
+       "ms": 1.1,
+       "name": "gl_day",
+       "events": 108
+      }
+     ]
+    },
+    {
+     "events": 108,
+     "wall_ms": 38.9,
+     "server_ms": 12.7,
+     "models": [
+      {
+       "ms": 2.9,
+       "name": "sales_day",
+       "events": 108
+      },
+      {
+       "ms": 6.3,
+       "name": "stock_day",
+       "events": 108
+      },
+      {
+       "ms": 2.8,
+       "name": "gl_day",
+       "events": 108
+      }
+     ]
+    },
+    {
+     "events": 108,
+     "wall_ms": 56.5,
+     "server_ms": 8.4,
+     "models": [
+      {
+       "ms": 2.3,
+       "name": "sales_day",
+       "events": 108
+      },
+      {
+       "ms": 4,
+       "name": "stock_day",
+       "events": 108
+      },
+      {
+       "ms": 1.4,
+       "name": "gl_day",
+       "events": 108
+      }
+     ]
+    }
+   ]
+  },
+  "about_1000": {
+   "events": 1092,
+   "ms": 69.8,
+   "per_model_ms": {
+    "sales_day": 10,
+    "stock_day": 16,
+    "gl_day": 7.6
+   },
+   "runs": [
+    {
+     "events": 1092,
+     "wall_ms": 96,
+     "server_ms": 64.7,
+     "models": [
+      {
+       "ms": 35.5,
+       "name": "sales_day",
+       "events": 1092
+      },
+      {
+       "ms": 19.3,
+       "name": "stock_day",
+       "events": 1092
+      },
+      {
+       "ms": 3.3,
+       "name": "gl_day",
+       "events": 1092
+      }
+     ]
+    },
+    {
+     "events": 1092,
+     "wall_ms": 38.7,
+     "server_ms": 36,
+     "models": [
+      {
+       "ms": 10,
+       "name": "sales_day",
+       "events": 1092
+      },
+      {
+       "ms": 16,
+       "name": "stock_day",
+       "events": 1092
+      },
+      {
+       "ms": 7.6,
+       "name": "gl_day",
+       "events": 1092
+      }
+     ]
+    },
+    {
+     "events": 1092,
+     "wall_ms": 16.1,
+     "server_ms": 14.2,
+     "models": [
+      {
+       "ms": 4.9,
+       "name": "sales_day",
+       "events": 1092
+      },
+      {
+       "ms": 5,
+       "name": "stock_day",
+       "events": 1092
+      },
+      {
+       "ms": 2.3,
+       "name": "gl_day",
+       "events": 1092
+      }
+     ]
+    },
+    {
+     "events": 1092,
+     "wall_ms": 69.8,
+     "server_ms": 53.6,
+     "models": [
+      {
+       "ms": 7.3,
+       "name": "sales_day",
+       "events": 1092
+      },
+      {
+       "ms": 12.5,
+       "name": "stock_day",
+       "events": 1092
+      },
+      {
+       "ms": 31.8,
+       "name": "gl_day",
+       "events": 1092
+      }
+     ]
+    },
+    {
+     "events": 1092,
+     "wall_ms": 74,
+     "server_ms": 43.9,
+     "models": [
+      {
+       "ms": 11.2,
+       "name": "sales_day",
+       "events": 1092
+      },
+      {
+       "ms": 17.6,
+       "name": "stock_day",
+       "events": 1092
+      },
+      {
+       "ms": 10.9,
+       "name": "gl_day",
+       "events": 1092
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "compare_12_months": {
+  "read_model_ms": 2.52,
+  "ledger_ms": 780.79,
+  "same": true,
+  "runs": [
+   {
+    "rm": 14.06,
+    "ledger": 949.07,
+    "same": true,
+    "events": 51276
+   },
+   {
+    "rm": 2.27,
+    "ledger": 780.79,
+    "same": true,
+    "events": 51276
+   },
+   {
+    "rm": 5.76,
+    "ledger": 954.3,
+    "same": true,
+    "events": 51276
+   },
+   {
+    "rm": 2.52,
+    "ledger": 744.02,
+    "same": true,
+    "events": 51276
+   },
+   {
+    "rm": 2.27,
+    "ledger": 444.73,
+    "same": true,
+    "events": 51276
+   }
+  ]
+ },
+ "rebuild": {
+  "wall_ms": 1755.9,
+  "per_model_ms": {
+   "sales_day": 1232,
+   "stock_day": 137.6,
+   "gl_day": 49.2
+  },
+  "runs": [
+   {
+    "wall_ms": 2301.2,
+    "passes": 1,
+    "models": {
+     "sales_day": {
+      "rebuild_ms": 1232,
+      "rows": 33363
+     },
+     "stock_day": {
+      "rebuild_ms": 450.6,
+      "rows": 10136
+     },
+     "gl_day": {
+      "rebuild_ms": 146.7,
+      "rows": 2274
+     }
+    }
+   },
+   {
+    "wall_ms": 1149.5,
+    "passes": 1,
+    "models": {
+     "sales_day": {
+      "rebuild_ms": 815,
+      "rows": 33363
+     },
+     "stock_day": {
+      "rebuild_ms": 112.6,
+      "rows": 10136
+     },
+     "gl_day": {
+      "rebuild_ms": 49,
+      "rows": 2274
+     }
+    }
+   },
+   {
+    "wall_ms": 1121.3,
+    "passes": 1,
+    "models": {
+     "sales_day": {
+      "rebuild_ms": 691.8,
+      "rows": 33363
+     },
+     "stock_day": {
+      "rebuild_ms": 137.6,
+      "rows": 10136
+     },
+     "gl_day": {
+      "rebuild_ms": 56.7,
+      "rows": 2274
+     }
+    }
+   },
+   {
+    "wall_ms": 1755.9,
+    "passes": 1,
+    "models": {
+     "sales_day": {
+      "rebuild_ms": 1343.3,
+      "rows": 33363
+     },
+     "stock_day": {
+      "rebuild_ms": 132.2,
+      "rows": 10136
+     },
+     "gl_day": {
+      "rebuild_ms": 49.2,
+      "rows": 2274
+     }
+    }
+   },
+   {
+    "wall_ms": 1837.2,
+    "passes": 1,
+    "models": {
+     "sales_day": {
+      "rebuild_ms": 1256.3,
+      "rows": 33363
+     },
+     "stock_day": {
+      "rebuild_ms": 259.3,
+      "rows": 10136
+     },
+     "gl_day": {
+      "rebuild_ms": 49.2,
+      "rows": 2274
+     }
+    }
+   }
+  ]
+ },
+ "sizes": [
+  {
+   "table": "events",
+   "bytes": 111697920,
+   "size": "107 MB",
+   "rows": 51276
+  },
+  {
+   "table": "records",
+   "bytes": 57376768,
+   "size": "55 MB",
+   "rows": 14556
+  },
+  {
+   "table": "rm_sales_day",
+   "bytes": 5726208,
+   "size": "5592 kB",
+   "rows": 16433
+  },
+  {
+   "table": "gl_lines",
+   "bytes": 4243456,
+   "size": "4144 kB",
+   "rows": 19254
+  },
+  {
+   "table": "rm_sales_line",
+   "bytes": 4169728,
+   "size": "4072 kB",
+   "rows": 16930
+  },
+  {
+   "table": "rm_stock_day",
+   "bytes": 2457600,
+   "size": "2400 kB",
+   "rows": 10136
+  },
+  {
+   "table": "quants",
+   "bytes": 393216,
+   "size": "384 kB",
+   "rows": 28
+  },
+  {
+   "table": "rm_gl_day",
+   "bytes": 344064,
+   "size": "336 kB",
+   "rows": 2274
+  }
+ ],
+ "books_from_gl_lines": {
+  "trial_summary": 21.6,
+  "trial_balance": 2.89,
+  "income_statement": 7.63,
+  "financial_position": 14.13,
+  "closing_status": 17.42
+ },
+ "command_latency": {
+  "without_worker": {
+   "median_ms": 14.3,
+   "p95_ms": 64.4,
+   "commands": 120,
+   "worker_passes": 0
+  },
+  "with_worker_every_200ms": {
+   "median_ms": 28.3,
+   "p95_ms": 107.9,
+   "commands": 120,
+   "worker_passes": 24
+  },
+  "again_without_worker": {
+   "median_ms": 15.4,
+   "p95_ms": 107.3,
+   "commands": 120,
+   "worker_passes": 0
+  }
+ },
+ "scaling": [
+  {
+   "as_of": "2024-10-31",
+   "events_by_then": 2347,
+   "ledger_ms": 590.68,
+   "read_model_ms": 4.37
+  },
+  {
+   "as_of": "2025-10-31",
+   "events_by_then": 14525,
+   "ledger_ms": 1829.81,
+   "read_model_ms": 4.14
+  },
+  {
+   "as_of": "2026-10-31",
+   "events_by_then": 45240,
+   "ledger_ms": 2739.63,
+   "read_model_ms": 5.63
+  }
+ ],
+ "finished": "2026-11-05T02:25:36.414Z",
+ "command": "node scripts/build-sql.mjs && node experiments/read-models/measure.mjs",
+ "git": "0594405",
+ "command_latency_other_runs": {
+  "note": "The same 120 commands, measured by earlier runs of this script on the same day and machine (median and p95, ms). The read side never runs inside a command; the differences between runs follow the machine load, not the worker.",
+  "runs": [
+   {
+    "started": "2026-11-05T00:2x (first run, before the sales replay change)",
+    "without_worker": [
+     7.25,
+     18.4
+    ],
+    "with_worker_every_200ms": [
+     7.1,
+     16.7
+    ],
+    "again_without_worker": [
+     7.95,
+     21.8
+    ]
+   },
+   {
+    "started": "2026-11-05T01:56:09Z",
+    "load_average_at_start": [
+     93.1,
+     115.1,
+     96.2
+    ],
+    "without_worker": [
+     53.95,
+     171.6
+    ],
+    "with_worker_every_200ms": [
+     45.15,
+     218.3
+    ],
+    "again_without_worker": [
+     47.1,
+     131.3
+    ]
+   },
+   {
+    "started": "2026-11-05T02:1x (same demo with the earlier runs' extra orders)",
+    "without_worker": [
+     36.6,
+     131.9
+    ],
+    "with_worker_every_200ms": [
+     33.25,
+     120.2
+    ],
+    "again_without_worker": [
+     40.65,
+     145.1
+    ]
+   }
+  ]
+ }
+}

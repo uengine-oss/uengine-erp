@@ -30,7 +30,17 @@ async function inBatches<T>(rpc: RpcFn, fn: string, from: string, to: string, as
   return out
 }
 
-export async function loadLedger(rpc: RpcFn, opt: { asOf?: string | null; onProgress?: (done: number, total: number) => void } = {}): Promise<LedgerData> {
+/** What erp_read_model_series answers: the series kept on the read side, or why they cannot stand in for the ledger. */
+interface ReadModelSeries { current: boolean; sales?: SalesRow[]; stock?: StockRow[]; journal?: JournalRow[] }
+
+export interface LoadOptions {
+  asOf?: string | null
+  onProgress?: (done: number, total: number) => void
+  /** false reads every series from the ledger, as before read models existed. */
+  readModels?: boolean
+}
+
+export async function loadLedger(rpc: RpcFn, opt: LoadOptions = {}): Promise<LedgerData> {
   const asOf = opt.asOf ?? null
   const c = await rpc<AnalyticsContext>('erp_analytics_context', { p_as_of: asOf })
   const first = c.extent.first_day
@@ -44,9 +54,23 @@ export async function loadLedger(rpc: RpcFn, opt: { asOf?: string | null; onProg
   if (!first || !last) return base
   const span = Math.ceil((toDay(last) - toDay(first) + 1) / STEP_DAYS)
   const on = (m: string): boolean => (c.modules[m]?.periods?.length ?? 0) > 0
-  const series: [string, (x: unknown[]) => void][] = [['erp_sales_daily', (x) => { base.sales = x as SalesRow[] }]]
+  const journalTo = toIso(toDay(last) + 1)
+  // Today's figures can come from the read models in one call: the same rows the batches below add up to, kept up to
+  // date as events arrive. Not for a date in the past, and not while a model is behind: then the ledger, as before.
+  let kept: ReadModelSeries | null = null
+  if (!asOf && opt.readModels !== false) {
+    try {
+      kept = await rpc<ReadModelSeries>('erp_read_model_series', { p_sales: true, p_stock: on('inventory'), p_journal_to: on('accounting') ? journalTo : null })
+    } catch { kept = null }
+    if (!kept?.current) kept = null
+  }
+  base.readModels = !!kept
+  const series: [string, (x: unknown[]) => void][] = []
+  if (kept) base.sales = kept.sales ?? []
+  else series.push(['erp_sales_daily', (x) => { base.sales = x as SalesRow[] }])
   if (on('inventory')) {
-    series.push(['erp_stock_daily', (x) => { base.stock = x as StockRow[] }])
+    if (kept) base.stock = kept.stock ?? []
+    else series.push(['erp_stock_daily', (x) => { base.stock = x as StockRow[] }])
     series.push(['erp_receipts_daily', (x) => { base.receipts = x as ReceiptRow[] }])
   }
   if (on('purchase')) series.push(['erp_lead_times', (x) => { base.purchases = x as PurchaseLine[] }])
@@ -58,6 +82,6 @@ export async function loadLedger(rpc: RpcFn, opt: { asOf?: string | null; onProg
   }
   if (on('inventory')) base.rules = await rpc<ReorderRule[]>('erp_reorder_rules', { p_as_of: asOf })
   // Windows here go by accounting date and every call reads every entry, so batching would only repeat the work.
-  if (on('accounting')) base.journal = await rpc<JournalRow[]>('erp_journal_monthly', { p_from: '1900-01-01', p_to: toIso(toDay(last) + 1), p_as_of: asOf })
+  if (on('accounting')) base.journal = kept ? kept.journal ?? [] : await rpc<JournalRow[]>('erp_journal_monthly', { p_from: '1900-01-01', p_to: journalTo, p_as_of: asOf })
   return base
 }

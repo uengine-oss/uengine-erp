@@ -56,6 +56,7 @@ test.beforeAll(async () => {
 test('첫 화면은 모델을 세 상태로 보여 주고, 각자 무엇을 기다리는지 말한다', async ({ page }) => {
   await connectAndLogin(page)
   await page.locator('[data-module="analytics"]').click()
+  await page.locator('[data-screen="/analytics/models"]').click()
   await expect(page.getByTestId('analytics-home')).toBeVisible()
   await expect(page.getByTestId('model-card')).toHaveCount(33)
   for (const id of ['stat_sales', 'demand_sales', 'demand_true', 'stockout_risk', 'lead_time', 'whatif_policy', 'whatif_lead']) {
@@ -301,10 +302,13 @@ test('읽지 못하면 오류와 다시 시도를 보여 주고, 다른 시점�
   await page.getByTestId('models-retry').click()
   await expect(page.getByTestId('model-card').first()).toBeVisible()
 
+  // Today's sales come from the read models when they are current; when that read fails too, the ledger's batches are tried.
+  await failRpc(page, 'erp_read_model_series')
   await failRpc(page, 'erp_sales_daily')
   await openModel(page, 'demand_sales')
   await expect(page.getByTestId('ledger-error')).toContainText('요청을 처리하지 못했습니다', { timeout: 20_000 })
   await shot(page, '182-ledger-error')
+  await restoreRpc(page, 'erp_read_model_series')
   await restoreRpc(page, 'erp_sales_daily')
   await page.getByTestId('ledger-retry').click()
   await expect(page.getByTestId('demand-by-variant')).toBeVisible({ timeout: 40_000 })
