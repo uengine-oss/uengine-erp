@@ -17,10 +17,13 @@ colima 는 기본으로 홈 폴더만 Docker 와 공유합니다. 압축은 홈 
 ## 설치와 시작
 
 ```sh
-unzip uengine-erp-docker-<버전>.zip
-cd uengine-erp-docker-<버전>
+curl -LO https://uengine-oss.github.io/uengine-erp/uengine-erp-docker.zip
+unzip uengine-erp-docker.zip
+cd uengine-erp-docker-*
 ./install.sh
 ```
+
+이 주소는 앱을 배포할 때마다 새로 만든 최신 묶음을 줍니다. 받은 파일을 확인하려면 같은 주소에 `.sha256` 을 붙여 받아 `shasum -a 256 -c uengine-erp-docker.zip.sha256` 을 실행합니다.
 
 처음에는 이미지를 받고 데이터베이스를 설치하느라 몇 분 걸립니다. 끝나면 주소가 나옵니다.
 
