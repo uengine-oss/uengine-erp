@@ -549,8 +549,13 @@ declare
   out_ jsonb := '{}'::jsonb;
   t0 timestamptz := clock_timestamp();
 begin
-  perform public.erp_read_models_refresh(1500);
+  -- A few events behind is the usual case right after someone's work: take them in now. Far behind (rebuilding, or no
+  -- worker running) the ledger answers sooner than catching up would, so this does not try.
   st := public.erp_read_models_status();
+  if (select coalesce(sum((x ->> 'behind')::bigint), 0) from jsonb_array_elements(st -> 'models') x where x ->> 'name' = any (wanted)) between 1 and 5000 then
+    perform public.erp_read_models_refresh(1000);
+    st := public.erp_read_models_status();
+  end if;
   select coalesce(jsonb_agg(x ->> 'name'), '[]'::jsonb) into late from jsonb_array_elements(st -> 'models') x
    where x ->> 'name' = any (wanted) and ((x ->> 'behind')::bigint > 0 or (x ->> 'failures')::int > 0);
   if jsonb_array_length(late) > 0 then return jsonb_build_object('current', false, 'behind', late); end if;

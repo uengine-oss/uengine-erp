@@ -302,10 +302,13 @@ test('읽지 못하면 오류와 다시 시도를 보여 주고, 다른 시점�
   await page.getByTestId('models-retry').click()
   await expect(page.getByTestId('model-card').first()).toBeVisible()
 
+  // Today's sales come from the read models when they are current; when that read fails too, the ledger's batches are tried.
+  await failRpc(page, 'erp_read_model_series')
   await failRpc(page, 'erp_sales_daily')
   await openModel(page, 'demand_sales')
   await expect(page.getByTestId('ledger-error')).toContainText('요청을 처리하지 못했습니다', { timeout: 20_000 })
   await shot(page, '182-ledger-error')
+  await restoreRpc(page, 'erp_read_model_series')
   await restoreRpc(page, 'erp_sales_daily')
   await page.getByTestId('ledger-retry').click()
   await expect(page.getByTestId('demand-by-variant')).toBeVisible({ timeout: 40_000 })
