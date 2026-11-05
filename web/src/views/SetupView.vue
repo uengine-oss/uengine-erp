@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   classifyKey, clearSetupCode, conn, issueSetupCode, loadSetupCode, normalizeUrl, projectRef, SECRET_KEY_MESSAGE, setConn, sqlEditorUrl,
 } from '../lib/conn'
-import { adoptBundledConfig } from '../lib/conn'
+import { adoptBundledConfig, bundledConfigPossible } from '../lib/conn'
 import { probeStatus, rpc, type ApiError } from '../lib/api'
 import { APP_BUILD, installParts, installSql, setupCodeSql, type InstallPart } from '../lib/install'
 import { boot, session, signIn } from '../lib/session'
@@ -224,11 +224,17 @@ async function copyReissue() {
   toast(ok ? 'SQL 을 복사했습니다. SQL Editor 에서 실행하세요.' : '복사하지 못했습니다.', ok ? 'ok' : 'error')
 }
 
+// Docker bundle: erp-config.json beside the app connects this browser and supplies the setup code (lib/conn.ts).
+// The connect form waits for that check, so it does not flash before the next step.
+const bundleCheck = ref(!conn.value && route.query.change !== '1' && bundledConfigPossible())
 onMounted(async () => {
-  // Docker bundle: erp-config.json beside the app connects this browser and supplies the setup code (lib/conn.ts).
-  if (route.query.change !== '1') await adoptBundledConfig()
-  // "Change connection" opens step 1 as is; a plain visit continues from wherever setup stopped.
-  if (conn.value && route.query.change !== '1') void routeByStatus()
+  try {
+    if (route.query.change !== '1') await adoptBundledConfig()
+    // "Change connection" opens step 1 as is; a plain visit continues from wherever setup stopped.
+    if (conn.value && route.query.change !== '1') await routeByStatus()
+  } finally {
+    bundleCheck.value = false
+  }
 })
 onBeforeUnmount(stopPolling)
 </script>
@@ -245,7 +251,7 @@ onBeforeUnmount(stopPolling)
     </template>
 
     <!-- 1. Connect -->
-    <template v-if="step === 'connect'">
+    <template v-if="step === 'connect' && !bundleCheck">
       <h1 class="split-title">Supabase 프로젝트 연결</h1>
       <p class="split-lead">회사 데이터는 회사 소유의 Supabase 프로젝트에 저장됩니다. 무료 플랜으로 시작할 수 있습니다.</p>
 

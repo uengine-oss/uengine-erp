@@ -187,7 +187,8 @@ export function portalLink(c: Conn, token: string): string {
 /*
  * Docker bundle (docker/ in the repository). Its web server answers ./erp-config.json with the address and public key
  * of the Supabase stack beside it, and the setup code its installer stored, so the app skips the connect screen and the
- * company step needs no SQL. GitHub Pages has no such file (404), so nothing changes there.
+ * company step needs no SQL. Only a page opened from 127.0.0.1 or localhost asks, and a local build without the file
+ * gets a 404, so GitHub Pages and local development behave as before.
  * Handing out the setup code lets whoever can open the page create the company while none exists. That is acceptable
  * only because the bundle listens on 127.0.0.1. A server other people can reach must not serve this file with a code.
  */
@@ -210,10 +211,15 @@ export async function fetchBundledConfig(): Promise<BundledConfig | null> {
   }
 }
 
+/** The bundle is opened from this computer only, so a page served from anywhere else (GitHub Pages) never asks. */
+export function bundledConfigPossible(): boolean {
+  return ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname)
+    && (!conn.value || conn.value.url.startsWith('http://127.0.0.1'))
+}
+
 /** Connects from erp-config.json when nothing is saved, and leaves its setup code where the company step reads it. */
 export async function adoptBundledConfig(): Promise<boolean> {
-  // A cloud project never comes with this file, so only a browser with no connection or a local one asks.
-  if (conn.value && !conn.value.url.startsWith('http://127.0.0.1')) return false
+  if (!bundledConfigPossible()) return false
   const cfg = await fetchBundledConfig()
   if (!cfg) return false
   if (!conn.value) setConn({ url: cfg.url, key: cfg.key })
