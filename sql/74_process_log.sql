@@ -35,6 +35,14 @@ language sql immutable as $$
     p_event)
 $$;
 
+-- A payment's events say 입금 on every screen. In a case they are named by the way the money went, so paying a vendor reads 지급.
+create or replace function erp.pl_activity(p_event text, p_type_label text, p_stream_type text, p_pay_dir text) returns text
+language sql immutable as $$
+  select case when p_stream_type = 'payment' and p_pay_dir = 'outbound'
+              then replace(erp.pl_event_label(p_event, p_type_label), '입금', '지급')
+              else erp.pl_event_label(p_event, p_type_label) end
+$$;
+
 -- Who did it, as the screens say it. A module answering another is "연쇄 반응"; an agent keeps its member's name.
 create or replace function erp.pl_resource(p_actor text, p_source text) returns text
 language sql immutable as $$
@@ -153,7 +161,7 @@ begin
       union all select p.case_id, p.id from pays p) x
      group by case_id, doc_id
   ), ev as materialized (
-    select m.case_id, c.created_at as case_start, c.name as case_name, d.name as doc_name,
+    select m.case_id, c.created_at as case_start, c.name as case_name, d.name as doc_name, d.state ->> 'payment_type' as pay_dir,
            e.seq, e.occurred_at, e.event_type, e.stream_type, e.stream_id, e.actor_name, e.source, e.data,
            row_number() over (order by c.created_at, m.case_id, e.occurred_at, e.seq) as rn
       from members m
@@ -192,7 +200,7 @@ begin
   select
     (select coalesce(jsonb_agg(jsonb_build_object(
        'case_id', ev.case_id, 'case_label', coalesce(ev.case_name, '#' || left(ev.case_id::text, 8)),
-       'activity', erp.pl_event_label(ev.event_type, tl.label), 'event_type', ev.event_type,
+       'activity', erp.pl_activity(ev.event_type, tl.label, ev.stream_type, ev.pay_dir), 'event_type', ev.event_type,
        'timestamp', erp.pl_iso(ev.occurred_at, tz), 'resource', erp.pl_resource(ev.actor_name, ev.source), 'source', ev.source,
        'document_type', tl.label, 'document', coalesce(ev.doc_name, '#' || left(ev.stream_id::text, 8)), 'seq', ev.seq,
        'document_id', ev.stream_id, 'document_kind', ev.stream_type,

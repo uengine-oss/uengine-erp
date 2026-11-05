@@ -198,6 +198,7 @@ test('a procure to pay case follows the purchase into receipts, the vendor bill 
   assert.equal(f[0], '견적 요청 생성')
   for (const a of ['구매 확정', '입출고 완료', '청구서 생성', '청구서 게시', '결제 게시', '결제 반영']) assert.ok(f.includes(a), `${a} in ${f.join(' > ')}`)
   assert.ok(!f.includes('요청 줄 추가') && !f.includes('구매 초안 수량 변경'), 'drafting detail is left out')
+  assert.ok(f.includes('지급 초안') && !f.some((x) => x.includes('입금')), `paying the vendor reads 지급: ${f.join(' > ')}`)
   assert.equal(rows.filter((r) => r.case_id === ids.po && r.event_type === 'PickingCreated').length, 2, 'the receipt and its backorder')
   assert.ok(documents.some((d) => d.id === ids.pay2 && d.links.some((l) => l.id === ids.bill)))
   assert.ok(!rows.some((r) => r.case_id === ids.o1), 'sales orders are not purchase cases')
