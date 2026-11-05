@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { conn, sqlEditorUrl } from '../lib/conn'
-import { APP_VERSION, installSql } from '../lib/install'
+import { APP_BUILD, APP_VERSION, installParts, type InstallPart } from '../lib/install'
 import { appOutdated, dbOutdated as needed } from '../lib/mode'
 import { isAdmin, refreshStatus, session } from '../lib/session'
 import { copyText, toast } from '../lib/ui'
@@ -9,21 +9,26 @@ import Icon from './Icon.vue'
 
 const checking = ref(false)
 
+// The upgrade is the same install SQL in the same parts (the cloud SQL Editor refuses it whole), run again from part 1.
 // Loaded ahead of the click: browsers can refuse the clipboard if a click waits on a download first.
-const sql = ref('')
-watch(needed, async (v) => { if (v && !sql.value) sql.value = await installSql() }, { immediate: true })
+const parts = ref<InstallPart[]>([])
+watch(needed, async (v) => { if (v && !parts.value.length) parts.value = await installParts() }, { immediate: true })
+const done = computed(() => {
+  const i = session.status?.install
+  return i && i.version === APP_BUILD && i.total === parts.value.length ? i.done : []
+})
 
 const reload = () => window.location.reload()
 
-async function copySql() {
-  const ok = await copyText(sql.value || await installSql())
-  toast(ok ? '업그레이드 SQL 을 복사했습니다. SQL Editor 에 붙여 넣고 실행하세요.' : '복사하지 못했습니다.', ok ? 'ok' : 'error')
+async function copyPart(p: InstallPart) {
+  const ok = await copyText(p.sql)
+  toast(ok ? `${p.n}/${p.total} ${p.label} 부분을 복사했습니다. SQL Editor 에 붙여 넣고 실행하세요.` : '복사하지 못했습니다.', ok ? 'ok' : 'error')
 }
 async function recheck() {
   checking.value = true
   await refreshStatus()
   checking.value = false
-  if (needed.value) toast('아직 이전 버전입니다. SQL 을 실행한 뒤 다시 확인하세요.', 'error')
+  if (needed.value) toast(done.value.length ? `${done.value.length}/${parts.value.length} 실행됨. 나머지를 차례로 실행한 뒤 다시 확인하세요.` : '아직 이전 버전입니다. SQL 을 실행한 뒤 다시 확인하세요.', 'error')
   else toast('업그레이드를 확인했습니다.')
 }
 </script>
@@ -38,13 +43,22 @@ async function recheck() {
     <Icon name="alert" />
     <span class="grow">
       데이터베이스가 이전 버전입니다(v{{ session.status?.version }} → 앱 v{{ APP_VERSION }}). 업그레이드할 때까지 저장할 수 없습니다.
-      <template v-if="isAdmin()">같은 설치 SQL 을 다시 실행하면 업그레이드되며 데이터는 그대로 보존됩니다.</template>
+      <template v-if="isAdmin()">설치 SQL 을 1번부터 차례로 다시 실행하면 업그레이드되며 데이터는 그대로 보존됩니다.</template>
       <template v-else>관리자에게 업그레이드를 요청하세요.</template>
     </span>
     <template v-if="isAdmin()">
-      <button type="button" class="btn btn-sm" @click="copySql"><Icon name="copy" :size="12" />SQL 복사</button>
+      <span class="upgrade-parts">
+        <button
+          v-for="p in parts" :key="p.n" type="button" class="btn btn-sm" :title="`${p.n}. ${p.label} (${Math.ceil(p.bytes / 1024)} KB)`"
+          :data-testid="`upgrade-part-${p.n}`" :data-done="done.includes(p.n) ? 'true' : 'false'" @click="copyPart(p)"
+        ><Icon :name="done.includes(p.n) ? 'check' : 'copy'" :size="12" />{{ p.n }}</button>
+      </span>
       <a class="btn btn-sm" :href="sqlEditorUrl(conn?.url)" target="_blank" rel="noopener noreferrer"><Icon name="external" :size="12" />SQL Editor</a>
       <button type="button" class="btn btn-sm" :disabled="checking" @click="recheck">다시 확인</button>
     </template>
   </div>
 </template>
+
+<style scoped>
+.upgrade-parts { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+</style>

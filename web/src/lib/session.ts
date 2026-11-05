@@ -63,8 +63,9 @@ export async function boot(): Promise<Phase> {
   if (probe.kind === 'bad-key') { session.message = probe.message; return (session.phase = 'bad-key') }
   if (probe.kind === 'error') { session.message = probe.message; return (session.phase = 'error') }
   session.status = probe.status
-  // Some parts of the install have run, not all: the rest still has to be pasted.
-  if (probe.status.installed === false) return (session.phase = 'not-installed')
+  // Some parts of a first install have run, not all: the rest still has to be pasted. A company that already exists is
+  // mid-upgrade instead and keeps working read-only behind the upgrade banner.
+  if (probe.status.installed === false && !probe.status.initialized) return (session.phase = 'not-installed')
   if (!probe.status.initialized) return (session.phase = 'not-initialized')
 
   const { data } = await db().auth.getSession()

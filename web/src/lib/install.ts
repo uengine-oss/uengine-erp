@@ -3,6 +3,9 @@ import versionInfo from '../generated/version.json'
 import partsInfo from '../generated/install-parts.json'
 
 export const APP_VERSION: string = versionInfo.version
+/** This build's install SQL: progress of a parts install is counted per build, and the database is compared by it. */
+export const APP_BUILD: string = (versionInfo as { build?: string }).build ?? APP_VERSION
+export const APP_SCHEMA: { time: number; hash: string } | null = (versionInfo as { schema?: { time: number; hash: string } }).schema ?? null
 
 export async function installSql(setupCode?: string): Promise<string> {
   const { default: sql } = await import('../generated/install.sql?raw')

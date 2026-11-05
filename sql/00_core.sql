@@ -1017,6 +1017,8 @@ language sql stable security definer set search_path = erp, pg_temp as $$
     'installed', exists (select 1 from erp.meta where key = 'schema_version')
                  and coalesce((select jsonb_array_length(value -> 'done') >= (value ->> 'total')::int from erp.meta where key = 'install'), true),
     'install', (select value from erp.meta where key = 'install'),
+    -- What this database was installed from: {time, hash}. The app compares it with its own build to ask for an upgrade.
+    'schema', (select value from erp.meta where key = 'schema_build'),
     'version', (select value #>> '{}' from erp.meta where key = 'schema_version'),
     'min_app_version', erp.min_app_version(),
     'initialized', exists (select 1 from erp.members),

@@ -57,7 +57,10 @@ test('DB 스키마가 앱보다 낮으면 업그레이드를 안내하고, 같�
   const token = await tokenFor(ADMIN.email, ADMIN.password)
   const made = await command(token, 'test_customer', null, 'create', { name: '업그레이드 전에 만든 고객', code: 'KEEP-1' })
   const before = (await sql('select count(*)::int as n from erp.events')).rows[0].n
+  // Installed from an older build: a lower version, an older schema stamp, and its parts counted for that build.
   await sql(`update erp.meta set value = '"0.0.1"' where key = 'schema_version'`)
+  await sql(`update erp.meta set value = jsonb_build_object('time', 1, 'hash', 'older0000000') where key = 'schema_build'`)
+  await sql(`update erp.meta set value = jsonb_set(value, '{version}', '"0.0.1+1.older0000000"') where key = 'install'`)
 
   await connectAndLogin(page)
   const banner = page.getByTestId('upgrade-banner')
@@ -65,18 +68,53 @@ test('DB 스키마가 앱보다 낮으면 업그레이드를 안내하고, 같�
   await expect(banner).toContainText('데이터는 그대로 보존')
   await shot(page, '42-upgrade')
 
-  await banner.getByRole('button', { name: 'SQL 복사' }).click()
-  await expect(page.locator('.toast').filter({ hasText: '복사했습니다' })).toBeVisible()
-  const copied = await page.evaluate(() => navigator.clipboard.readText())
-  expect(copied).toContain('schema_version')
-  expect(copied, '업그레이드 SQL 에는 설치 코드가 없다').not.toContain('set_setup_code(\'')
-  await sql(copied)
+  // The upgrade is the install SQL again, in the same parts as a first install (the cloud SQL Editor refuses it whole).
+  const total = await banner.locator('[data-testid^="upgrade-part-"]').count()
+  expect(total).toBeGreaterThan(1)
+  for (let n = 1; n <= total; n++) {
+    await banner.getByTestId(`upgrade-part-${n}`).click()
+    await expect(page.locator('.toast').filter({ hasText: `${n}/${total} ` }).filter({ hasText: '복사했습니다' }).last()).toBeVisible()
+    const copied = await page.evaluate(() => navigator.clipboard.readText())
+    expect(copied, `${n}번 머리`).toContain(`-- uEngine ERP 설치 ${n}/${total}`)
+    expect(copied, '업그레이드 SQL 에는 설치 코드가 없다').not.toContain('set_setup_code(\'')
+    if (n === total) expect(copied).toContain('schema_version')
+    await sql(copied)
+    if (n < total) {
+      // Half an upgrade keeps the company working read-only behind the banner; it never sends the admin back to setup.
+      await banner.getByRole('button', { name: '다시 확인' }).click()
+      await expect(banner.getByTestId(`upgrade-part-${n}`)).toHaveAttribute('data-done', 'true')
+      if (n < total) await expect(banner.getByTestId(`upgrade-part-${n + 1}`)).toHaveAttribute('data-done', 'false')
+      await expect(page.getByRole('heading', { name: '데이터베이스 설치' })).toHaveCount(0)
+    }
+  }
   await banner.getByRole('button', { name: '다시 확인' }).click()
   await expect(banner).toHaveCount(0)
 
   expect((await sql('select count(*)::int as n from erp.events')).rows[0].n).toBe(before)
   await page.goto(`/#/r/test_customer/${made.id}`)
   await expect(page.getByTestId('form-title')).toHaveText('업그레이드 전에 만든 고객')
+})
+
+test('설치 SQL 이 바뀐 빌드의 앱이면 버전을 올리지 않아도 업그레이드를 안내하고, 낡은 탭이면 새로 고침을 안내한다', async ({ page }) => {
+  const { rows } = await sql(`select value from erp.meta where key = 'schema_build'`)
+  const stamp = rows[0].value
+  try {
+    // Installed from an earlier commit of the same version: the schema stamp differs and is older.
+    await sql(`update erp.meta set value = jsonb_build_object('time', ${stamp.time - 3600}, 'hash', 'older0000000') where key = 'schema_build'`)
+    await connectAndLogin(page)
+    await expect(page.getByTestId('upgrade-banner')).toContainText('이전 버전')
+    // Installed by a newer build than this tab was loaded from.
+    await sql(`update erp.meta set value = jsonb_build_object('time', ${stamp.time + 3600}, 'hash', 'newer0000000') where key = 'schema_build'`)
+    await page.reload()
+    await expect(page.getByTestId('app-outdated-banner')).toBeVisible()
+    await expect(page.getByTestId('upgrade-banner')).toHaveCount(0)
+    // A database from before the stamps counts as older.
+    await sql(`delete from erp.meta where key = 'schema_build'`)
+    await page.reload()
+    await expect(page.getByTestId('upgrade-banner')).toBeVisible()
+  } finally {
+    await sql(`insert into erp.meta(key, value) values ('schema_build', $1) on conflict (key) do update set value = excluded.value`, [stamp])
+  }
 })
 
 test('초대 링크는 주소를 확인시키고 접속 정보를 넘긴다 (예전 anon 키도 허용)', async ({ browser }) => {

@@ -131,6 +131,8 @@ export interface ErpStatus {
   installed: boolean
   /** Which parts of which version have run so far, while an install or upgrade is under way. */
   install?: { version: string; total: number; done: number[] } | null
+  /** The build of the install SQL this database last finished: commit time and content hash. */
+  schema?: { time: number; hash: string } | null
   version: string | null
   /** The oldest app this database still accepts writes from. */
   min_app_version?: string | null

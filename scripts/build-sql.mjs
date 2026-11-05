@@ -3,6 +3,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import crypto from 'node:crypto'
+import { execSync } from 'node:child_process'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const dir = path.join(root, 'sql')
@@ -15,6 +17,13 @@ const labels = JSON.stringify(JSON.parse(fs.readFileSync(path.join(root, 'web', 
 if (labels.includes('$labels$')) throw new Error('eventLabels.json may not contain $labels$')
 const chunk = (f) => `-- ===== ${f} =====\n${fs.readFileSync(path.join(dir, f), 'utf8').trim()}\n`.replaceAll('@EVENT_LABELS@', labels)
 const body = files.map(chunk).join('\n')
+
+// Every build stamps the schema: the hash of what this script installs, and when its commit was made. The app carries the
+// same stamp, so a database installed from an older build is asked to upgrade on its own, without anyone bumping a version.
+const schemaHash = crypto.createHash('sha256').update(body).digest('hex').slice(0, 12)
+let schemaTime = Math.floor(Date.now() / 1000)
+try { schemaTime = Number(execSync('git log -1 --format=%ct', { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()) || schemaTime } catch { /* no git: build time */ }
+const build = `${pkg.version}+${schemaTime}.${schemaHash}`
 
 // The cloud SQL Editor refuses a query this large ("Query is too large to be run via the SQL Editor"), so the same files
 // also go out in parts, cut at module boundaries and run in order. Each part is its own transaction and records itself;
@@ -30,8 +39,9 @@ const PARTS = [
 const PART_MAX_BYTES = 450 * 1024
 // Plain code-unit order, the same order the files are sorted and run in ('67_hr' < '67a' < '67c').
 const partOf = (f) => PARTS.findLastIndex((p) => f >= p.from)
-const markAll = PARTS.map((_, i) => `select erp.install_part_done(${i + 1}, ${PARTS.length}, '${pkg.version}');`).join('\n')
-const version = `insert into erp.meta(key, value) values ('schema_version', to_jsonb('${pkg.version}'::text))
+const markAll = PARTS.map((_, i) => `select erp.install_part_done(${i + 1}, ${PARTS.length}, '${build}');`).join('\n')
+const version = `insert into erp.meta(key, value) values ('schema_version', to_jsonb('${pkg.version}'::text)),
+  ('schema_build', jsonb_build_object('time', ${schemaTime}, 'hash', '${schemaHash}'))
   on conflict (key) do update set value = excluded.value;`
 
 const out = `-- uEngine ERP install / upgrade script v${pkg.version}
@@ -50,7 +60,7 @@ const parts = only ? [] : PARTS.map((p, i) => {
 -- SQL Editor 에 붙여 넣고 Run 을 누릅니다. 1번부터 순서대로 실행하세요. 다시 실행해도 데이터는 지워지지 않습니다.
 begin;
 ${mine.map(chunk).join('\n')}
-select erp.install_part_done(${i + 1}, ${PARTS.length}, '${pkg.version}');
+select erp.install_part_done(${i + 1}, ${PARTS.length}, '${build}');
 ${i === PARTS.length - 1 ? version + '\n' : ''}commit;
 notify pgrst, 'reload schema';
 `
@@ -72,7 +82,7 @@ if ((!only || process.env.ERP_SQL_WEB === '1') && fs.existsSync(path.join(root, 
   for (const f of fs.readdirSync(gen).filter((x) => /^install-\d+\.sql$/.test(x))) fs.rmSync(path.join(gen, f))
   for (const p of parts) fs.writeFileSync(path.join(gen, `install-${p.n}.sql`), p.sql)
   fs.writeFileSync(path.join(gen, 'install-parts.json'), JSON.stringify(manifest))
-  fs.writeFileSync(path.join(gen, 'version.json'), JSON.stringify({ version: pkg.version }))
+  fs.writeFileSync(path.join(gen, 'version.json'), JSON.stringify({ version: pkg.version, build, schema: { time: schemaTime, hash: schemaHash } }))
 }
-console.log(`install.sql: ${files.length} files, ${(out.length / 1024).toFixed(0)} KB` +
+console.log(`install.sql: ${files.length} files, ${(out.length / 1024).toFixed(0)} KB, build ${build}` +
   (parts.length ? `; ${parts.length} parts: ${parts.map((p) => `${p.n} ${p.label} ${Math.round(p.bytes / 1024)} KB`).join(', ')}` : ''))

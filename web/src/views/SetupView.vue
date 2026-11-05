@@ -5,7 +5,7 @@ import {
   classifyKey, clearSetupCode, conn, issueSetupCode, loadSetupCode, normalizeUrl, projectRef, SECRET_KEY_MESSAGE, setConn, sqlEditorUrl,
 } from '../lib/conn'
 import { probeStatus, rpc, type ApiError } from '../lib/api'
-import { APP_VERSION, installParts, installSql, setupCodeSql, type InstallPart } from '../lib/install'
+import { APP_BUILD, installParts, installSql, setupCodeSql, type InstallPart } from '../lib/install'
 import { boot, session, signIn } from '../lib/session'
 import { copyText, toast } from '../lib/ui'
 import ConnectionProblem from '../components/ConnectionProblem.vue'
@@ -64,7 +64,7 @@ async function routeByStatus() {
   if (probe.kind === 'missing') { await openInstall(); return }
   session.status = probe.status
   // Some parts ran, not all (or an upgrade is half done): carry on with the parts.
-  if (probe.status.installed === false) { await openInstall(probe.status.install); return }
+  if (probe.status.installed === false && !probe.status.initialized) { await openInstall(probe.status.install); return }
   if (!probe.status.initialized) { openCompany(); return }
   session.phase = 'idle'
   await router.replace({ name: 'login' })
@@ -90,7 +90,7 @@ const copiedPart = ref(0)
 const nextPart = computed(() => parts.value.find((p) => !doneParts.value.includes(p.n))?.n ?? 0)
 const partKB = (p: InstallPart) => `${Math.ceil(p.bytes / 1024)} KB`
 function takeProgress(install?: { version: string; total: number; done: number[] } | null) {
-  doneParts.value = install && install.version === APP_VERSION && install.total === parts.value.length ? install.done : []
+  doneParts.value = install && install.version === APP_BUILD && install.total === parts.value.length ? install.done : []
 }
 let pollTimer: ReturnType<typeof setInterval> | undefined
 

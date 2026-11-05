@@ -2,7 +2,7 @@
 // Only the reason lives here. What is allowed stays in the database, which checks every command again.
 import { computed, reactive, watch } from 'vue'
 import { compareVersions } from './format'
-import { APP_VERSION } from './install'
+import { APP_SCHEMA, APP_VERSION } from './install'
 import { session } from './session'
 
 /** The whole company as it stood at the end of a day. Empty `at` means the present. */
@@ -33,8 +33,22 @@ export function exitTimeView(): void {
 // The next person to sign in on this browser starts in the present.
 watch(() => session.me, (me) => { if (!me) exitTimeView() })
 
-export const dbOutdated = computed(() => session.status?.version != null && compareVersions(session.status.version, APP_VERSION) < 0)
-export const appOutdated = computed(() => !!session.status?.min_app_version && compareVersions(APP_VERSION, session.status.min_app_version) < 0)
+// Every build carries the stamp of its install SQL (commit time and content hash), so a change to the SQL asks existing
+// databases to upgrade without anyone bumping the version. A database from before the stamps counts as older.
+export const dbOutdated = computed(() => {
+  const s = session.status
+  if (s?.version == null) return false
+  if (compareVersions(s.version, APP_VERSION) < 0) return true
+  if (!APP_SCHEMA) return false
+  if (!s.schema) return true
+  return s.schema.hash !== APP_SCHEMA.hash && s.schema.time <= APP_SCHEMA.time
+})
+// The app is the older one: below what the database accepts, or built before the SQL the database already runs (a stale tab).
+export const appOutdated = computed(() => {
+  const s = session.status
+  if (s?.min_app_version && compareVersions(APP_VERSION, s.min_app_version) < 0) return true
+  return !!(APP_SCHEMA && s?.schema && s.schema.hash !== APP_SCHEMA.hash && s.schema.time > APP_SCHEMA.time)
+})
 
 export type WriteBlock = 'time' | 'app' | 'db' | null
 
