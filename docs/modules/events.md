@@ -27,6 +27,76 @@
 
 외부 시스템은 원장을 `erp_event_feed`(REST) 나 `erp_read {events: {after, from, to, stream, limit}}`(MCP) 로 읽는다. 둘 다 끝난 트랜잭션만 `(txid, seq)` 순서로 주므로 커서 뒤에 끼어드는 이벤트가 없다. 계약은 `data` 최상위의 사실이고, `set`, `col`, `effects`, `changes` 는 스트림 자신의 것이라 읽는 쪽이 기대면 안 된다. 그 해석을 하는 쪽은 스스로의 위험으로 한다.
 
+## 프로세스 마이닝으로 읽기
+
+원장은 이미 이벤트 로그다. `erp_process_log`(REST)와 `erp_read {process_log: {case, from, to, after, limit, major}}`(MCP)는 원장을 사례별로 묶어 같은 행을 준다. 분석 메뉴의 「프로세스 마이닝 로그」 화면은 이 행으로 CSV, XES, OCEL 2.0 파일을 만든다. 파일을 만드는 코드(`web/src/lib/processLog.ts`)는 화면과 `experiments/process-log-samples.mjs` 가 함께 쓴다.
+
+**사례 묶음.** `case` 로 고른다.
+
+| `case` | 사례 하나 | 함께 묶는 문서 |
+|---|---|---|
+| `sales_order` (주문-수금) | 견적·주문 한 건 | 그 주문에서 만든 입출고 전표와 청구서, 그 청구서에 붙은 입금 |
+| `purchase_order` (구매-지급) | 구매 주문 한 건 | 그 주문에서 만든 입고 전표와 공급사 청구서, 그 청구서에 붙은 지급 |
+| `document` (문서별) | 문서 한 건 | 없음. `document:<유형>` 으로 한 유형만 고른다. 숨은 유형(`hidden`)은 넣지 않는다 |
+
+따라가는 연결은 두 가지다.
+
+- 입출고 전표와 청구서는 `origin_id` 가 주문이면 그 사례에 든다. 백오더와 대변 메모도 원래 주문을 `origin_id` 로 두므로 함께 든다.
+- 입금·지급은 청구서의 `InvoicePaymentApplied` 가 `payment_id` 로 가리키면 그 사례에 든다. 붙였다가 뗀 입금도 남는다. 떼어 낸 일도 프로세스다.
+
+회계 전표, 부가세 집계, 프로젝트, 제조 지시는 주문에서 이어졌더라도 묶지 않는다. 문서별로는 볼 수 있다. 입금 하나가 두 주문의 청구서를 함께 갚으면 그 입금은 두 사례에 모두 나온다. OCEL 파일에는 문서와 이벤트가 한 번씩만 들어간다.
+
+**기간.** `from`, `to`(날짜)는 사례가 시작한 날로 고른다. 시작한 날은 첫 문서가 처음 기록된 날이고, 회사 시간대로 읽으며 양 끝을 포함한다. 그 사례의 뒤 이벤트는 기간을 넘어도 모두 싣는다. 흐름이 중간에 잘리지 않게 하려는 것이다.
+
+**행.** 사례가 시작한 순서로, 사례 안에서는 시각 순서로, 시각이 같으면 `seq` 순서로 온다. 데모 회사처럼 한 명령의 이벤트가 같은 시각을 가지면 순서는 `seq` 가 정한다.
+
+| 필드 | 뜻 |
+|---|---|
+| `case_id`, `case_label` | 사례 첫 문서의 UUID 와 번호(예: `S00012`). 번호가 없으면 `#` 과 UUID 앞 8자리 |
+| `activity` | 원장 화면과 같은 한국어 이름 |
+| `event_type`, `seq`, `source` | 원장의 이벤트 코드, 순번, 출처 |
+| `timestamp` | 회사 시간대의 ISO 8601, 밀리초까지, 시차 포함(예: `2026-03-02T11:00:00.000+09:00`) |
+| `resource` | 사람이 한 일은 그 사람 이름, 다른 모듈이 이어서 한 일(`reaction`, `bus:*`)은 「연쇄 반응」, 에이전트가 한 일은 「이름 · 에이전트」, 이름이 없으면 「시스템」 |
+| `document_type`, `document` | 그 이벤트가 속한 문서의 유형 이름과 번호 |
+| `document_id`, `document_kind` | 그 문서의 UUID 와 유형 코드 |
+| `refs` | 이벤트가 스스로 가리키는 같은 사례의 다른 문서(`origin_id`, `payment_id`, `move_id`, `credit_move_id`, `backorder_of`, `reversal_of`, 배분의 청구서) |
+
+응답의 `documents` 는 그 쪽에 나온 사례의 모든 문서와 문서 사이의 연결(원본, 백오더 원본, 정정 대상, 결제한 청구서)이다. 이벤트를 모두 뺀 문서도 들어 있어 OCEL 의 객체를 빠짐없이 만들 수 있다.
+
+**활동 이름.** 원장 화면이 쓰는 이름 그대로다. 이름은 `web/src/lib/eventLabels.json` 한 파일에 있다. 화면은 이 파일을 읽고, `scripts/build-sql.mjs` 는 설치 스크립트를 만들 때 이 파일을 그대로 SQL 에 싣는다. 그래서 파일, 화면, MCP 의 이름이 갈라질 수 없다. `test/process-log.test.mjs` 가 SQL 의 이름과 화면의 이름을 모든 이벤트에 대해 대조한다.
+
+**주요 활동만.** `major`(기본 켬)는 아래 장부 기록을 뺀다. 목록과 이유는 `eventLabels.json` 의 `minor` 에 있다.
+
+| 묶음 | 빼는 이벤트 | 이유 |
+|---|---|---|
+| 상태 다시 적기 | `*StateChanged`, `*StatusChanged` (`PickingStateChanged`, `PaymentStateChanged`, `SalesOrderDeliveryStatusChanged`, `SalesOrderInvoiceStatusChanged`, `PurchaseOrderReceiptStatusChanged`) | 다른 일의 결과로 상태 칸을 다시 계산해 적은 기록이다. 그 일 자체는 따로 남는다 |
+| 재고 예약 | `PickingReserved`, `PickingUnreserved`, `PickingReservationReduced` | 재고를 잡아 두고 푸는 장부다. 물건이 움직인 일은 「입출고 완료」로 남는다 |
+| 옮겨 적기 | `InvoiceDrafted`, `InvoiceReversalLinked`, `SalesOrderDelivered`, `SalesOrderInvoiced`, `PurchaseOrderReceived`, `PurchaseOrderBilled` | 이미 남은 일을 다른 모듈에 알리거나 다른 문서에 옮겨 적은 기록이다 |
+| 다시 계산한 값 | `PurchaseOrderAmountsChanged`, `RfqAmountsChanged`, `PurchaseDraftQtyChanged`, `StockRfqQtyWatched`, `PickingMoveCostChanged` | 줄을 고친 뒤 합계, 초안 수량, 단가를 다시 계산해 적은 기록이다 |
+| 초안 줄 편집 | `Quotation*`, `Rfq*`, `Invoice*` 의 줄 추가·변경·삭제·순서·구역, `PickingMoveAdded/Changed/Removed` | 확정 전 문서의 줄을 하나씩 고치는 세부 편집이다. 견적 요청은 만들 때 줄마다 이 이벤트를 남긴다 |
+| 양보 | `data.yields = true` 인 이벤트 | 다른 일이 재고를 가져가 이 문서가 예약을 내준 기록이다. 이 문서에서 누가 한 일이 아니다 |
+
+빼지 않는 것도 정해 두었다.
+
+- 되돌리기(`Reverted`)와 보상 명령이 낸 이벤트(출처 `compensation`)는 남긴다. 다시 한 일도 프로세스다.
+- 확정한 주문의 줄 변경(`SalesOrderLine*`, `PurchaseOrderLine*`)은 남긴다. 주문을 받은 뒤 고친 일이기 때문이다.
+- 「결제 반영」(`InvoicePaymentApplied`)은 입금의 「결제 게시」와 겹쳐 보여도 남긴다. 입금은 회계만 읽으므로 영업과 구매에게는 이것이 결제의 유일한 흔적이다.
+
+**읽을 수 없는 부분.** 화면이든 MCP 든 문서마다 원장 화면의 행 보안과 같은 판단을 한다.
+
+- 사례의 첫 문서를 읽을 수 없으면 그 사례는 없다.
+- 읽을 수 없는 문서는 사례에서 빠진다. 그 문서를 거쳐야만 이어지는 문서도 빠진다. 예를 들어 청구서를 읽을 수 없는 사람에게는 그 청구서에 붙은 입금이 주문 사례에 나오지 않는다. 입금을 읽을 수 있더라도 마찬가지다.
+- `refs` 와 `documents` 의 연결도 읽을 수 있는 문서만 가리킨다.
+- 다른 사람의 문서를 가리키는 커서는 받지 않는다(`ERP_INVALID`).
+
+**쪽 나누기.** `limit`(기본 1000, 최대 5000) 행씩 준다. 응답의 `next` 를 다음 요청의 `after` 로 넘기고, `more` 가 false 가 될 때까지 읽는다. 한 쪽은 사례를 `limit` 의 5분의 1건까지만 읽어 API 의 8초 제한 안에 든다. 그래서 `limit` 보다 적은 행이 와도 `more` 가 true 일 수 있다. 커서는 사례와 `seq` 를 가리키므로 한 사례가 두 쪽에 걸칠 수 있다. 쪽마다 따로 읽으므로 읽는 사이에 기록된 이벤트는 아직 읽지 않은 사례에만 들어간다. 바깥 시스템이 원장을 빠짐없이 따라가려면 이 로그가 아니라 `erp_read {events}` 를 쓴다.
+
+**파일.**
+
+- CSV: UTF-8(BOM 포함), 줄바꿈 LF. 머리글은 정확히 `case_id,case_label,activity,event_type,timestamp,resource,source,document_type,document,seq` 이다. 앱의 다른 CSV 처럼 `=`, `+`, `-`, `@` 로 시작하는 글자 칸 앞에는 `'` 를 붙인다.
+- XES(IEEE 1849-2016): 사례마다 trace 하나, `concept:name` 은 `case_label`, `erp:case_id` 는 UUID. 이벤트에는 `concept:name`(활동), `time:timestamp`, `org:resource`, `erp:event_type`, `erp:document`, `erp:document_type`, `erp:source`, `erp:seq` 가 있다.
+- OCEL 2.0 JSON: 객체는 문서(유형 이름이 객체 유형, 속성은 「번호」), 객체 사이 관계는 `documents` 의 연결이다. 이벤트는 자기 문서와, 스스로 가리키는 다른 문서(`refs`) 모두와 관계를 갖는다. 속성은 `resource`, `source`, `event_type`, `seq` 다. OCEL 2.0 표준이 공개한 JSON 스키마로 시험한다(`test/fixtures/ocel20-schema-json.json`).
+
 ## 판매가 내는 것
 
 | 이벤트 | `data` 의 사실 |
