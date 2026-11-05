@@ -43,6 +43,7 @@ export const router = createRouter({
         { path: 'analytics/models/:id', name: 'model', component: () => import('./screens/analytics/ModelView.vue'), props: true, meta: { title: '모델' } },
         { path: 'analytics/stats', name: 'stats', component: () => import('./screens/analytics/StatsView.vue'), meta: { title: '매출 통계' } },
         { path: 'analytics/quotes', name: 'quotes', component: () => import('./screens/analytics/QuotesView.vue'), meta: { title: '견적 전환율' } },
+        { path: 'analytics/process-log', name: 'process-log', component: () => import('./screens/analytics/ProcessLogView.vue'), meta: { title: '프로세스 마이닝 로그' } },
         { path: 'inventory/stock', name: 'stock', component: () => import('./screens/reports/StockView.vue'), meta: { title: '재고 현황' } },
         { path: 'invoicing/targets', name: 'targets', component: () => import('./screens/reports/TargetsView.vue'), meta: { title: '청구 대상' } },
         { path: 'invoicing/aged', name: 'aged', component: () => import('./screens/reports/AgedView.vue'), meta: { title: '미수금·미지급금' } },

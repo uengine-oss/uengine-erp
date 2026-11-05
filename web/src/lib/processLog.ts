@@ -30,7 +30,7 @@ export async function loadProcessLog(rpc: Rpc, q: PlQuery, onPage?: (rows: numbe
   let after: string | null = null
   for (let i = 0; i < 100000; i++) {
     const page = (await rpc('erp_process_log', {
-      p_case: q.notion, p_from: q.from || null, p_to: q.to || null, p_after: after, p_limit: q.pageSize ?? 2000, p_major: q.major ?? true,
+      p_case: q.notion, p_from: q.from || null, p_to: q.to || null, p_after: after, p_limit: q.pageSize ?? 1000, p_major: q.major ?? true,
     })) as PlPage
     if (isStale?.()) break
     rows.push(...page.rows)

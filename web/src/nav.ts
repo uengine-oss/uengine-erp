@@ -444,6 +444,7 @@ export const NAV: NavModule[] = [
       { label: '예측·what-if', route: '/analytics/models' },
       { label: '매출 통계', route: '/analytics/stats' },
       { label: '견적 전환율', route: '/analytics/quotes' },
+      { label: '프로세스 마이닝 로그', route: '/analytics/process-log' },
     ],
   },
   { key: 'events', label: '이벤트 원장', icon: 'events', route: '/events' },
