@@ -82,7 +82,8 @@ describe('read models equal the ledger', () => {
       const done = {}
       for (const x of w.log) if (!x.includes('거절')) { const k = x.replace(/ = \d+$/, '').replace(/ [A-Za-z/_]+$/, ''); done[k] = (done[k] ?? 0) + 1 }
       if (process.env.RM_LOG) console.log(seed, JSON.stringify(done), w.log.filter((x) => x.includes('거절')).slice(0, 30))
-      for (const k of ['주문', '확정', '늦게 확정', '수량 변경', '줄 추가', '출고', '부분 출고', '청구 게시', '되돌리기', '중간 반영']) assert.ok(done[k] > 0, `the workload should include ${k}: ${JSON.stringify(done)}`)
+      // The fixed seeds cover every kind of work between them; other seeds explore and may skip some.
+      if (!process.env.RM_SEEDS) for (const k of ['주문', '확정', '늦게 확정', '수량 변경', '줄 추가', '출고', '부분 출고', '청구 게시', '되돌리기', '중간 반영']) assert.ok(done[k] > 0, `the workload should include ${k}: ${JSON.stringify(done)}`)
       for (const u of [sales, acct, stocker, viewer]) await assertSame(c, u.id, `seed ${seed} as ${u.id}`)
       assert.deepEqual(await c.verifyProjection(), [])
     })
@@ -303,6 +304,40 @@ describe('freshness, and the read side never slows a command', () => {
     await catchUp(c)
     assert.equal(modelOf(await statusOf(c, c.adminId), 'stock_day').failures, 0)
     await assertSame(c, c.adminId, 'after the failure was fixed')
+  })
+
+  test('through the API, as PostgREST runs it: refresh and rebuild pass its guards', async (t) => {
+    // PostgREST signs in as authenticator, which loads a guard refusing unfiltered deletes and stops a statement after 8 s.
+    const u = new URL(urlFor(c.db.name))
+    u.username = 'authenticator'
+    u.password = process.env.ERP_TEST_AUTHENTICATOR_PASSWORD || 'postgres'
+    const api = new pg.Client({ connectionString: u.toString() })
+    try { await api.connect() } catch (e) { t.skip(`no authenticator login on this stack: ${e.message}`); return }
+    const call = async (sql) => {
+      await api.query('begin')
+      try {
+        await api.query('set local role authenticated')
+        await api.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: c.adminId, role: 'authenticated' })])
+        const r = (await api.query(sql)).rows[0].r
+        await api.query('commit')
+        return r
+      } catch (e) { await api.query('rollback'); throw e }
+    }
+    try {
+      await assert.rejects(api.query('create temp table x_guard(x int); delete from x_guard'), /WHERE clause/, 'the guard is on for this connection')
+      const o = await c.admin('sales_order', null, 'create', { partner_id: cust, lines: [{ variant_id: p.state.variants[0].id, qty: 3 }] })
+      await c.admin('sales_order', o.id, 'confirm', {})
+      const rebuilt = await call('select public.erp_read_models_rebuild(null, 4000) r')
+      assert.ok(rebuilt.status.every((m) => m.failures === 0), JSON.stringify(rebuilt.status.map((m) => m.last_error)))
+      for (let i = 0; i < 400; i++) {
+        const r = await call('select public.erp_read_models_refresh(2000) r')
+        const st = await call('select public.erp_read_models_status() r')
+        assert.ok(st.models.every((m) => m.failures === 0), JSON.stringify(st.models))
+        if (st.models.every((m) => m.behind === 0)) break
+        if (!r.applied) await new Promise((res) => setTimeout(res, 25))
+      }
+      await assertSame(c, c.adminId, 'after a rebuild through the API')
+    } finally { await api.end() }
   })
 
   test('while the demo is being built or derived tables rebuilt, the worker waits', async () => {

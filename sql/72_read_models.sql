@@ -197,10 +197,11 @@ create table if not exists erp.rm_sales_day (
 create unique index if not exists rm_sales_day_key on erp.rm_sales_day (day, variant_id, product_id, region, warehouse_id) nulls not distinct;
 create index if not exists rm_sales_day_empty_idx on erp.rm_sales_day (id) where lines <= 0;
 
+-- "where true": requests through the API run with a guard that refuses a delete without a filter.
 create or replace function erp.rm_sales_reset() returns void
 language sql as $$
-  delete from erp.rm_sales_line;
-  delete from erp.rm_sales_day;
+  delete from erp.rm_sales_line where true;
+  delete from erp.rm_sales_day where true;
 $$;
 
 -- p_streams null: every order.
@@ -255,10 +256,13 @@ declare
   more uuid[];
   changed_products text[];
   changed_corr uuid[];
-  everything boolean := not coalesce(memo ? 'tz', false);
+  -- Just started (installed or thrown away): it holds nothing, so nothing can be stale. The replay works every order out
+  -- as its events come by, batch after batch, like any other day.
+  fresh_start boolean := not coalesce(memo ? 'tz', false);
+  everything boolean := false;
   sales_events constant text[] := array['SalesOrderConfirmed', 'SalesOrderLineAdded', 'SalesOrderLineQtyChanged', 'SalesOrderCancelled'];
 begin
-  if not everything then
+  if not fresh_start then
     -- A different time zone moves days; a different factor for a unit can touch any line. Both are rare: start over.
     everything := memo ->> 'tz' is distinct from tz or exists (
       select 1 from (select jsonb_object_keys(coalesce(memo -> 'units' -> 'uom', '{}'::jsonb)) union select jsonb_object_keys(units -> 'uom')) k(k)
@@ -271,6 +275,8 @@ begin
       from erp.events e
      where (e.txid, e.seq) > (p_lo_txid, p_lo_seq) and (e.txid, e.seq) <= (p_hi_txid, p_hi_seq)
        and (e.stream_type = 'sales_order' or e.event_type = any (sales_events));
+  end if;
+  if not everything and not fresh_start then
     -- A product now counted in another unit.
     select coalesce(array_agg(k.k), '{}') into changed_products
       from (select jsonb_object_keys(coalesce(memo -> 'units' -> 'product', '{}'::jsonb)) union select jsonb_object_keys(units -> 'product')) k(k)
@@ -290,6 +296,8 @@ begin
        where e.correlation_id = any (changed_corr) and (e.stream_type = 'sales_order' or e.event_type = any (sales_events));
       touched := touched || more;
     end if;
+  end if;
+  if not everything then
     perform erp.rm_sales_recompute(array(select distinct unnest(touched)), tz, undone, units);
   end if;
   if memo is distinct from jsonb_build_object('tz', tz, 'units', units, 'undone', to_jsonb(undone)) then
@@ -312,7 +320,7 @@ create table if not exists erp.rm_stock_day (
 create unique index if not exists rm_stock_day_key on erp.rm_stock_day (day, variant_id, warehouse_id, stream_type) nulls not distinct;
 
 create or replace function erp.rm_stock_reset() returns void
-language sql as $$ delete from erp.rm_stock_day $$;
+language sql as $$ delete from erp.rm_stock_day where true $$;
 
 drop function if exists erp.rm_stock_apply(xid8, bigint, xid8, bigint);
 create or replace function erp.rm_stock_apply(p_lo_txid xid8, p_lo_seq bigint, p_hi_txid xid8, p_hi_seq bigint) returns boolean
@@ -363,7 +371,7 @@ create table if not exists erp.rm_gl_day (
 create unique index if not exists rm_gl_day_key on erp.rm_gl_day (day, account_id, closing, stream_type);
 
 create or replace function erp.rm_gl_reset() returns void
-language sql as $$ delete from erp.rm_gl_day $$;
+language sql as $$ delete from erp.rm_gl_day where true $$;
 
 drop function if exists erp.rm_gl_apply(xid8, bigint, xid8, bigint);
 create or replace function erp.rm_gl_apply(p_lo_txid xid8, p_lo_seq bigint, p_hi_txid xid8, p_hi_seq bigint) returns boolean
@@ -493,9 +501,11 @@ begin
   return r || jsonb_build_object('status', public.erp_read_models_status(true) -> 'models');
 end $$;
 
--- The same question asked both ways: revenue by month over the last months, from the read model and from the ledger.
+-- The same question asked both ways: revenue by month over the last months, from the read model and from the ledger. It runs as
+-- the caller, as the screens do, so row security costs both sides what it costs a browser.
+drop function if exists public.erp_read_models_compare(int);
 create or replace function public.erp_read_models_compare(p_months int default 12) returns jsonb
-language plpgsql security definer set search_path = erp, extensions, pg_temp as $$
+language plpgsql set search_path = public, pg_temp as $$
 declare
   tz text := public.erp_analytics_tz();
   today date := (now() at time zone tz)::date;
@@ -507,9 +517,9 @@ declare
   ledger_ms numeric;
   behind bigint;
 begin
-  if not erp.has_role(array['admin']) then perform erp.fail('ERP_FORBIDDEN', '관리자만 실행할 수 있습니다'); end if;
-  perform erp.read_models_refresh(2000, 'sales_day');
-  behind := erp.read_model_behind((select r from erp.read_models r where r.name = 'sales_day'));
+  if not erp.has_role(array['admin']) then raise exception 'ERP_FORBIDDEN: 관리자만 실행할 수 있습니다' using errcode = 'PT403'; end if;
+  perform public.erp_read_models_refresh(2000);
+  select (x ->> 'behind')::bigint into behind from jsonb_array_elements(public.erp_read_models_status() -> 'models') x where x ->> 'name' = 'sales_day';
   t0 := clock_timestamp();
   select coalesce(jsonb_agg(jsonb_build_object('month', m, 'revenue', r) order by m), '[]'::jsonb) into rm_rows
     from (select to_char(d.day, 'YYYY-MM') as m, sum(d.revenue) as r from erp.rm_sales_day d where d.day >= lo and d.day <= today group by 1) x;
@@ -523,7 +533,7 @@ begin
   return jsonb_build_object('from', lo, 'to', today, 'behind', behind, 'same', rm_rows = ledger_rows,
     'read_model', jsonb_build_object('ms', round(rm_ms, 2), 'rows', rm_rows),
     'ledger', jsonb_build_object('ms', round(ledger_ms, 2), 'rows', ledger_rows),
-    'events', (select count(*) from erp.events));
+    'events', (select count(*) from public.erp_events));
 end $$;
 
 -- The analytics loader's series in one call, when they can stand in for the ledger: no time travel, nothing after the
