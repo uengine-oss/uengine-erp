@@ -12,7 +12,8 @@
     "web:dev": "npm --prefix web run dev",
     "web:build": "npm --prefix web run build",
     "db:reset": "node scripts/reset-local.mjs",
-    "test:e2e": "npm --prefix web run build && playwright test -c e2e/playwright.config.mjs"
+    "test:e2e": "npm --prefix web run build && playwright test -c e2e/playwright.config.mjs",
+    "docker:bundle": "node scripts/build-docker-bundle.mjs"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

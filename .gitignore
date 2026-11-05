@@ -13,3 +13,5 @@ dist-sql/
 e2e/shots/
 .claude/worktrees/
 dist-forecast/
+dist-docker/
+docker/backups/

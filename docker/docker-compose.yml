@@ -1,0 +1,186 @@
+# uEngine ERP with its own Supabase, for one computer. Start it with ./install.sh, which also writes .env.
+#
+# The services are the part of Supabase's self-hosting compose the app needs: Postgres (with pg_cron and the
+# Supabase roles), GoTrue, PostgREST, Realtime and Kong. No Studio, no Storage. Image versions are the ones
+# Supabase CLI 2.75.0 runs for `supabase start`, which is what the ERP's tests run against.
+#
+# Every port listens on 127.0.0.1 only. The database has no port on the host at all.
+
+name: uengine-erp-docker
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+services:
+  db:
+    image: public.ecr.aws/supabase/postgres:17.6.1.075
+    restart: unless-stopped
+    logging: *logging
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf", "-c", "log_min_messages=fatal"]
+    environment:
+      POSTGRES_HOST: /var/run/postgresql
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?run ./install.sh first, it writes .env}"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      # The image runs this once, when the volume is new: role passwords and the Realtime schema.
+      - ./config/db-init.sql:/etc/postgresql.schema.sql:ro,z
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-h", "127.0.0.1", "-p", "5432"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  # Installs or upgrades the ERP schema when install.sql changed, then sets the setup code. Exits when done.
+  erp-init:
+    image: public.ecr.aws/supabase/postgres:17.6.1.075
+    restart: "no"
+    logging: *logging
+    depends_on:
+      db: { condition: service_healthy }
+    entrypoint: ["sh", "/erp/erp-init.sh"]
+    environment:
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      ERP_SETUP_CODE: ${ERP_SETUP_CODE}
+      ERP_FORCE_INSTALL: ${ERP_FORCE_INSTALL:-0}
+    volumes:
+      - ./config/erp-init.sh:/erp/erp-init.sh:ro,z
+      - ./sql/install.sql:/erp/install.sql:ro,z
+
+  auth:
+    image: public.ecr.aws/supabase/gotrue:v2.186.0
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: "9999"
+      API_EXTERNAL_URL: http://127.0.0.1:${ERP_API_PORT:-57321}
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@db:5432/postgres
+      GOTRUE_SITE_URL: http://127.0.0.1:${ERP_APP_PORT:-57300}
+      GOTRUE_URI_ALLOW_LIST: http://127.0.0.1:${ERP_APP_PORT:-57300}
+      # The ERP creates every account itself (erp_bootstrap, member create), so sign-up through the API stays shut.
+      GOTRUE_DISABLE_SIGNUP: "true"
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_JWT_EXP: "3600"
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_ISSUER: http://127.0.0.1:${ERP_API_PORT:-57321}/auth/v1
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_EXTERNAL_PHONE_ENABLED: "false"
+      GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: "false"
+      GOTRUE_MAILER_AUTOCONFIRM: "false"
+      GOTRUE_PASSWORD_MIN_LENGTH: "6"
+      GOTRUE_SECURITY_REFRESH_TOKEN_ROTATION_ENABLED: "true"
+      GOTRUE_SECURITY_REFRESH_TOKEN_REUSE_INTERVAL: "10"
+      GOTRUE_RATE_LIMIT_TOKEN_REFRESH: "150"
+      GOTRUE_RATE_LIMIT_VERIFY: "30"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:9999/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  rest:
+    image: public.ecr.aws/supabase/postgrest:v14.3
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      db: { condition: service_healthy }
+    command: ["postgrest"]
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@db:5432/postgres
+      PGRST_DB_SCHEMAS: public,graphql_public
+      PGRST_DB_EXTRA_SEARCH_PATH: public,extensions
+      PGRST_DB_MAX_ROWS: "1000"
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_ADMIN_SERVER_PORT: "3001"
+
+  realtime:
+    image: public.ecr.aws/supabase/realtime:v2.73.2
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      db: { condition: service_healthy }
+    networks:
+      default:
+        # Realtime takes the tenant from the host name, and Kong calls it by this one.
+        aliases: [realtime-dev]
+    environment:
+      PORT: "4000"
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: supabase_admin
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: postgres
+      DB_AFTER_CONNECT_QUERY: SET search_path TO _realtime
+      DB_ENC_KEY: ${REALTIME_DB_ENC_KEY}
+      API_JWT_SECRET: ${JWT_SECRET}
+      METRICS_JWT_SECRET: ${JWT_SECRET}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      ERL_AFLAGS: -proto_dist inet_tcp
+      DNS_NODES: "''"
+      RLIMIT_NOFILE: ""
+      APP_NAME: realtime
+      SEED_SELF_HOST: "true"
+      RUN_JANITOR: "true"
+      MAX_HEADER_LENGTH: "4096"
+    healthcheck:
+      test: ["CMD", "curl", "-sSfL", "--head", "-o", "/dev/null", "-H", "Host:realtime-dev", "http://127.0.0.1:4000/api/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  # The API gateway the browser talks to: /auth/v1, /rest/v1, /realtime/v1.
+  kong:
+    image: public.ecr.aws/supabase/kong:2.8.1
+    restart: unless-stopped
+    logging: *logging
+    depends_on: [auth, rest, realtime]
+    ports:
+      - "127.0.0.1:${ERP_API_PORT:-57321}:8000"
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: cors
+      KONG_NGINX_WORKER_PROCESSES: "1"
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+    volumes:
+      - ./config/kong.yml:/home/kong/kong.yml:ro,z
+    healthcheck:
+      test: ["CMD-SHELL", "kong health"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  # The same static app GitHub Pages serves, plus erp-config.json so it connects to this stack by itself.
+  # Only the public (anon) key goes here; the service_role key stays in .env.
+  erp-web:
+    image: public.ecr.aws/nginx/nginx:1.28.0-alpine
+    restart: unless-stopped
+    logging: *logging
+    depends_on: [kong]
+    ports:
+      - "127.0.0.1:${ERP_APP_PORT:-57300}:80"
+    environment:
+      ERP_API_URL: http://127.0.0.1:${ERP_API_PORT:-57321}
+      ERP_ANON_KEY: ${ANON_KEY}
+      ERP_SETUP_CODE: ${ERP_SETUP_CODE}
+    volumes:
+      - ./web:/usr/share/nginx/html:ro,z
+      - ./config/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro,z
+
+volumes:
+  db-data:
