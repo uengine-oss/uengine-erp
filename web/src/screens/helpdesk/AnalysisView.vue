@@ -30,7 +30,13 @@ const ticking = ref(false)
 let seq = 0
 const model = computed(() => models.value.find((m) => m.id === 'helpdesk_sla') ?? null)
 const pct = (v: number | null | undefined) => (v === null || v === undefined ? '-' : `${Math.round(v * 100)}%`)
-const hrs = (v: number | null | undefined) => (v === null || v === undefined ? '-' : `${fmtNumber(v)}시간`)
+// Under an hour reads in minutes: "0시간" would say nothing about a quick answer.
+const hrs = (v: number | null | undefined) => {
+  if (v === null || v === undefined) return '-'
+  const h = Number(v)
+  if (h < 1) return Math.round(h * 60) < 1 ? '1분 미만' : `${Math.round(h * 60)}분`
+  return `${fmtNumber(Math.round(h * 10) / 10)}시간`
+}
 const maxStage = computed(() => Math.max(1, ...(stats.value?.by_stage ?? []).map((s) => s.count)))
 
 async function load() {

@@ -193,6 +193,40 @@ test('SLA policies: a target is needed, both are positive, the answer is not slo
   assert.equal((await ticket({ team_id: team, priority: '0' })).state.sla_policy_id, undefined, 'an archived policy applies to nothing')
 })
 
+test('the most specific policy wins: one for the ticket\'s type, then the highest minimum priority; a changed type sets the deadline again, and editing a policy leaves tickets it already judged alone', async () => {
+  const k = await company({ modules: ['helpdesk'], clock: `${TODAY}T09:00:00+09:00` })
+  try {
+    await setClock(k, `${TODAY}T10:00`)
+    const p = (await k.admin('partner', null, 'create', { name: '고객' })).id
+    const tm = (await k.admin('helpdesk_team', null, 'create', { name: '팀' })).id
+    const bug = (await k.admin('helpdesk_ticket_type', null, 'create', { name: '고장' })).id
+    const ask = (await k.admin('helpdesk_ticket_type', null, 'create', { name: '문의' })).id
+    const all = await k.admin('helpdesk_sla', null, 'create', { name: '모두', team_id: tm, response_hours: 8 })
+    await k.admin('helpdesk_sla', null, 'create', { name: '높음', team_id: tm, min_priority: '2', response_hours: 4 })
+    await k.admin('helpdesk_sla', null, 'create', { name: '고장', team_id: tm, ticket_type_id: bug, response_hours: 2 })
+    const due = async (more) => {
+      const t = await k.admin('helpdesk_ticket', null, 'create', { subject: '문의', partner_id: p, team_id: tm, ...more })
+      return [t.state.sla_terms?.name, t.state.response_due && new Date(t.state.response_due).toISOString()]
+    }
+    assert.deepEqual(await due({}), ['모두', new Date(`${TODAY}T18:00:00+09:00`).toISOString()])
+    assert.deepEqual(await due({ priority: '3' }), ['높음', new Date(`${TODAY}T14:00:00+09:00`).toISOString()])
+    assert.deepEqual(await due({ priority: '3', ticket_type_id: bug }), ['고장', new Date(`${TODAY}T12:00:00+09:00`).toISOString()], 'its own type before a higher priority')
+    assert.deepEqual(await due({ ticket_type_id: ask }), ['모두', new Date(`${TODAY}T18:00:00+09:00`).toISOString()])
+    const t = await k.admin('helpdesk_ticket', null, 'create', { subject: '유형 바꿈', partner_id: p, team_id: tm })
+    await setClock(k, `${TODAY}T11:00`)
+    const moved = await k.admin('helpdesk_ticket', t.id, 'update', { ticket_type_id: bug })
+    assert.equal(ms(moved.state.response_due), ms(`${TODAY}T12:00`), 'from when it came in, not from the change')
+    const ev = (await k.events(t.id)).at(-1)
+    assert.equal(ms(ev.data.changed.response_due.from), ms(`${TODAY}T18:00`))
+    await k.admin('helpdesk_sla', all.id, 'update', { response_hours: 1 })
+    const kept = await k.rec((await k.list('helpdesk_ticket'))[0].id)
+    assert.equal(ms(kept.state.response_due), ms(`${TODAY}T18:00`), 'the terms it was given stay')
+    assert.equal(kept.state.sla_terms.response_minutes, 480)
+    assert.equal((await due({})).at(-1), new Date(`${TODAY}T12:00:00+09:00`).toISOString(), 'a new ticket gets the new terms')
+    await rejects(k.admin('helpdesk_sla', all.id, 'delete', {}), 'ERP_IN_USE')
+  } finally { await k.close() }
+})
+
 /* ---------- The SLA boundaries, one test per case ---------- */
 
 let cc, ccPartner
