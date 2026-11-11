@@ -524,6 +524,25 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 꺼도 이력과 분석이 남는다 | `project.test.mjs` 1 | SQL | ✅ |
 | 가상 회사에 프로젝트가 더해져도 다른 수치는 그대로다 | `project.test.mjs` 1 | SQL | ✅ |
 
+### 23. 구독 (spec `erp-subscription`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 구독은 꺼진 채 시작하고 청구가 있어야 켜진다 | `subscription.test.mjs` 1<br>`subscription.spec.mjs` 1<br>`isolation.test.mjs` 3 | SQL, 브라우저 | ✅ |
+| 쓰기는 sales 와 관리자, 청구 확인은 회계도, 읽기는 모든 구성원이다 | `subscription.test.mjs` 1<br>`subscription.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 정기 청구 제품의 주문이 구독이 되고 첫 기간은 주문이 청구한다 | `subscription.test.mjs` 3<br>`subscription.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 기간마다 한 번 청구하고 청구 모듈이 청구서를 만든다 | `subscription.test.mjs` 4<br>`subscription.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 계약 기간은 기간의 마지막 날에 끝나고 갱신하거나 해지된다 | `subscription.test.mjs` 2 | SQL | ✅ |
+| 품목 변경은 다음 기간부터이고 지금 적용하면 남은 날을 정산한다 | `subscription.test.mjs` 2<br>`subscription.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 일시 중지와 재개는 다음 청구일을 멈춘 날수만큼 미룬다 | `subscription.test.mjs` 1 | SQL | ✅ |
+| 해지는 목록의 사유로 하고 다시 열면 오늘부터 청구한다 | `subscription.test.mjs` 1<br>`subscription.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 만기가 지난 기간은 구독을 「미납」으로 표시하되 멈추지 않는다 | `subscription.test.mjs` 1 | SQL | ✅ |
+| MRR 과 그 증감은 원장에서 세고 언제나 더하면 맞는다 | `subscription.test.mjs` 2<br>`subscription.spec.mjs` 1<br>`models.test.mjs` 1 | SQL, 브라우저 | ✅ |
+| 되돌리면 구독과 청구서가 함께 돌아간다 | `subscription.test.mjs` 1 | SQL | ✅ |
+| 끄면 청구가 멈추고 다시 켜면 밀린 기간을 청구한다 | `subscription.test.mjs` 1 | SQL | ✅ |
+| MCP 는 구성원의 권한만큼만 한다 | `subscription.test.mjs` 1 | SQL | ✅ |
+| 초안은 화면에서 금액을 미리 보고 품목은 줄 이벤트로 남는다 | `subscription.test.mjs` 1 | SQL | ✅ |
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |
