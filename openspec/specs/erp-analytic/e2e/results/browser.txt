@@ -1,0 +1,11 @@
+
+Running 6 tests using 1 worker
+
+  ✓  1 e2e/tests/analytic.spec.mjs:48:1 › S23-0. 관리회계는 꺼져 있고, 켜면 메뉴와 청구서 줄의 분석 분배 칸이 나타난다 (1.2s)
+  ✓  2 e2e/tests/analytic.spec.mjs:65:1 › S23-1. 정회계가 부서 분석 계정 영업부와 개발부를 만든다 (1.3s)
+  ✓  3 e2e/tests/analytic.spec.mjs:81:1 › S23-2. 공급사 청구서 한 줄을 개발부 60, 영업부 40 으로 나눠 게시하면 손익 화면에 비용이 그대로 나뉜다 (2.4s)
+  ✓  4 e2e/tests/analytic.spec.mjs:127:1 › S23-3. 분기 예산을 확정하면 넘친 계정이 보이고, 사유를 적어 바꾸면 누가 언제 왜 바꿨는지 남는다 (2.4s)
+  ✓  5 e2e/tests/analytic.spec.mjs:174:1 › S23-4. 예산을 넘기는 공급사 청구서는 게시 전에 경고만 하고, 그대로 게시할 수 있다 (1.1s)
+  ✓  6 e2e/tests/analytic.spec.mjs:191:1 › S23-5. 조회 역할은 분석 계정은 고를 수 있지만 손익과 예산은 볼 수 없다 (417ms)
+
+  6 passed (16.4s)

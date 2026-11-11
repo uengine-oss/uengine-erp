@@ -181,7 +181,8 @@
 
 | 이벤트 | `data` 의 사실 |
 |---|---|
-| `JournalEntryPosted` | 전표 스트림. 효과 `gl = [{account_id, partner_id, date, debit, credit}]`. 분석의 기간은 `occurred_at` 이 아니라 효과의 `date` 로 거른다(회계를 늦게 켜면 전표 시각은 다시 만든 시점이다) |
+| `JournalEntryPosted` | 전표 스트림. 효과 `gl = [{account_id, partner_id, date, debit, credit}]`. 분석의 기간은 `occurred_at` 이 아니라 효과의 `date` 로 거른다(회계를 늦게 켜면 전표 시각은 다시 만든 시점이다). `lines` 의 문서 줄에서 나온 줄에는 `analytic: {distribution?, product_id?}` 가 붙고(청구서·경비 줄이 적은 분석 분배), 수동 전표 줄은 자기 `analytic_distribution` 칸을 싣는다. 자동 전표를 지우는 전표는 `set.reversal_of`, 수동 역분개는 `reversal_of` 로 원래 전표를 가리킨다. 수동 전표는 `kind`(`manual`/`opening`)를 싣는다 |
+| `JournalEntryResetToDraft` | 수동 전표를 초안으로 돌림. 효과 `gl` 은 게시 때 줄의 음수다. 자동 전표는 이 이벤트를 내지 않고, 지울 때 `reversal_of` 가 있는 `JournalEntryPosted` 를 낸다 |
 | `FiscalYearClosed` | 결산 스트림(유형 `fiscal_close`). `year, number, date, net_income, lines`. 효과 `gl` 의 줄에 `closing: true` 가 붙는다. **그해 손익을 읽는 쪽은 이 줄을 빼야 한다** |
 | `FiscalYearReopened` | 결산 취소. `year, number, date`. 효과는 위의 음수 줄이다 |
 
@@ -331,6 +332,20 @@
 | `PartnerMerged` | `into`(대상 거래처) |
 | `ProductCostChanged` | `variant_id, product_id, from, to, reason`. 재고 모듈이 기초데이터 명령으로 일으킨다 |
 
+## 관리회계가 내는 것
+
+[analytic.md](analytic.md). 지금 듣는 모듈은 없다.
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `AnalyticEntryPosted` | 분석 줄 묶음 스트림(`analytic_entry`). `number, date, move_id, origin_type, origin_id, reversal_of, lines`. 효과 `analytic = [{analytic_account_id, plan_id, account_id, partner_id, product_id, move_id, date, origin_type, origin_id, number, name, source, percent(글자), amount}]`, 매출 +, 비용 − |
+| `AnalyticEntryWithdrawn` | 지워진 묶음에 `open: false`, `reversed_by` |
+| `BudgetConfirmed` | `number, name, date_from, date_to, lines, total_income, total_expense` |
+| `BudgetRevised` | `number, name, revision, line_changes[{kind, line_id, analytic_account_id, analytic_account_name, side, month, account_code_from, account_code_to, from, to}], total_income_before, total_income, total_expense_before, total_expense`. 사유는 이벤트의 `reason` 이다 |
+| `BudgetClosed`, `BudgetCancelled` | `number, name` / `+ was` |
+
+청구서 줄의 사실(`InvoicePosted` 등의 `lines`)과 경비의 사실(`ExpenseApproved` 등)에는 그 줄·경비가 분석 분배를 적었을 때만 `analytic_distribution` 이 실린다.
+
 ## 구독 관계
 
 발행자는 이 표를 모른다. 어느 칸이 비어도 동작해야 한다.
@@ -368,5 +383,6 @@
 | 인사 | 없음 | 아무 이벤트도 듣지 않는다 |
 | 경비 | 없음 | 아무 이벤트도 듣지 않는다. 직원은 명령을 처리하는 동안 `erp.peek` 로 읽는다 |
 | CRM | 없음 | 아무 이벤트도 듣지 않는다 |
+| 관리회계 | `JournalEntryPosted`, `JournalEntryResetToDraft` | 전표 줄의 분석 분배(없으면 원본 게시 시점의 기본 규칙)로 분석 줄을 만든다. 지우는 전표·역분개·초안 복귀는 원래 줄의 음수다. 켠 뒤의 이벤트만 듣는다 |
 | 프로젝트 | `SalesOrderConfirmed`, `SalesOrderLineAdded`, `SalesOrderLineQtyChanged`, `SalesOrderCancelled` | 프로젝트를 요청하는 서비스 줄에서 프로젝트와 작업을 만들고 따라간다 |
 | 분석 | 원장 전체 | 구독하지 않고 직접 읽는다 |

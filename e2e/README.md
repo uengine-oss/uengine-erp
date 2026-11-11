@@ -573,3 +573,20 @@ openspec 명세 22개의 요구사항 383개, 시나리오 1045개. 위 표에 �
 - `erp-accounting`: 장부 시작일을 고르면 그 날 이후의 이벤트만 전표가 된다
 
 시험으로 재지 않은 것은 클라우드 Supabase, 큰 회사의 되돌리기, 실제 회사의 예측 정확도다. 메일 발송, 결제, 전자세금계산서, 은행 연동은 제품에 없다.
+
+### 22. 관리회계 (spec `erp-analytic`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 관리회계는 꺼진 채 시작하고 회계가 있어야 켜진다 | `analytic.test.mjs` 1<br>`analytic.spec.mjs` 1<br>`isolation.test.mjs` 4 | SQL, 브라우저 | ✅ |
+| 분석 분배는 계획마다 합이 100 이다 | `analytic.test.mjs` 1(`analytic-cases.json` distribution 17) | SQL | ✅ |
+| 게시한 전표가 분석 줄이 된다 | `analytic.test.mjs` 5<br>`analytic.spec.mjs` 1 | SQL, 브라우저 | ◐ 시점 보기는 함수로만 |
+| 기본 분배 규칙은 문서를 게시한 때의 것을 쓴다 | `analytic.test.mjs` 2 | SQL | ✅ |
+| 확정한 예산은 사유와 함께만 바뀌고 그 이력이 남는다 | `analytic.test.mjs` 2<br>`analytic.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 예산 대비 실적은 분석 줄로 계산한다 | `analytic.test.mjs` 2(`analytic-cases.json` budget 5)<br>`analytic.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 예산을 넘기는 비용은 경고만 한다 | `analytic.test.mjs` 1<br>`analytic.spec.mjs` 1 | SQL, 브라우저 | ◐ 경비 승인 화면은 돌리지 않았다 |
+| 돈이 보이는 것은 회계와 관리자만 본다 | `analytic.test.mjs` 1<br>`analytic.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 에이전트는 같은 권한으로 묻고 바꾼다 | `analytic.test.mjs` 1 | SQL | ✅ |
+| 나중에 켜고 끈다 | `analytic.test.mjs` 2 | SQL | ✅ |
+| 구매 주문의 약정 금액을 예산에 보인다 | 없음 | | ✗ 범위 밖(구매 주문 줄에 분배가 없고, 주문 줄과 청구서 줄의 대응을 구독으로 따라가야 한다. `docs/modules/analytic.md`) |
+

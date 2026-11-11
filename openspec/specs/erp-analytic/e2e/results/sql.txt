@@ -1,0 +1,29 @@
+✔ S23. it starts off, needs accounting, and the field appears on documents only while it is on (11297.107833ms)
+✔ a distribution: each plan adds up to exactly 100, on every document that has one (2011.850333ms)
+✔ S23. bills and invoices give each department its share; tax and the payable are nobody's; 60/40 splits to the won (489.873667ms)
+✔ S23. credit notes, back to draft, cancel and a second delivery: the lines follow, and nothing is counted twice (864.099375ms)
+✔ hand-written entries: a distribution on any line, a reversal negates exactly at its own date, resetting the reversal brings it back (189.637542ms)
+✔ default rules: each plan takes the first rule that fits; a rule changed later does not move what was booked, even if the books catch up late (498.534375ms)
+✔ a product rule fits the product and every product under its category (164.0575ms)
+✔ an expense claim: its distribution goes to cost on approval; undoing the approval takes the lines with it (633.321667ms)
+✔ rebuilt from the ledger the lines are the same, and the report at an earlier moment shows that moment (812.446709ms)
+✔ S23. a budget is planned, confirmed, compared with actuals, revised with a reason, and its revisions read back (1230.233541ms)
+✔ budget lines: a month, a range of account codes, and the boundaries of over-budget (904.538292ms)
+✔ a soft warning before a cost goes over: never a block, and figures only for accounting (685.825292ms)
+✔ only accounting and admin read the reports and budgets; everyone may pick an analytic account (72.799333ms)
+✔ MCP: an agent reads accounts and lines, makes and revises a budget with a reason, and asks how much is left (911.550166ms)
+✔ M6, M7: turned on late, the past has no lines; turned off, nothing is lost and what came meanwhile is caught up (1018.065834ms)
+✔ installing again changes nothing (583.838083ms)
+✔ every event in the SQL has a label (29.027541ms)
+✔ the screen reads its words from the shared file, not from a copy of its own (0.273167ms)
+✔ the parts cover every file once, in order, and each fits the SQL Editor (1.417875ms)
+✔ run in order, they say "not yet" until the last part, then build what the whole script builds (10097.1145ms)
+✔ a part run again changes nothing; a part of a newer version starts the count again (290.388042ms)
+ℹ tests 21
+ℹ suites 0
+ℹ pass 21
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 22655.000959
