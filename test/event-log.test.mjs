@@ -23,19 +23,31 @@ const all = async (user, args = {}) => {
   }
   return out
 }
+// The read stops at the oldest transaction still open anywhere in the cluster, so while a parallel test file holds one,
+// what was just written is not readable yet. Settling the bus and then waiting for the read to reach the newest event.
+const settle = async (timeoutMs = 15000) => {
+  await c.settle()
+  const end = Date.now() + timeoutMs
+  while (Date.now() < end) {
+    const r = (await c.db.query('select (select max(seq) from erp.events) newest, (select seq from erp.bus_horizon()) reached')).rows[0]
+    if (r.reached !== null && BigInt(r.reached) >= BigInt(r.newest)) return
+    await new Promise((res) => setTimeout(res, 50))
+  }
+  throw new Error('the ledger read did not reach the newest event')
+}
 
 before(async () => {
   c = await company({ modules: 'all' })
   sales = await c.addMember('박영업', ['sales'])
   buyer = await c.addMember('최구매', ['purchase'])
   hr = await c.addMember('한인사', ['hr'])
-  await c.settle()
+  await settle()
 })
 after(async () => { await c?.db.close() })
 
 test('each event carries the agreed facts, in ledger order, and the cursor walks the whole ledger once', async () => {
   const partner = await c.admin('partner', null, 'create', { name: '시험 거래처' })
-  await c.settle()
+  await settle()
   const events = await all(c.adminId)
   assert.ok(events.length > 0)
   const mine = events.find((e) => e.stream_id === partner.id)
@@ -56,7 +68,7 @@ test('a time window and a single stream narrow the read', async () => {
   const before_ = new Date(Date.now() - 1000).toISOString()
   const a = await c.admin('partner', null, 'create', { name: '창 안 거래처' })
   await c.admin('partner', a.id, 'update', { name: '창 안 거래처 2' })
-  await c.settle()
+  await settle()
   const inWindow = await all(c.adminId, { from: before_ })
   assert.ok(inWindow.some((e) => e.stream_id === a.id))
   assert.deepEqual(await all(c.adminId, { to: '2000-01-01T00:00:00Z' }), [], 'nothing before the company')
@@ -68,7 +80,7 @@ test('a time window and a single stream narrow the read', async () => {
 test('a member cannot see, through this read, the documents their roles do not open', async () => {
   const vendor = await buyer.cmd('partner', null, 'create', { name: '공급사 비밀' })
   const po = await buyer.cmd('purchase_order', null, 'create', { partner_id: vendor.id })
-  await c.settle()
+  await settle()
   const of = async (user) => (await all(user)).filter((e) => e.stream_id === po.id)
   assert.ok((await of(c.adminId)).length > 0, 'an administrator reads it')
   assert.ok((await of(buyer.id)).length > 0, 'its buyer reads it')
@@ -94,7 +106,7 @@ test('of a type read record by record, a member sees only the records named for 
   `)
   const hers = await sales.cmd('t_private', null, 'create', { name: '박영업 것', owner: sales.id })
   const his = await buyer.cmd('t_private', null, 'create', { name: '최구매 것', owner: buyer.id })
-  await c.settle()
+  await settle()
   const of = async (user) => (await all(user)).filter((e) => e.stream_type === 't_private').map((e) => e.stream_id)
   assert.deepEqual(await of(sales.id), [hers.id], 'her own only')
   assert.deepEqual(await of(buyer.id), [his.id], 'his own only')
