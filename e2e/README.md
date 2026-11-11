@@ -524,7 +524,7 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 꺼도 이력과 분석이 남는다 | `project.test.mjs` 1 | SQL | ✅ |
 | 가상 회사에 프로젝트가 더해져도 다른 수치는 그대로다 | `project.test.mjs` 1 | SQL | ✅ |
 
-### 22. 관리회계 (spec `erp-analytic`)
+### 22. 관리회계 (spec `erp-analytic`, 영상 `HQXMJE0FcfQ`)
 
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
@@ -540,7 +540,7 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 나중에 켜고 끈다 | `analytic.test.mjs` 2 | SQL | ✅ |
 | 구매 주문의 약정 금액을 예산에 보인다 | 없음 | | ✗ 범위 밖(구매 주문 줄에 분배가 없고, 주문 줄과 청구서 줄의 대응을 구독으로 따라가야 한다. `docs/modules/analytic.md`) |
 
-### 23. 구독 (spec `erp-subscription`)
+### 23. 구독 (spec `erp-subscription`, 영상 `E9NNAnXVnlE`)
 
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
@@ -559,7 +559,7 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | MCP 는 구성원의 권한만큼만 한다 | `subscription.test.mjs` 2 | SQL | ✅ |
 | 초안은 화면에서 금액을 미리 보고 품목은 줄 이벤트로 남는다 | `subscription.test.mjs` 1 | SQL | ✅ |
 
-### 24. 설비 보전 (spec `erp-maintenance`)
+### 24. 설비 보전 (spec `erp-maintenance`, 영상 `j9V4m06tXrM`)
 
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
@@ -578,7 +578,7 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 
 ◐ 예방 보전 계획: pg_cron 이 정한 시각에 정말 부르는지는 재지 않았다. 등록과 같은 함수를 부르는 다른 길(앱의 재촉, 사람)은 시험한다. 보관만 한 설비의 계획이 쉬는 것은 시험이 없다.
 
-### 25. 품질 (spec `erp-quality`)
+### 25. 품질 (spec `erp-quality`, 영상 `j9V4m06tXrM`)
 
 | 요구사항 | 시험 | 단계 | |
 |---|---|---|---|
@@ -601,7 +601,7 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 
 ✗ 불합격한 물건을 붙잡아 두기: 검사가 입고·출고·제조 완료를 막지 않는다. 재고가 품질을 알아야 하고, 재고에 다단계 입고(검사 위치)가 없기 때문이다. 기록과 경보까지만 하고 반품·폐기는 사람이 한다(`docs/modules/quality.md` 「결정」).
 
-### 26. 헬프데스크 (spec `erp-helpdesk`)
+### 26. 헬프데스크 (spec `erp-helpdesk`, 영상 `9bFc-6VYvxI`)
 
 `helpdesk.test.mjs` 의 `case:` 시험은 `test/helpdesk-cases.json` 의 사례마다 하나씩 생긴다(지금 23개).
 
