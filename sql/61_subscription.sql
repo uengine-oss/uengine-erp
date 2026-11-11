@@ -1056,9 +1056,9 @@ select erp.catalog_put('{
   "write_roles": ["sales"],
   "commands": {"create": {"roles": ["sales"]}, "update": {"roles": ["sales"]}, "delete": {"roles": ["sales"]}},
   "extra_commands": {
-    "apply_now": {"roles": ["sales"], "label": "변경 지금 적용",
+    "apply_now": {"roles": ["sales"], "label": "변경 지금 적용", "api_only": true,
                   "confirm": "기다리는 변경을 오늘부터 적용하고, 이번 기간의 남은 날만큼 차액을 청구하거나 돌려줍니다."},
-    "cancel_change": {"roles": ["sales"], "label": "변경 취소"},
+    "cancel_change": {"roles": ["sales"], "label": "변경 취소", "api_only": true},
     "bill": {"roles": ["sales", "accounting"], "label": "청구 확인", "help": "청구할 기간과 늦은 입금을 지금 확인합니다. 매일 저절로도 합니다."}
   }
 }'::jsonb);

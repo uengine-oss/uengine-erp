@@ -1641,7 +1641,9 @@ create or replace function public.erp_subscription_movement(p_from date default 
 language plpgsql stable set search_path = public, pg_temp as $$
 declare
   to_ date := coalesce(p_to, public.erp_subscription_day(p_as_of));
-  from_ date := coalesce(p_from, (date_trunc('month', to_) - interval '11 months')::date);
+  -- Twelve months back, or from the first month anything was billed regularly if that is later: empty months say nothing.
+  from_ date := coalesce(p_from, greatest((date_trunc('month', to_) - interval '11 months')::date,
+    (select date_trunc('month', min(r.effective_on))::date from public.erp_subscription_mrr_rows(p_as_of) r where r.effective_on <= to_)));
 begin
   if from_ > to_ then raise exception 'ERP_INVALID: 기간이 올바르지 않습니다'; end if;
   return (
