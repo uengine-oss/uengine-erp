@@ -284,7 +284,7 @@ export const NAV: NavModule[] = [
         views: { date: 'next_billing_date', amount: 'mrr', groups: ['partner_id', 'plan_id'] },
         filters: [{ key: 'active', label: '진행 중', query: { status: 'active' } }, { key: 'overdue', label: '미납', query: { 'eq.payment_status': 'overdue' } }],
         advanced: ['billing_from', 'payment_term_id', 'note', 'term_periods', 'created_on', 'origin_cancelled', 'overdue_since'],
-        hideFields: ['period', 'paused_on', 'closed_on', 'close_reason', 'close_note'],
+        hideFields: ['period'],
         hideColumns: { lines: ['variant_id'] },
       },
       { type: 'subscription_plan' },

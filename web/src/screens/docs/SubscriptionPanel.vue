@@ -84,10 +84,9 @@ async function run(command: 'apply_now' | 'cancel_change') {
 
     <h2>청구 기간 <span class="muted small">기간마다 미리 청구합니다. 입금 상태는 청구 모듈이 알려 줍니다.</span></h2>
     <table v-if="periods.length" class="tbl" data-testid="subscription-periods">
-      <thead><tr><th>회차</th><th>구분</th><th>기간</th><th class="num">금액</th><th>청구서</th><th>만기일</th><th>입금</th></tr></thead>
+      <thead><tr><th>구분</th><th>기간</th><th class="num">금액</th><th>청구서</th><th>만기일</th><th>입금</th></tr></thead>
       <tbody>
         <tr v-for="p in periods" :key="p.id" data-testid="subscription-period" :data-state="p.payment_state">
-          <td>{{ p.no || '' }}</td>
           <td>{{ KIND[p.kind] ?? p.kind }}</td>
           <td>{{ p.period_start }} ~ {{ p.period_end }}</td>
           <td class="num">{{ fmtMoney(p.amount) }}</td>
@@ -105,7 +104,8 @@ async function run(command: 'apply_now' | 'cancel_change') {
 </template>
 
 <style scoped>
-.sub { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+/* Room under the last bill, so it is not left under a toast at the foot of the screen. */
+.sub { margin-top: 16px; padding: 12px 0 72px; border-top: 1px solid var(--line); }
 .sub h2 { display: flex; align-items: baseline; gap: 8px; margin: 10px 0 6px; font-size: 13px; }
 .pending { margin: 8px 0; padding: 8px 10px; background: var(--navy-50); border-radius: var(--radius-sm); }
 .pending h2 { margin-top: 0; }
