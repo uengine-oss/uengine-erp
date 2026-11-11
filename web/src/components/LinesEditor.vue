@@ -15,6 +15,8 @@ const props = defineProps<{
   /** Rows are created by the server (product variants): they can be edited but not added or removed. */
   fixedRows?: boolean
   hideColumns?: string[]
+  /** The document the lines belong to, for columns that suggest a value from it (a distribution from the partner). */
+  context?: State | null
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: State[]] }>()
 
@@ -157,7 +159,8 @@ function onCellKey(e: KeyboardEvent, row: State, col: Field) {
               <td v-for="c in columns" :key="c.name" :data-col="c.name" :class="[{ num: isNumeric(c), 'is-static': readonly || isDerived(c) }, `col-${c.type}`]" @keydown="onCellKey($event, row, c)">
                 <FieldValue v-if="readonly || isDerived(c)" :field="columnFor(row, c)" :value="row[c.name]" />
                 <span v-else-if="c.options_from && !columnFor(row, c).options?.length" class="muted small">{{ row[c.options_from.field] ? '고를 값 없음' : '앞 칸을 먼저 고르세요' }}</span>
-                <FieldInput v-else :field="columnFor(row, c)" compact :model-value="row[c.name]" :aria-label="c.label" @update:model-value="patch(row.id, c.name, $event)" />
+                <FieldInput v-else :field="columnFor(row, c)" compact :model-value="row[c.name]" :aria-label="c.label"
+                            :context="c.type === 'distribution' ? { product_id: row.product_id, account_id: row.account_id, partner_id: context?.partner_id } : null" @update:model-value="patch(row.id, c.name, $event)" />
               </td>
               <td v-if="canAddRemove" class="no-print">
                 <button type="button" class="btn btn-ghost btn-sm btn-icon" tabindex="-1" aria-label="줄 삭제" @click="remove(row.id)"><Icon name="x" :size="12" /></button>
@@ -198,6 +201,7 @@ function onCellKey(e: KeyboardEvent, row: State, col: Field) {
 .lines-tbl td.col-enum { min-width: 112px; }
 .lines-tbl td.col-tags { min-width: 150px; }
 .lines-tbl td.col-json { min-width: 160px; }
+.lines-tbl td.col-distribution { min-width: 170px; max-width: 240px; }
 .lines-tbl td.col-boolean { width: 44px; text-align: center; }
 .lines-empty { padding: 12px !important; text-align: center; }
 .line-section td { background: var(--ink-50); }

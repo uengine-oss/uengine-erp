@@ -415,6 +415,9 @@ async function runCommand(command: string, label: string, def: Pick<CommandDef, 
   }
   // An action means "with what is on screen", so unsaved edits are saved first.
   if (dirty.value && !(await save())) return
+  // A caution, never a refusal: the person reads it and may go ahead.
+  const warning = ui?.warn ? await ui.warn(record.value) : null
+  if (warning && !(await ask({ title: label, message: warning, confirmLabel: `그대로 ${label}` }))) return
   busy.value = true
   formError.value = ''
   lockedNote.value = false
@@ -760,7 +763,7 @@ const isCompanyForm = computed(() => props.id === COMPANY_ID)
               <label class="field-label" :for="fieldId(f)">{{ f.label }}<span v-if="f.required && !isShownAsValue(f)" class="req" aria-hidden="true">*</span></label>
               <div>
                 <div v-if="isShownAsValue(f)" class="field-value" :id="fieldId(f)"><FieldValue :field="f" :value="view[f.name]" /></div>
-                <FieldInput v-else :id="fieldId(f)" :field="f" :invalid="invalidField === f.name" :model-value="draft[f.name]" @update:model-value="setField(f, $event)" />
+                <FieldInput v-else :id="fieldId(f)" :field="f" :invalid="invalidField === f.name" :model-value="draft[f.name]" :context="view" @update:model-value="setField(f, $event)" />
                 <div v-if="f.help && !isShownAsValue(f)" class="hint" style="margin-top: 2px">{{ f.help }}</div>
               </div>
             </div>
@@ -772,7 +775,7 @@ const isCompanyForm = computed(() => props.id === COMPANY_ID)
                 <label class="field-label" :for="fieldId(f)">{{ f.label }}</label>
                 <div>
                   <div v-if="isShownAsValue(f)" class="field-value" :id="fieldId(f)"><FieldValue :field="f" :value="view[f.name]" /></div>
-                  <FieldInput v-else :id="fieldId(f)" :field="f" :invalid="invalidField === f.name" :model-value="draft[f.name]" @update:model-value="setField(f, $event)" />
+                  <FieldInput v-else :id="fieldId(f)" :field="f" :invalid="invalidField === f.name" :model-value="draft[f.name]" :context="view" @update:model-value="setField(f, $event)" />
                   <div v-if="f.help && !isShownAsValue(f)" class="hint" style="margin-top: 2px">{{ f.help }}</div>
                 </div>
               </div>
@@ -781,7 +784,7 @@ const isCompanyForm = computed(() => props.id === COMPANY_ID)
 
           <section v-for="f in lineFields" :key="f.name" class="form-lines" :data-field="f.name">
             <h2>{{ f.label }}</h2>
-            <LinesEditor :field="f" :model-value="view[f.name]" :readonly="readOnly || isDerived(f)" :sections="screen?.sections"
+            <LinesEditor :field="f" :model-value="view[f.name]" :readonly="readOnly || isDerived(f)" :sections="screen?.sections" :context="view"
                          :fixed-rows="screen?.fixedLines?.includes(f.name)" :hide-columns="screen?.hideColumns?.[f.name]" @update:model-value="draft[f.name] = $event" />
           </section>
 

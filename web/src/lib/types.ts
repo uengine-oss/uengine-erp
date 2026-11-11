@@ -1,6 +1,6 @@
 export type FieldType =
   | 'text' | 'number' | 'money' | 'integer' | 'boolean' | 'date' | 'datetime'
-  | 'enum' | 'ref' | 'refs' | 'tags' | 'json' | 'lines' | 'password'
+  | 'enum' | 'ref' | 'refs' | 'tags' | 'json' | 'lines' | 'password' | 'distribution'
 
 export interface FieldOption { value: string; label: string; color?: string }
 
@@ -28,6 +28,10 @@ export interface Field {
   sections?: boolean
   multiline?: boolean
   hidden?: boolean
+  /** distribution: the field of the referenced records that groups them; each group adds up to 100. */
+  group?: string
+  /** Shown only while this module is on. The catalog leaves such fields out otherwise. */
+  module?: string
   /** Options come from a nested list on the record another column points at. */
   options_from?: { path: string; field: string }
 }

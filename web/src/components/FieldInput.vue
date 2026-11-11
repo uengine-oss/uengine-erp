@@ -7,8 +7,9 @@ import NumberInput from './NumberInput.vue'
 import RefSelect from './RefSelect.vue'
 import RefsSelect from './RefsSelect.vue'
 import TagsInput from './TagsInput.vue'
+import DistributionInput from './DistributionInput.vue'
 
-const props = defineProps<{ field: Field; modelValue: any; disabled?: boolean; id?: string; invalid?: boolean; compact?: boolean; ariaLabel?: string }>()
+const props = defineProps<{ field: Field; modelValue: any; disabled?: boolean; id?: string; invalid?: boolean; compact?: boolean; ariaLabel?: string; context?: Record<string, any> | null }>()
 const emit = defineEmits<{ 'update:modelValue': [value: any]; picked: [] }>()
 const set = (v: unknown) => emit('update:modelValue', v)
 
@@ -56,6 +57,7 @@ function onJson(e: Event) {
              @update:model-value="set" @picked="$emit('picked')" />
   <RefsSelect v-else-if="(field.type === 'refs' || field.type === 'tags') && field.ref" :id="id" :model-value="modelValue" :ref-type="field.ref" :disabled="disabled" @update:model-value="set" />
   <TagsInput v-else-if="field.type === 'tags'" :id="id" :model-value="modelValue" :options="field.options" :disabled="disabled" @update:model-value="set" />
+  <DistributionInput v-else-if="field.type === 'distribution'" :id="id" :model-value="modelValue" :disabled="disabled" :compact="compact" :aria-label="ariaLabel" :context="context" @update:model-value="set" />
   <div v-else-if="field.type === 'json'" class="stack" style="gap: 2px">
     <textarea :id="id" class="textarea mono" :rows="compact ? 1 : 4" :style="compact ? 'min-height: 28px' : undefined" spellcheck="false" :class="{ 'is-invalid': jsonBad || invalid }" :disabled="disabled" :value="jsonText" @input="onJson" />
     <span v-if="jsonBad" class="err-text small">JSON 형식이 맞지 않습니다. 고치기 전까지 저장되지 않습니다.</span>

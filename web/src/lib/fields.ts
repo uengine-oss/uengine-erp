@@ -69,6 +69,10 @@ export function displayValue(f: Field | undefined, v: unknown): string {
     case 'lines': return `${Array.isArray(v) ? v.length : 0}줄`
     case 'password': return '••••••'
     case 'json': return typeof v === 'string' ? v : JSON.stringify(v)
+    case 'distribution': {
+      const parts = Object.entries(v as Record<string, number>)
+      return parts.length ? parts.map(([id, p]) => `${refLabel(id)} ${Number(p)}%`).join(' · ') : '나누지 않음'
+    }
     default: return String(v)
   }
 }
@@ -81,6 +85,7 @@ export function collectRefIds(fields: Field[], state: State | null | undefined, 
     if (f.type === 'ref' && v) into.add(String(v))
     else if ((f.type === 'refs' || (f.type === 'tags' && f.ref)) && Array.isArray(v)) v.forEach((x) => into.add(String(x)))
     else if (f.type === 'lines' && Array.isArray(v) && f.columns) v.forEach((row) => collectRefIds(f.columns!, row, into))
+    else if (f.type === 'distribution' && v && typeof v === 'object') Object.keys(v).forEach((x) => into.add(x))
   }
 }
 

@@ -26,6 +26,8 @@ export interface CommandUi {
   fields?: (record: ErpRecord | null) => Field[]
   payload?: (values: State, record?: ErpRecord | null) => State
   retry?: Record<string, CommandRetry>
+  /** A caution asked just before sending, never a refusal: the person may go ahead. Null means nothing to say. */
+  warn?: (record: ErpRecord | null) => Promise<string | null>
 }
 
 /** Something a list does to the rows ticked in it. */
@@ -106,6 +108,29 @@ async function lateOrders(rows: ErpRecord[]): Promise<Record<string, { label: st
   const { db } = await import('./lib/conn')
   const { data } = await db().from('erp_purchase_report').select('order_id').eq('is_late', true).in('order_id', rows.map((r) => r.id))
   return Object.fromEntries((data ?? []).map((r: { order_id: string }) => [r.order_id, { label: '마감 지남', color: 'red' }]))
+}
+
+// A cost that would take a department or project over its budget. The database works it out; this only words it. Posting goes ahead either way.
+async function overBudget(r: ErpRecord | null): Promise<string | null> {
+  if (!r) return null
+  const s = r.state
+  const bill = r.type === 'account_move'
+  if (bill && s.move_type !== 'in_invoice') return null
+  const lines = bill
+    ? (s.lines ?? []).filter((l: State) => !l.display_type).map((l: State) => ({ amount: l.subtotal, analytic_distribution: l.analytic_distribution ?? null, account_id: l.account_id ?? null, product_id: l.product_id ?? null }))
+    : [{ amount: s.amount, analytic_distribution: s.analytic_distribution ?? null, account_id: s.account_id ?? null }]
+  try {
+    const [{ rpc }, { fmtMoney }] = await Promise.all([import('./lib/api'), import('./lib/format')])
+    const res = await rpc<{ warnings: { budget: string; analytic_account: string; planned?: number; actual?: number; after?: number; over_by?: number }[] }>('erp_budget_check', {
+      p: { date: bill ? s.date ?? s.invoice_date : s.accounting_date ?? s.date, partner_id: bill ? s.partner_id : null, lines },
+    })
+    if (!res.warnings.length) return null
+    return `${res.warnings.map((w) => (w.planned === undefined
+      ? `${w.budget}: ${w.analytic_account} 예산을 넘습니다.`
+      : `${w.budget}: ${w.analytic_account} 예산 ${fmtMoney(w.planned)} 중 ${fmtMoney(w.actual)}을 썼고, 이 문서로 ${fmtMoney(w.after)}이 되어 ${fmtMoney(w.over_by)} 넘습니다.`)).join('\n')}\n막지는 않습니다. 그대로 진행할까요?`
+  } catch {
+    return null
+  }
 }
 
 // When the database asks a person to decide something, and how to ask. Payment-free of rules: it only carries the answer back.
@@ -249,6 +274,7 @@ export const NAV: NavModule[] = [
           { key: 'zip', label: '선택 내려받기', run: exportMoves },
         ],
         commands: {
+          post: { warn: overBudget },
           fill_from_order: {
             fields: (r) => (String(r?.state.move_type).startsWith('in_')
               ? [{ name: 'from_purchase_order', label: '구매 주문', type: 'ref', ref: 'purchase_order', required: true }]
@@ -294,6 +320,17 @@ export const NAV: NavModule[] = [
       { type: 'account_group' },
       { label: '계정 그룹 잔액', route: '/accounting/groups', needs: 'journal_entry', roles: ['accounting'] },
       { label: '기초 잔액 입력', route: '/accounting/opening', needs: 'journal_entry', roles: ['accounting'] },
+    ],
+  },
+  {
+    key: 'analytic', label: '관리회계', icon: 'analytic',
+    screens: [
+      { label: '분석 계정별 손익', route: '/analytic/report', needs: 'analytic_account', roles: ['accounting'] },
+      { label: '예산 대비 실적', route: '/analytic/budgets', needs: 'budget', roles: ['accounting'] },
+      { type: 'budget', formPanel: loader('BudgetPanel'), readonlyIn: ['confirmed', 'closed', 'cancelled'], hideFields: ['state'], advanced: ['note', 'confirmed_at'] },
+      { type: 'analytic_account', advanced: ['note'] },
+      { type: 'analytic_plan' },
+      { type: 'analytic_rule' },
     ],
   },
   {
@@ -422,7 +459,7 @@ export const NAV: NavModule[] = [
         hideFields: ['employee_name', 'department_name', 'possible_duplicates', 'receipt_count'],
         advanced: ['note', 'removal_reason', 'undo_reason'],
         views: { date: 'date', amount: 'amount', groups: ['department_name', 'employee_name'] },
-        commands: { approve: { showIf: mayApproveExpense }, refuse: { showIf: mayApproveExpense } },
+        commands: { approve: { showIf: mayApproveExpense, warn: overBudget }, refuse: { showIf: mayApproveExpense } },
       },
       { type: 'expense_category' },
       { label: '부서별 추이', route: '/expense/trend', needs: 'expense' },
