@@ -524,6 +524,22 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 꺼도 이력과 분석이 남는다 | `project.test.mjs` 1 | SQL | ✅ |
 | 가상 회사에 프로젝트가 더해져도 다른 수치는 그대로다 | `project.test.mjs` 1 | SQL | ✅ |
 
+### 22. 관리회계 (spec `erp-analytic`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 관리회계는 꺼진 채 시작하고 회계가 있어야 켜진다 | `analytic.test.mjs` 1<br>`analytic.spec.mjs` 1<br>`isolation.test.mjs` 4 | SQL, 브라우저 | ✅ |
+| 분석 분배는 계획마다 합이 100 이다 | `analytic.test.mjs` 1(`analytic-cases.json` distribution 17) | SQL | ✅ |
+| 게시한 전표가 분석 줄이 된다 | `analytic.test.mjs` 5<br>`analytic.spec.mjs` 1 | SQL, 브라우저 | ◐ 시점 보기는 함수로만 |
+| 기본 분배 규칙은 문서를 게시한 때의 것을 쓴다 | `analytic.test.mjs` 2 | SQL | ✅ |
+| 확정한 예산은 사유와 함께만 바뀌고 그 이력이 남는다 | `analytic.test.mjs` 2<br>`analytic.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 예산 대비 실적은 분석 줄로 계산한다 | `analytic.test.mjs` 2(`analytic-cases.json` budget 5)<br>`analytic.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 예산을 넘기는 비용은 경고만 한다 | `analytic.test.mjs` 1<br>`analytic.spec.mjs` 1 | SQL, 브라우저 | ◐ 경비 승인 화면은 돌리지 않았다 |
+| 돈이 보이는 것은 회계와 관리자만 본다 | `analytic.test.mjs` 1<br>`analytic.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 에이전트는 같은 권한으로 묻고 바꾼다 | `analytic.test.mjs` 1 | SQL | ✅ |
+| 나중에 켜고 끈다 | `analytic.test.mjs` 2 | SQL | ✅ |
+| 구매 주문의 약정 금액을 예산에 보인다 | 없음 | | ✗ 범위 밖(구매 주문 줄에 분배가 없고, 주문 줄과 청구서 줄의 대응을 구독으로 따라가야 한다. `docs/modules/analytic.md`) |
+
 ### 23. 구독 (spec `erp-subscription`)
 
 | 요구사항 | 시험 | 단계 | |
@@ -585,6 +601,31 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 
 ✗ 불합격한 물건을 붙잡아 두기: 검사가 입고·출고·제조 완료를 막지 않는다. 재고가 품질을 알아야 하고, 재고에 다단계 입고(검사 위치)가 없기 때문이다. 기록과 경보까지만 하고 반품·폐기는 사람이 한다(`docs/modules/quality.md` 「결정」).
 
+### 26. 헬프데스크 (spec `erp-helpdesk`)
+
+`helpdesk.test.mjs` 의 `case:` 시험은 `test/helpdesk-cases.json` 의 사례마다 하나씩 생긴다(지금 23개).
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 헬프데스크는 꺼진 채 시작하고 다른 모듈 없이 동작한다 | `helpdesk.test.mjs` 1<br>`helpdesk.spec.mjs` 1<br>`isolation.test.mjs` 2 | SQL, 브라우저 | ✅ |
+| 쓰기는 helpdesk 와 관리자, 읽기는 모든 구성원이다 | `helpdesk.test.mjs` 1<br>`helpdesk.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 팀이 정한 방식으로 담당이 배정된다 | `helpdesk.test.mjs` 2<br>`helpdesk.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 잘못된 값은 칸 이름으로 알려 주고 아무것도 남기지 않는다 | `helpdesk.test.mjs` 1 | SQL | ✅ |
+| SLA 정책은 목표가 있고 앞뒤가 맞아야 한다 | `helpdesk.test.mjs` 2<br>`helpdesk.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 기한은 접수부터 정책의 방식대로 센다 | `helpdesk.test.mjs` case 8, 1 | SQL | ✅ |
+| 고객 대기는 해결 시계만 멈춘다 | `helpdesk.test.mjs` case 5 | SQL | ✅ |
+| 지난 기한은 기한 시각의 위반 이벤트 하나로 남는다 | `helpdesk.test.mjs` case 9, 2<br>`helpdesk.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| SLA 상태는 물을 때 지금 시각으로 계산한다 | `helpdesk.test.mjs` case 3<br>`helpdesk.spec.mjs` 3 | SQL, 브라우저 | ✅ |
+| 대화와 단계 | `helpdesk.test.mjs` 2<br>`helpdesk.spec.mjs` 3 | SQL, 브라우저 | ✅ |
+| 고객은 받은 링크로 자기 티켓만 본다 | `helpdesk.test.mjs` 1<br>`helpdesk.spec.mjs` 1 | SQL, 브라우저 | ◐ |
+| 고객 담당자 연락처는 원장 밖에 두고 지울 수 있다 | `helpdesk.test.mjs` 1<br>`helpdesk.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 판매와 청구가 켜져 있을 때만 주문과 청구서를 연결한다 | `helpdesk.test.mjs` 1 | SQL | ✅ |
+| 꺼도 기록은 남고, 다시 켜면 지난 기한을 제 시각으로 기록한다 | `helpdesk.test.mjs` 1 | SQL | ✅ |
+| 에이전트는 MCP 로 티켓을 열고 상태를 읽고 옮긴다 | `helpdesk.test.mjs` 2<br>`helpdesk.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| SLA 준수율은 판단한 티켓으로만 세고 근거가 찰 때까지 믿을 만하지 않다고 말한다 | `helpdesk.test.mjs` 2<br>`helpdesk.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 프로세스 마이닝 로그에 티켓 사례가 있다 | `helpdesk.test.mjs` 1<br>`helpdesk.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| ✗ 메일로 티켓을 받고 답장을 메일로 보낸다 | 없음. 메일 서버가 필요하다(`docs/modules/helpdesk.md` 범위) | | ✗ |
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |
@@ -634,20 +675,3 @@ openspec 명세 22개의 요구사항 383개, 시나리오 1045개. 위 표에 �
 - `erp-accounting`: 장부 시작일을 고르면 그 날 이후의 이벤트만 전표가 된다
 
 시험으로 재지 않은 것은 클라우드 Supabase, 큰 회사의 되돌리기, 실제 회사의 예측 정확도다. 메일 발송, 결제, 전자세금계산서, 은행 연동은 제품에 없다.
-
-### 22. 관리회계 (spec `erp-analytic`)
-
-| 요구사항 | 시험 | 단계 | |
-|---|---|---|---|
-| 관리회계는 꺼진 채 시작하고 회계가 있어야 켜진다 | `analytic.test.mjs` 1<br>`analytic.spec.mjs` 1<br>`isolation.test.mjs` 4 | SQL, 브라우저 | ✅ |
-| 분석 분배는 계획마다 합이 100 이다 | `analytic.test.mjs` 1(`analytic-cases.json` distribution 17) | SQL | ✅ |
-| 게시한 전표가 분석 줄이 된다 | `analytic.test.mjs` 5<br>`analytic.spec.mjs` 1 | SQL, 브라우저 | ◐ 시점 보기는 함수로만 |
-| 기본 분배 규칙은 문서를 게시한 때의 것을 쓴다 | `analytic.test.mjs` 2 | SQL | ✅ |
-| 확정한 예산은 사유와 함께만 바뀌고 그 이력이 남는다 | `analytic.test.mjs` 2<br>`analytic.spec.mjs` 1 | SQL, 브라우저 | ✅ |
-| 예산 대비 실적은 분석 줄로 계산한다 | `analytic.test.mjs` 2(`analytic-cases.json` budget 5)<br>`analytic.spec.mjs` 1 | SQL, 브라우저 | ✅ |
-| 예산을 넘기는 비용은 경고만 한다 | `analytic.test.mjs` 1<br>`analytic.spec.mjs` 1 | SQL, 브라우저 | ◐ 경비 승인 화면은 돌리지 않았다 |
-| 돈이 보이는 것은 회계와 관리자만 본다 | `analytic.test.mjs` 1<br>`analytic.spec.mjs` 1 | SQL, 브라우저 | ✅ |
-| 에이전트는 같은 권한으로 묻고 바꾼다 | `analytic.test.mjs` 1 | SQL | ✅ |
-| 나중에 켜고 끈다 | `analytic.test.mjs` 2 | SQL | ✅ |
-| 구매 주문의 약정 금액을 예산에 보인다 | 없음 | | ✗ 범위 밖(구매 주문 줄에 분배가 없고, 주문 줄과 청구서 줄의 대응을 구독으로 따라가야 한다. `docs/modules/analytic.md`) |
-

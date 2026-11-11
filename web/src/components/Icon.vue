@@ -12,6 +12,7 @@ const PATHS: Record<string, string> = {
   expense: 'M4 7h16v12H4zM4 11h16M8 3h8v4H8zM7.5 15h4',
   crm: 'M4 5h16l-6 7v6l-4 2v-8z',
   project: 'M4 6h16M4 12h10M4 18h6M18 15l2 2 3-4',
+  helpdesk: 'M4 14v-2a8 8 0 0 1 16 0v2M4 14h3v5H4zM17 14h3v5h-3zM20 19a3 3 0 0 1-3 3h-3',
   purchase: 'M3 4h2.5l2.2 11h10.1l2-8H6.5M9.5 20h.01M17 20h.01',
   mrp: 'M3 20V10l6 4v-4l6 4V5h6v15zM7 17h.01M12 17h.01M17 17h.01',
   maintenance: 'M14.5 6.5a4 4 0 0 0-5.3 5.3L3.5 17.5l3 3 5.7-5.7a4 4 0 0 0 5.3-5.3l-2.4 2.4-2.6-.4-.4-2.6z',

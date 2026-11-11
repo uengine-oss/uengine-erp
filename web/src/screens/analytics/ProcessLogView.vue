@@ -28,6 +28,7 @@ let seq = 0
 
 const query = computed(() => (notion.value === 'document' && docType.value ? `document:${docType.value}` : notion.value))
 const typeOptions = computed(() => session.catalog.filter((c) => !c.hidden).map((c) => ({ value: c.type, label: c.label })))
+const notions = computed(() => NOTIONS.filter((n) => !n.needs || session.catalog.some((c) => c.type === n.needs)))
 
 async function load() {
   if (!from.value || !to.value) return
@@ -88,7 +89,7 @@ async function copySummary() {
     </div>
     <div class="toolbar row-wrap">
       <div class="seg" role="group" aria-label="사례 묶음">
-        <button v-for="n in NOTIONS" :key="n.value" type="button" :class="{ on: notion === n.value }" :aria-pressed="notion === n.value" :data-testid="`pl-notion-${n.value}`" @click="notion = n.value">{{ n.label }}</button>
+        <button v-for="n in notions" :key="n.value" type="button" :class="{ on: notion === n.value }" :aria-pressed="notion === n.value" :data-testid="`pl-notion-${n.value}`" @click="notion = n.value">{{ n.label }}</button>
       </div>
       <select v-if="notion === 'document'" v-model="docType" class="select" style="width: 150px" aria-label="문서 유형" data-testid="pl-doc-type">
         <option value="">모든 유형</option>

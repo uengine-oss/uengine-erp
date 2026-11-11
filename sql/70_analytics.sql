@@ -1330,6 +1330,87 @@ begin
       from logged l left join worked w on w.employee = l.employee and w.day = l.day);
 end $$;
 
+-- Every ticket as the ledger last stated it, and what its own events say about it: when it was first answered and last solved,
+-- how often it was opened again after a solution, and which clocks ran out. A deleted ticket is not among them, and undone work
+-- is not evidence: an undone breach, reply or solution never happened here.
+create or replace function public.erp_helpdesk_tickets(p_as_of timestamptz)
+returns table(id uuid, number text, stage text, priority text, type_name text, team_name text, created_on date, opened_at timestamptz,
+              responded_at timestamptz, solved_at timestamptz, reopens int, response_target numeric, resolve_target numeric,
+              response_breached boolean, resolve_breached boolean)
+language sql stable set search_path = public, pg_temp as $$
+  with undone as materialized (select public.erp_undone(p_as_of) as u),
+  ev as (
+    select e.stream_id, e.seq, e.event_type, e.occurred_at, e.data from public.erp_events e, undone
+     where e.stream_type = 'helpdesk_ticket' and e.event_type like 'Ticket%' and e.occurred_at <= p_as_of and not e.correlation_id = any (undone.u)
+  ), newest as (
+    select distinct on (stream_id) * from ev order by stream_id, seq desc
+  ), agg as (
+    select stream_id,
+           min((data ->> 'opened_at')::timestamptz) filter (where event_type = 'TicketCreated') as opened,
+           min(occurred_at) filter (where event_type in ('TicketReplied', 'TicketSolved') and (data ->> 'first_response')::boolean) as responded,
+           max(occurred_at) filter (where event_type = 'TicketSolved') as solved,
+           count(*) filter (where event_type = 'TicketReopened' and data ->> 'was' in ('solved', 'closed')) as reopens,
+           bool_or(event_type = 'TicketSlaBreached' and data ->> 'kind' = 'response') as rb,
+           bool_or(event_type = 'TicketSlaBreached' and data ->> 'kind' = 'resolve') as vb
+      from ev group by stream_id
+  )
+  select n.stream_id, n.data ->> 'number', n.data ->> 'stage', n.data ->> 'priority', n.data ->> 'ticket_type_name', n.data ->> 'team_name',
+         (coalesce(a.opened, (n.data ->> 'opened_at')::timestamptz) at time zone public.erp_analytics_tz())::date, coalesce(a.opened, (n.data ->> 'opened_at')::timestamptz),
+         a.responded, case when n.data ->> 'stage' in ('solved', 'closed') then a.solved end, a.reopens::int,
+         (n.data -> 'sla' ->> 'response_minutes')::numeric, (n.data -> 'sla' ->> 'resolve_minutes')::numeric, coalesce(a.rb, false), coalesce(a.vb, false)
+    from newest n join agg a using (stream_id)
+   where n.event_type <> 'TicketDeleted'
+$$;
+
+-- How the helpdesk is doing, from the ledger alone (M8). A ticket counts for SLA compliance once it is decided: a clock ran out, or
+-- every clock it had finished (answered, solved). Tickets still running are left out, as open deals are from a win rate: counting
+-- them as kept would read a busy week too well. Times are wall-clock hours from when the ticket came in.
+create or replace function public.erp_helpdesk_stats(p_from date default null, p_to date default null, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  asof timestamptz := coalesce(p_as_of, now());
+  stages jsonb := '[{"stage":"new","label":"신규"},{"stage":"in_progress","label":"진행"},{"stage":"waiting","label":"고객 대기"},{"stage":"solved","label":"해결"},{"stage":"closed","label":"종료"},{"stage":"cancelled","label":"취소"}]';
+  prios jsonb := '[{"priority":"3","label":"긴급"},{"priority":"2","label":"높음"},{"priority":"1","label":"보통"},{"priority":"0","label":"낮음"}]';
+begin
+  if p_from > p_to then raise exception 'ERP_INVALID: 기간이 올바르지 않습니다'; end if;
+  return (
+    with t as (
+      select x.*, x.stage in ('solved', 'closed') as finished, x.response_breached or x.resolve_breached as breached,
+             (x.response_target is not null or x.resolve_target is not null) as has_sla
+        from public.erp_helpdesk_tickets(asof) x
+       where (p_from is null or x.created_on >= p_from) and (p_to is null or x.created_on <= p_to)
+    ), d as (
+      select t.*, t.has_sla and (t.breached or (t.finished and (t.response_target is null or t.responded_at is not null))) as decided,
+             t.response_target is not null and (t.responded_at is not null or t.response_breached) as r_decided,
+             t.resolve_target is not null and (t.finished or t.resolve_breached) as v_decided
+        from t
+    )
+    select jsonb_build_object('from', p_from, 'to', p_to, 'need', 20,
+      'tickets', (select count(*) from d), 'open', (select count(*) from d where d.stage in ('new', 'in_progress', 'waiting')),
+      'with_sla', (select count(*) from d where d.has_sla),
+      'sla', jsonb_build_object('decided', (select count(*) from d where d.decided), 'met', (select count(*) from d where d.decided and not d.breached),
+               'breached', (select count(*) from d where d.decided and d.breached))
+             || public.erp_rate_band((select count(*) from d where d.decided and not d.breached), (select count(*) from d where d.decided)),
+      'response', jsonb_build_object('decided', (select count(*) from d where d.r_decided), 'breached', (select count(*) from d where d.r_decided and d.response_breached),
+               'measured', (select count(*) from d where d.responded_at is not null),
+               'median_hours', (select round((percentile_cont(0.5) within group (order by extract(epoch from d.responded_at - d.opened_at)) / 3600)::numeric, 2) from d where d.responded_at is not null))
+             || public.erp_rate_band((select count(*) from d where d.r_decided and not d.response_breached), (select count(*) from d where d.r_decided)),
+      'resolve', jsonb_build_object('decided', (select count(*) from d where d.v_decided), 'breached', (select count(*) from d where d.v_decided and d.resolve_breached),
+               'measured', (select count(*) from d where d.solved_at is not null),
+               'median_hours', (select round((percentile_cont(0.5) within group (order by extract(epoch from d.solved_at - d.opened_at)) / 3600)::numeric, 2) from d where d.solved_at is not null))
+             || public.erp_rate_band((select count(*) from d where d.v_decided and not d.resolve_breached), (select count(*) from d where d.v_decided)),
+      'reopened', jsonb_build_object('tickets', (select count(*) from d where d.reopens > 0), 'reopens', (select coalesce(sum(d.reopens), 0) from d),
+               'solved', (select count(*) from d where d.finished)),
+      'by_stage', (select jsonb_agg(jsonb_build_object('stage', s ->> 'stage', 'label', s ->> 'label', 'count', (select count(*) from d where d.stage = s ->> 'stage')) order by o)
+                     from jsonb_array_elements(stages) with ordinality u(s, o)),
+      'by_priority', (select jsonb_agg(jsonb_build_object('priority', s ->> 'priority', 'label', s ->> 'label', 'count', (select count(*) from d where d.priority = s ->> 'priority'),
+                        'breached', (select count(*) from d where d.priority = s ->> 'priority' and d.breached)) order by o)
+                        from jsonb_array_elements(prios) with ordinality u(s, o)),
+      'by_type', coalesce((select jsonb_agg(jsonb_build_object('name', x.name, 'count', x.n, 'breached', x.b) order by x.n desc, x.name) from (
+                   select coalesce(d.type_name, '유형 없음') as name, count(*) as n, count(*) filter (where d.breached) as b from d group by 1) x), '[]'::jsonb))
+  );
+end $$;
+
 -- Every model and its state. Thresholds come from experiments/whatif/results-thresholds.json and match web/src/lib/forecast/thresholds.ts.
 -- Modules on and off, and what counts as evidence, are all read from the ledger, using its indexes.
 create or replace function public.erp_models(p_as_of timestamptz default null) returns jsonb
@@ -1339,7 +1420,7 @@ declare
   asof timestamptz := coalesce(p_as_of, now());
   today date := ((asof at time zone tz) + interval '1 second')::date;
   spans jsonb := public.erp_module_spans(asof);
-  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계","hr":"인사","payroll":"급여","mrp":"제조","assets":"고정자산","timeoff":"휴가","attendance":"근태","expense":"경비","crm":"CRM","project":"프로젝트","subscription":"구독","maintenance":"설비 보전","quality":"품질"}';
+  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계","hr":"인사","payroll":"급여","mrp":"제조","assets":"고정자산","timeoff":"휴가","attendance":"근태","expense":"경비","crm":"CRM","project":"프로젝트","subscription":"구독","maintenance":"설비 보전","quality":"품질","helpdesk":"헬프데스크"}';
   readable text[] := erp.readable_types();
   m record;
   missing text[];
@@ -1368,6 +1449,7 @@ declare
   tasks_measured int := 0; project_first date;
   sub_count int := 0; sub_first date; sub_months int := 0;
   repairs int := 0; repair_first date; qc_decided int := 0; qc_first date; undone_ uuid[];
+  tickets_decided int := 0; tickets_first date;
   span jsonb;
   a date; b date;
 begin
@@ -1450,6 +1532,10 @@ begin
    where e.event_type = 'MaintenanceDone' and e.data ->> 'kind' = 'corrective' and e.occurred_at <= asof and not e.correlation_id = any (undone_);
   select count(*), (min(e.occurred_at) at time zone tz)::date into qc_decided, qc_first from public.erp_events e
    where e.event_type in ('QualityCheckPassed', 'QualityCheckFailed') and e.data ->> 'retest_of' is null and e.occurred_at <= asof and not e.correlation_id = any (undone_);
+  -- Tickets whose SLA has been decided: a clock ran out, or every clock it had finished in time.
+  select count(*) filter (where (h.response_target is not null or h.resolve_target is not null)
+                            and (h.response_breached or h.resolve_breached or h.stage in ('solved', 'closed'))), min(h.created_on)
+    into tickets_decided, tickets_first from public.erp_helpdesk_tickets(asof) h;
 
   -- The drop what-if asks for stockouts. Counted only when stock history exists, because this one walks every stock change.
   stock_out_cases := 0;
@@ -1495,7 +1581,8 @@ begin
       ('subscription_mrr', 'stat', 'MRR과 증감', array['subscription'], false, array['subscription']),
       ('subscription_retention', 'stat', '해지율·순매출 유지율', array['subscription'], false, array['subscription']),
       ('maintenance_reliability', 'forecast', '고장 간격·다음 고장', array['maintenance'], false, array['equipment', 'maintenance_request']),
-      ('quality_defects', 'stat', '불량률·직행률', array['quality'], false, array['quality_check'])
+      ('quality_defects', 'stat', '불량률·직행률', array['quality'], false, array['quality_check']),
+      ('helpdesk_sla', 'stat', 'SLA 준수율', array['helpdesk'], false, array['helpdesk_ticket'])
     ) as t(id, kind, label, modules, needs_current, types)
   loop
     missing := '{}'; stale := '{}';
@@ -1551,6 +1638,7 @@ begin
       when 'subscription_retention' then have := sub_months; need := 3; unit_ := '개월'; since_ := sub_first; msg := '구독 이력';
       when 'maintenance_reliability' then have := repairs; need := 3; unit_ := '건'; since_ := repair_first; msg := '고장 수리 완료';
       when 'quality_defects' then have := qc_decided; need := 30; unit_ := '건'; since_ := qc_first; msg := '판정한 검사';
+      when 'helpdesk_sla' then have := tickets_decided; need := 20; unit_ := '건'; since_ := tickets_first; msg := 'SLA 를 판단한 티켓';
     end case;
 
     ok := have >= need;
@@ -1571,6 +1659,7 @@ begin
     if m.id = 'whatif_drop' and not ok then msg := msg || '. 대체율을 몰라 0~100% 범위로만 보여 줍니다'; end if;
     if m.id = 'crm_forecast' and not ok then msg := msg || '. 전환율을 몰라 0~전체 범위로만 보여 줍니다'; end if;
     if m.id = 'project_risk' and not ok then msg := msg || '. 실측이 없어 지난 납기만 말합니다'; end if;
+    if m.id = 'helpdesk_sla' and not ok then msg := msg || '. 준수율은 세어 본 값이고 아직 믿을 만하지 않습니다'; end if;
 
     if cardinality(missing) > 0 then
       msg := (select string_agg(labels ->> x, '·') from unnest(missing) x) || ' 모듈을 켜면 열립니다';

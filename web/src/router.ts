@@ -28,6 +28,8 @@ export const router = createRouter({
     { path: '/offline', name: 'offline', component: OfflineView, meta: { public: true, title: '연결 안 됨' } },
     // A customer has no account and no saved connection: the link carries what the page needs and shows one quotation.
     { path: '/portal/:token', name: 'portal', component: () => import('./screens/portal/PortalView.vue'), props: true, meta: { public: true, title: '견적 확인' } },
+    // The same for a support ticket: the customer sees it, and can answer.
+    { path: '/support/:token', name: 'support', component: () => import('./screens/helpdesk/SupportView.vue'), props: true, meta: { public: true, title: '문의 확인' } },
     { path: '/demo-build', name: 'demo-build', component: DemoBuildView, meta: { title: '가상 회사 만들기' } },
     {
       path: '/',
@@ -105,6 +107,7 @@ export const router = createRouter({
         { path: 'analytic/budgets', name: 'analytic-budgets', component: () => import('./screens/analytic/BudgetsView.vue'), meta: { title: '예산 대비 실적' } },
         { path: 'crm/analysis', name: 'crm-analysis', component: () => import('./screens/crm/AnalysisView.vue'), meta: { title: '영업 분석' } },
         { path: 'subscription/analysis', name: 'subscription-analysis', component: () => import('./screens/subscription/AnalysisView.vue'), meta: { title: 'MRR 분석' } },
+        { path: 'helpdesk/analysis', name: 'helpdesk-analysis', component: () => import('./screens/helpdesk/AnalysisView.vue'), meta: { title: '헬프데스크 분석' } },
         { path: 'expense/trend', name: 'expense-trend', component: () => import('./screens/expense/TrendView.vue'), meta: { title: '부서별 경비 추이' } },
         { path: 'master/variants', name: 'variants', component: () => import('./screens/master/VariantsView.vue'), meta: { title: '전체 변형' } },
         { path: 'master/duplicates', name: 'duplicates', component: () => import('./screens/master/DuplicatesView.vue'), meta: { title: '중복 연락처' } },

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { company, rejects } from './lib/harness.mjs'
 
-const FILES = { sales: '30_sales.sql', inventory: '40_inventory.sql', purchase: '50_purchase.sql', invoicing: ['60_invoicing.sql', '62_bank.sql', '63_voucher.sql'], accounting: ['65_accounting.sql', '68_books.sql'], analytic: '65a_analytic.sql', assets: '66_assets.sql', krtax: '66_krtax.sql', hr: '67_hr.sql', timeoff: '67a_timeoff.sql', attendance: '67b_attendance.sql', payroll: '67c_payroll.sql', mrp: '67g_mrp.sql', expense: '67d_expense.sql', crm: '67e_crm.sql', project: '67f_project.sql', subscription: '61_subscription.sql', maintenance: '67h_maintenance.sql', quality: '67i_quality.sql', analytics: '70_analytics.sql' }
+const FILES = { sales: '30_sales.sql', inventory: '40_inventory.sql', purchase: '50_purchase.sql', invoicing: ['60_invoicing.sql', '62_bank.sql', '63_voucher.sql'], accounting: ['65_accounting.sql', '68_books.sql'], analytic: '65a_analytic.sql', assets: '66_assets.sql', krtax: '66_krtax.sql', hr: '67_hr.sql', timeoff: '67a_timeoff.sql', attendance: '67b_attendance.sql', payroll: '67c_payroll.sql', mrp: '67g_mrp.sql', expense: '67d_expense.sql', crm: '67e_crm.sql', project: '67f_project.sql', subscription: '61_subscription.sql', maintenance: '67h_maintenance.sql', quality: '67i_quality.sql', helpdesk: '67j_helpdesk.sql', analytics: '70_analytics.sql' }
 const read = (f) => { try { return fs.readFileSync(new URL(`../sql/${f}`, import.meta.url), 'utf8') } catch { return null } }
 const stripComments = (s) => s.replace(/--.*$/gm, '')
 
@@ -69,10 +69,10 @@ test('neither of the two modules asks whether the other is on', () => {
 })
 
 test('nobody else reads or writes what a module keeps outside the ledger', () => {
-  for (const [owner, table] of [['crm', /opportunity_private/], ['expense', /expense_receipts|expense_private/]]) {
+  for (const [owner, table] of [['crm', /opportunity_private/], ['expense', /expense_receipts|expense_private/], ['helpdesk', /helpdesk_ticket_private/]]) {
     for (const m of mods) if (m.id !== owner) assert.ok(!table.test(m.src.replace(/'OpportunityPrivate[A-Za-z]*'/g, '')), `${m.id} mentions ${table}`)
   }
-  for (const id of ['crm', 'expense']) assert.match(mods.find((m) => m.id === id).src, /"subscribes": \[\]/, `${id} hears nobody`)
+  for (const id of ['crm', 'expense', 'helpdesk']) assert.match(mods.find((m) => m.id === id).src, /"subscribes": \[\]/, `${id} hears nobody`)
 })
 
 test('nobody else reads or writes the private table, and its module neither hears nor needs anyone', () => {

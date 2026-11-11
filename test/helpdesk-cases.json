@@ -1,0 +1,227 @@
+{
+  "_": "SLA 기한의 경계 사례. test/helpdesk.test.mjs 가 사례마다 시험 하나를 만든다. 시각은 회사 시간대(Asia/Seoul)의 YYYY-MM-DDTHH:MM 이다. steps 의 do: create, tick(분마다 도는 작업 한 번), reply, wait, resume, solve, close, cancel, reopen, customer(고객 글), priority(value), status(그 시각의 SLA 상태). 2026-03-02 와 03-09, 03-16 은 월요일이고 03-16 은 아래 공휴일이다.",
+  "holidays": [{ "date": "2026-03-16", "name": "시험 공휴일" }],
+  "cases": [
+    {
+      "name": "첫 응답이 기한 정각에 오면 지킨 것이고, 정각에 도는 시계는 위반을 남기지 않는다",
+      "policies": [{ "response_hours": 4, "resolve_hours": 24 }],
+      "steps": [
+        { "at": "2026-03-09T10:00", "do": "create" },
+        { "at": "2026-03-09T14:00", "do": "status", "response": "at_risk" },
+        { "at": "2026-03-09T14:00", "do": "tick" },
+        { "at": "2026-03-09T14:00", "do": "reply" }
+      ],
+      "expect": { "response_due": "2026-03-09T14:00", "resolve_due": "2026-03-10T10:00", "response": "met", "breaches": [] }
+    },
+    {
+      "name": "기한 1분 전의 첫 응답은 지킨 것이다. 그때 상태는 위험이다",
+      "policies": [{ "response_hours": 4, "resolve_hours": 24 }],
+      "steps": [
+        { "at": "2026-03-09T10:00", "do": "create" },
+        { "at": "2026-03-09T13:59", "do": "status", "status": "at_risk", "response": "at_risk", "resolve": "on_track" },
+        { "at": "2026-03-09T13:59", "do": "reply" }
+      ],
+      "expect": { "response": "met", "status": "on_track", "breaches": [] }
+    },
+    {
+      "name": "기한 1분 뒤에 시계가 돌면 위반이 기한 시각으로 한 번만 남는다",
+      "policies": [{ "response_hours": 4, "resolve_hours": 24 }],
+      "steps": [
+        { "at": "2026-03-09T10:00", "do": "create" },
+        { "at": "2026-03-09T14:00", "do": "tick" },
+        { "at": "2026-03-09T14:01", "do": "tick" },
+        { "at": "2026-03-09T14:30", "do": "tick" },
+        { "at": "2026-03-09T14:40", "do": "reply" },
+        { "at": "2026-03-09T15:00", "do": "tick" }
+      ],
+      "expect": { "response": "breached", "status": "breached", "breaches": [{ "kind": "response", "at": "2026-03-09T14:00" }] }
+    },
+    {
+      "name": "시계보다 늦은 답장이 먼저 오면 답장 앞에 위반이 남는다",
+      "policies": [{ "response_hours": 4, "resolve_hours": 24 }],
+      "steps": [
+        { "at": "2026-03-09T10:00", "do": "create" },
+        { "at": "2026-03-09T14:01", "do": "reply" },
+        { "at": "2026-03-09T14:05", "do": "tick" }
+      ],
+      "expect": { "response": "breached", "breaches": [{ "kind": "response", "at": "2026-03-09T14:00" }], "before": ["TicketSlaBreached", "TicketReplied"] }
+    },
+    {
+      "name": "남은 시간이 목표의 4분의 1이면 위험이고, 1분 더 남았으면 정상이다",
+      "policies": [{ "response_hours": 4 }],
+      "steps": [
+        { "at": "2026-03-09T10:00", "do": "create" },
+        { "at": "2026-03-09T12:59", "do": "status", "response": "on_track" },
+        { "at": "2026-03-09T13:00", "do": "status", "response": "at_risk" }
+      ],
+      "expect": { "resolve_due": null, "resolve": "none", "breaches": [] }
+    },
+    {
+      "name": "고객 대기가 기한을 넘겨도 해결 시계는 멈춰 있고, 다시 시작하면 남은 시간만큼 간다",
+      "policies": [{ "resolve_hours": 4 }],
+      "steps": [
+        { "at": "2026-03-09T10:00", "do": "create" },
+        { "at": "2026-03-09T13:00", "do": "wait" },
+        { "at": "2026-03-09T14:30", "do": "tick" },
+        { "at": "2026-03-09T14:30", "do": "status", "resolve": "at_risk", "paused": true },
+        { "at": "2026-03-09T15:00", "do": "resume" },
+        { "at": "2026-03-09T15:59", "do": "tick" },
+        { "at": "2026-03-09T16:01", "do": "tick" }
+      ],
+      "expect": { "resolve_due": "2026-03-09T16:00", "resolve": "breached", "breaches": [{ "kind": "resolve", "at": "2026-03-09T16:00" }] }
+    },
+    {
+      "name": "기한이 지난 뒤 고객 대기로 두면 대기보다 먼저 위반이 남는다",
+      "policies": [{ "resolve_hours": 4 }],
+      "steps": [
+        { "at": "2026-03-09T10:00", "do": "create" },
+        { "at": "2026-03-09T14:01", "do": "wait" }
+      ],
+      "expect": { "stage": "waiting", "breaches": [{ "kind": "resolve", "at": "2026-03-09T14:00" }], "before": ["TicketSlaBreached", "TicketAwaitingCustomer"] }
+    },
+    {
+      "name": "기한 정각에 고객 대기로 두면 남은 시간이 0이고, 다시 시작한 정각은 지킨 것, 1분 뒤는 위반이다",
+      "policies": [{ "resolve_hours": 4 }],
+      "steps": [
+        { "at": "2026-03-09T10:00", "do": "create" },
+        { "at": "2026-03-09T14:00", "do": "wait" },
+        { "at": "2026-03-09T15:00", "do": "resume" },
+        { "at": "2026-03-09T15:00", "do": "tick" },
+        { "at": "2026-03-09T15:01", "do": "tick" }
+      ],
+      "expect": { "resolve_due": "2026-03-09T15:00", "breaches": [{ "kind": "resolve", "at": "2026-03-09T15:00" }] }
+    },
+    {
+      "name": "고객 대기 중에도 첫 응답 시계는 간다",
+      "policies": [{ "response_hours": 4, "resolve_hours": 24 }],
+      "steps": [
+        { "at": "2026-03-09T10:00", "do": "create" },
+        { "at": "2026-03-09T11:00", "do": "wait" },
+        { "at": "2026-03-09T14:01", "do": "tick" }
+      ],
+      "expect": { "stage": "waiting", "resolve_due": null, "response": "breached", "breaches": [{ "kind": "response", "at": "2026-03-09T14:00" }] }
+    },
+    {
+      "name": "근무 시간: 금요일 17시 접수의 첫 응답 4시간은 월요일 12시까지이고, 주말에는 위반이 없다",
+      "policies": [{ "response_hours": 4, "basis": "working" }],
+      "steps": [
+        { "at": "2026-03-06T17:00", "do": "create" },
+        { "at": "2026-03-07T12:00", "do": "tick" },
+        { "at": "2026-03-09T11:59", "do": "tick" }
+      ],
+      "expect": { "response_due": "2026-03-09T12:00", "breaches": [] }
+    },
+    {
+      "name": "근무 시간: 월요일이 공휴일이면 화요일로 넘어간다",
+      "policies": [{ "response_hours": 4, "basis": "working" }],
+      "steps": [{ "at": "2026-03-13T17:00", "do": "create" }],
+      "expect": { "response_due": "2026-03-17T12:00", "breaches": [] }
+    },
+    {
+      "name": "근무 시간: 토요일 접수는 월요일 9시부터 센다",
+      "policies": [{ "response_hours": 4, "basis": "working" }],
+      "steps": [{ "at": "2026-03-07T10:00", "do": "create" }],
+      "expect": { "response_due": "2026-03-09T13:00" }
+    },
+    {
+      "name": "근무 시간: 문 닫는 정각의 접수는 다음 근무일 9시부터 센다",
+      "policies": [{ "response_hours": 4, "basis": "working" }],
+      "steps": [{ "at": "2026-03-09T18:00", "do": "create" }],
+      "expect": { "response_due": "2026-03-10T13:00" }
+    },
+    {
+      "name": "근무 시간: 문 열기 전의 접수는 9시부터 센다",
+      "policies": [{ "response_hours": 4, "basis": "working" }],
+      "steps": [{ "at": "2026-03-10T08:00", "do": "create" }],
+      "expect": { "response_due": "2026-03-10T13:00" }
+    },
+    {
+      "name": "근무 시간: 대기한 밤은 세지 않는다",
+      "policies": [{ "resolve_hours": 4, "basis": "working" }],
+      "steps": [
+        { "at": "2026-03-09T16:00", "do": "create" },
+        { "at": "2026-03-09T17:00", "do": "wait" },
+        { "at": "2026-03-10T10:00", "do": "resume" }
+      ],
+      "expect": { "resolve_due": "2026-03-10T13:00", "breaches": [] }
+    },
+    {
+      "name": "달력 시간은 주말도 센다",
+      "policies": [{ "resolve_hours": 24 }],
+      "steps": [{ "at": "2026-03-06T17:00", "do": "create" }],
+      "expect": { "resolve_due": "2026-03-07T17:00" }
+    },
+    {
+      "name": "우선순위를 올리면 접수 시각부터 새 기한을 센다",
+      "policies": [{ "name": "보통", "min_priority": "1", "response_hours": 8 }, { "name": "높음", "min_priority": "2", "response_hours": 4 }],
+      "priority": "1",
+      "steps": [
+        { "at": "2026-03-09T10:00", "do": "create", "response_due": "2026-03-09T18:00" },
+        { "at": "2026-03-09T13:00", "do": "priority", "value": "2" },
+        { "at": "2026-03-09T13:30", "do": "reply" }
+      ],
+      "expect": { "response_due": "2026-03-09T14:00", "response": "met", "policy": "높음", "breaches": [] }
+    },
+    {
+      "name": "올린 우선순위의 기한이 이미 지났으면 그 기한으로 위반이 남는다",
+      "policies": [{ "name": "보통", "min_priority": "1", "response_hours": 8 }, { "name": "높음", "min_priority": "2", "response_hours": 4 }],
+      "priority": "1",
+      "steps": [
+        { "at": "2026-03-09T10:00", "do": "create" },
+        { "at": "2026-03-09T15:00", "do": "priority", "value": "2" }
+      ],
+      "expect": { "response_due": "2026-03-09T14:00", "breaches": [{ "kind": "response", "at": "2026-03-09T14:00" }], "before": ["TicketChanged", "TicketSlaBreached"] }
+    },
+    {
+      "name": "해결 뒤 다시 열면 해결 시계는 남아 있던 시간부터 간다",
+      "policies": [{ "resolve_hours": 4 }],
+      "steps": [
+        { "at": "2026-03-09T10:00", "do": "create" },
+        { "at": "2026-03-09T11:00", "do": "solve" },
+        { "at": "2026-03-09T20:00", "do": "reopen" },
+        { "at": "2026-03-09T22:59", "do": "tick" }
+      ],
+      "expect": { "stage": "in_progress", "resolve_due": "2026-03-09T23:00", "reopen_count": 1, "resolve": "at_risk", "breaches": [] }
+    },
+    {
+      "name": "고객 글이 대기 중인 티켓을 진행으로 돌리고 해결 시계도 다시 간다",
+      "policies": [{ "resolve_hours": 4 }],
+      "steps": [
+        { "at": "2026-03-09T10:00", "do": "create" },
+        { "at": "2026-03-09T11:00", "do": "wait" },
+        { "at": "2026-03-09T12:00", "do": "customer" }
+      ],
+      "expect": { "stage": "in_progress", "resolve_due": "2026-03-09T15:00" }
+    },
+    {
+      "name": "맞는 정책이 없으면 기한도 위반도 없다",
+      "policies": [{ "min_priority": "3", "response_hours": 1 }],
+      "priority": "2",
+      "steps": [
+        { "at": "2026-03-09T10:00", "do": "create" },
+        { "at": "2026-03-12T10:00", "do": "tick" }
+      ],
+      "expect": { "response_due": null, "resolve_due": null, "status": "none", "breaches": [] }
+    },
+    {
+      "name": "기한 전에 취소한 티켓은 기한이 지나도 위반이 아니다",
+      "policies": [{ "response_hours": 4 }],
+      "steps": [
+        { "at": "2026-03-09T10:00", "do": "create" },
+        { "at": "2026-03-09T11:00", "do": "cancel" },
+        { "at": "2026-03-09T15:00", "do": "tick" }
+      ],
+      "expect": { "stage": "cancelled", "status": "none", "breaches": [] }
+    },
+    {
+      "name": "답장 없이 해결해도 해결이 첫 응답이다",
+      "policies": [{ "response_hours": 4, "resolve_hours": 8 }],
+      "steps": [
+        { "at": "2026-03-09T10:00", "do": "create" },
+        { "at": "2026-03-09T11:00", "do": "solve" },
+        { "at": "2026-03-09T20:00", "do": "tick" }
+      ],
+      "expect": { "stage": "solved", "response": "met", "resolve": "met", "status": "met", "responded": "2026-03-09T11:00", "breaches": [] }
+    }
+  ]
+}

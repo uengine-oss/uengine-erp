@@ -1,0 +1,28 @@
+✔ S14. it starts off, needs nothing else, and works with no sales module (755.915875ms)
+✔ S14. a lead moves through the stages, forward, skipping and back, and every step says what it is now (49.098667ms)
+✔ edges: amount and fields, with nothing left behind by a refusal (56.372458ms)
+✔ winning: needs someone to bill, a date no later than today and no earlier than the lead (48.102458ms)
+✔ losing: the reason is required, one of the list, and "other" says what (48.771417ms)
+✔ only sales and admin write; every member reads the deal, nobody else the contact (29.580625ms)
+✔ a contact person stays out of the ledger, can be erased, and no door leads to them (71.473959ms)
+✔ S14. a win becomes a draft quote: sales listens, the deal is untouched, and it can be turned off per win (34.308291ms)
+✔ a win with only a company name finds that customer or makes one, once (38.666ms)
+✔ reopening cancels a draft nobody has sent, and leaves one that has gone out (36.968708ms)
+✔ a stuck sales subscriber does not stop a win; it catches up with nothing lost or doubled (195.784959ms)
+✔ M6, M7: sales turned on later drafts only what is won after; crm turned off keeps everything and answers from the ledger (231.945583ms)
+✔ saga over MCP: register, move, win with a quote, then undo: all of it goes back by rollback, nothing to offset (283.472208ms)
+✔ undoing a win after someone worked on the quote names that work and needs consent (208.631125ms)
+✔ MCP: an agent has the rights of the member it speaks for (22.726375ms)
+✔ conversion by stage: reaching counts by how far a deal got; open deals are not lost; the band is honest about small numbers (310.837416ms)
+✔ the forecast: below 20 decided it gives only the range; at 20 it gives a figure and a band; 19 and 20 are where it turns (709.488209ms)
+✔ a known win rate: the band holds it, and deals go in as the ledger says, not as the screen remembers (665.669708ms)
+✔ repurchase: locked without sales; those overdue against their own habit, not those being talked to or on one order (498.686666ms)
+✔ the demo: deals have their own random stream, and with them sales and stock come out the same (39796.478083ms)
+ℹ tests 20
+ℹ suites 0
+ℹ pass 20
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 44309.218208

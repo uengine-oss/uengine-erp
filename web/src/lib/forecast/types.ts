@@ -10,6 +10,7 @@ export type ModelId =
   | 'leave_burn' | 'whatif_leave_policy' | 'overtime_risk' | 'stat_overtime'
   | 'stat_expense' | 'crm_conversion' | 'crm_forecast' | 'crm_repurchase' | 'project_effort' | 'project_risk'
   | 'maintenance_reliability' | 'quality_defects'
+  | 'helpdesk_sla'
 export type ModelKind = 'stat' | 'forecast' | 'whatif'
 export type ModelState = 'locked' | 'insufficient' | 'ready'
 

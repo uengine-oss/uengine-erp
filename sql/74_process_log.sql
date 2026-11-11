@@ -3,7 +3,8 @@
 -- process-mining tool (Process GPT derives the process from it). Nothing here writes.
 --   Case notions. sales_order: the quotation or order, the transfers and invoices made from it (backorders and credit
 --   notes keep the order as their origin), and the payments put on those invoices. purchase_order: the same for a
---   purchase. document: every document on its own; document:<type> narrows to one type.
+--   purchase. helpdesk_ticket: one ticket, with every answer, wait, breach and reopening on it. document: every document on
+--   its own; document:<type> narrows to one type.
 --   Payments join through the InvoicePaymentApplied facts on the invoice, so a payment taken off again still shows: rework
 --   is real process behaviour. Rollbacks (Reverted) and compensations are ordinary activities here.
 --   Row security: the screen and MCP both come through here with the owner's rights, and every document is asked
@@ -102,8 +103,8 @@ declare
   n int;
 begin
   if not erp.is_member() then perform erp.fail('ERP_FORBIDDEN', '이 회사의 구성원이 아닙니다'); end if;
-  if kind not in ('sales_order', 'purchase_order', 'document') or (only_ is not null and kind <> 'document') then
-    perform erp.fail('ERP_INVALID', 'case 는 sales_order, purchase_order, document 중 하나입니다. document:<유형> 으로 한 유형만 고를 수 있습니다');
+  if kind not in ('sales_order', 'purchase_order', 'helpdesk_ticket', 'document') or (only_ is not null and kind <> 'document') then
+    perform erp.fail('ERP_INVALID', 'case 는 sales_order, purchase_order, helpdesk_ticket, document 중 하나입니다. document:<유형> 으로 한 유형만 고를 수 있습니다');
   end if;
   begin
     from_ts := (nullif(a ->> 'from', '')::date)::timestamp at time zone tz;
