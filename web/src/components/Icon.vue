@@ -14,6 +14,8 @@ const PATHS: Record<string, string> = {
   project: 'M4 6h16M4 12h10M4 18h6M18 15l2 2 3-4',
   purchase: 'M3 4h2.5l2.2 11h10.1l2-8H6.5M9.5 20h.01M17 20h.01',
   mrp: 'M3 20V10l6 4v-4l6 4V5h6v15zM7 17h.01M12 17h.01M17 17h.01',
+  maintenance: 'M14.5 6.5a4 4 0 0 0-5.3 5.3L3.5 17.5l3 3 5.7-5.7a4 4 0 0 0 5.3-5.3l-2.4 2.4-2.6-.4-.4-2.6z',
+  quality: 'M9 3.5h6v3H9zM7 5H5v16h14V5h-2M8.5 13.5l2.5 2.5 4.5-4.5',
   inventory: 'M3.5 8L12 3.5 20.5 8v8L12 20.5 3.5 16zM3.5 8L12 12.5 20.5 8M12 12.5v8',
   invoicing: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9.5 8l1.2 5 1.3-3.5 1.3 3.5 1.2-5M9 10.5h6',
   accounting: 'M5 3h14v18H5zM8.5 7h7M8.5 11h7M8.5 15h3',
