@@ -400,6 +400,15 @@ test('S25. undoing a purchase confirmation takes its receipt and the check made 
     assert.equal((await k.rec(ch.id)).deleted, true)
     assert.equal((await call(k, k.adminId, 'erp_quality_rates', null, null, null)).waiting, 0, 'undone work is not counted')
     assert.deepEqual(await k.verifyProjection(), [])
+
+    // Someone has already measured: going back names that work and waits for consent.
+    const again = await receive(k, v, item, 2)
+    const [measured] = await checksOf(k, 'picking_id', again.picking.id)
+    await k.admin('quality_check', measured.id, 'pass', {})
+    const t2 = JSON.stringify({ correlation_id: (await lastEvent(k, again.po.id, 'PurchaseOrderConfirmed')).correlation_id })
+    const plan2 = await call(k, k.adminId, 'erp_rollback_preview', 'correlation', t2)
+    assert.ok(plan2.cascade.length >= 1)
+    await rejects(k.db.asUser(k.adminId, `select public.erp_rollback_apply('correlation', $1, $2, false, '되돌림')`, [t2, plan2.hash]), 'ERP_ROLLBACK_CASCADE')
   } finally { await k.close() }
 })
 
