@@ -1,0 +1,24 @@
+✔ S25. quality starts off, needs stock first, and hears stock and manufacturing (464.425167ms)
+✔ S25. a receipt that is ready makes a measurement check once, the goods go in whatever it says, and a failure opens one alert (84.736917ms)
+✔ S25. a receipt cancelled before it arrives calls off its check; returns and moves inside are not checked (197.747542ms)
+✔ S25. deliveries are checked for the customer the point names, and only them (48.109625ms)
+✔ measurement bounds: 13 cases, inclusive at both ends (201.572333ms)
+✔ sampling: 20 cases of every time, every N-th and a share (7.543291ms)
+✔ control points: 13 cases of what a point may say (44.348958ms)
+✔ S25. every third receipt is checked; the others are kept as left out of the sample, so the count can be read back (198.883125ms)
+✔ S25. a retest after rework keeps the first result; failing again while the alert is open joins that alert (37.282542ms)
+✔ S25. an alert is started, closed with its cause and what was done, called off only with a reason, and reopened (80.034125ms)
+✔ S25. an order to make something is checked on its finished product; a cancelled order calls the check off; first-pass yield counts first results (523.630584ms)
+✔ S25. defect rate by supplier and by product from first results, in a period, and the model card at 29 and 30 (780.233166ms)
+✔ M5: a stuck quality listener holds back no receipt, and catches up with nothing lost or doubled (321.880208ms)
+✔ M6, M7: receipts before quality was on get no check; turned off it keeps everything and the rates still answer (320.372833ms)
+✔ S25. undoing a purchase confirmation takes its receipt and the check made from it (303.614334ms)
+✔ MCP: an agent records a measurement with the rights of the member it speaks for (28.08525ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3907.893834

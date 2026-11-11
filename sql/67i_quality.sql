@@ -275,6 +275,9 @@ begin
         if k is not null then perform erp.fail('ERP_STATE', '끝난 경보는 메모만 고칠 수 있습니다. 다시 열고 고칩니다'); end if;
       end if;
       vals := erp.validate('quality_alert', erp.strict_payload('quality_alert', p, s), false);
+      -- The names travel with the ids, so a subscriber or the rates never look them up.
+      if vals ? 'partner_id' then vals := vals || jsonb_build_object('partner_name', erp.state_of(nullif(vals ->> 'partner_id', '')::uuid) -> 'name'); end if;
+      if vals ? 'product_id' then vals := vals || jsonb_build_object('product_name', erp.state_of(nullif(vals ->> 'product_id', '')::uuid) -> 'name'); end if;
       select coalesce(jsonb_object_agg(key, value), '{}'::jsonb) into changed from jsonb_each(vals) where (s -> key) is distinct from value;
       if changed = '{}'::jsonb then return p_id; end if;
       perform erp.emit('quality_alert', p_id, 'QualityAlertChanged', jsonb_build_object('set', changed,
@@ -331,7 +334,10 @@ language plpgsql as $$
 declare
   v jsonb; pt record; cid uuid; n int; made int := 0; partner_name text;
 begin
-  if not exists (select 1 from erp.variants where id = p_variant) then return 0; end if;
+  -- Most companies check only some things. Without a point for this kind of work there is nothing to look up.
+  if not exists (select 1 from erp.records where type = 'quality_point' and not deleted and coalesce((state ->> 'active')::boolean, true) and state ->> 'operation' = p_operation) then return 0; end if;
+  -- A product deleted since the document was written has nothing left to check against.
+  if not exists (select 1 from erp.variants x join erp.records r on r.id = x.product_id where x.id = p_variant and not r.deleted) then return 0; end if;
   v := erp.variant(p_variant);
   partner_name := case when p_partner is not null then erp.state_of(p_partner) ->> 'name' end;
   for pt in select id, state from erp.records

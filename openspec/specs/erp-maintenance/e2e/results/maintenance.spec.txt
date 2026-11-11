@@ -1,11 +1,7 @@
-
-Running 6 tests using 1 worker
-
-  ✓  1 e2e/tests/maintenance.spec.mjs:59:1 › S25-0. 설비 보전을 켜기 전에는 메뉴에 없고 모델은 잠겨 있으며, 켜면 다른 모듈 없이 열린다 (1.7s)
-  ✓  2 e2e/tests/maintenance.spec.mjs:87:1 › S25-1. 김보전이 프레스를 작업장에 등록한다. 음수 취득가는 칸을 짚어 막히고, 담당은 분류에서 온다 (1.6s)
-  ✓  3 e2e/tests/maintenance.spec.mjs:112:1 › S25-2. 30일마다 예방 점검 계획을 세우면 예정일 일주일 앞에 요청이 하나 생기고, 다시 눌러도 하나다 (1.8s)
-  ✓  4 e2e/tests/maintenance.spec.mjs:142:1 › S25-3. 고장을 신고하고 작업을 시작하면 작업장이 보전 중이 되고, 끝내면 가동으로 돌아오며 수리 시간이 나온다 (1.9s)
-  ✓  5 e2e/tests/maintenance.spec.mjs:193:1 › S25-4. 설비 신뢰도 화면이 고장 간격, 수리 시간, 다음 고장 예상과 달마다 멈춘 시간을 원장에서 보여 준다 (547ms)
-  ✓  6 e2e/tests/maintenance.spec.mjs:204:1 › S25-5. 조회 역할은 설비와 기록을 읽지만 등록하거나 고장을 신고하지 못한다 (434ms)
-
-  6 passed (12.1s)
+  ✓   1 e2e/tests/maintenance.spec.mjs:59:1 › S25-0. 설비 보전을 켜기 전에는 메뉴에 없고 모델은 잠겨 있으며, 켜면 다른 모듈 없이 열린다 (1.1s)
+  ✓   2 e2e/tests/maintenance.spec.mjs:87:1 › S25-1. 김보전이 프레스를 작업장에 등록한다. 음수 취득가는 칸을 짚어 막히고, 담당은 분류에서 온다 (1.6s)
+  ✓   3 e2e/tests/maintenance.spec.mjs:112:1 › S25-2. 30일마다 예방 점검 계획을 세우면 예정일 일주일 앞에 요청이 하나 생기고, 다시 눌러도 하나다 (1.6s)
+  ✓   4 e2e/tests/maintenance.spec.mjs:142:1 › S25-3. 고장을 신고하고 작업을 시작하면 작업장이 보전 중이 되고, 끝내면 가동으로 돌아오며 수리 시간이 나온다 (1.7s)
+  ✓   5 e2e/tests/maintenance.spec.mjs:193:1 › S25-4. 설비 신뢰도 화면이 고장 간격, 수리 시간, 다음 고장 예상과 달마다 멈춘 시간을 원장에서 보여 준다 (555ms)
+  ✓   6 e2e/tests/maintenance.spec.mjs:204:1 › S25-5. 조회 역할은 설비와 기록을 읽지만 등록하거나 고장을 신고하지 못한다 (431ms)
+  11 passed (19.5s)
