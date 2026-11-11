@@ -16,9 +16,11 @@ export type Rpc = (fn: string, args: Record<string, unknown>) => Promise<unknown
 /** The file contract. Process GPT reads these columns by name, in this order. */
 export const CSV_COLUMNS = ['case_id', 'case_label', 'activity', 'event_type', 'timestamp', 'resource', 'source', 'document_type', 'document', 'seq'] as const
 
-export const NOTIONS: { value: string; label: string; hint: string }[] = [
+/** `needs`: shown only while that type is installed, so a company without the module is not offered an empty file. */
+export const NOTIONS: { value: string; label: string; hint: string; needs?: string }[] = [
   { value: 'sales_order', label: '주문-수금', hint: '견적·주문 한 건과 거기서 나온 출고, 청구서, 그 청구서의 입금을 한 사례로 묶습니다.' },
   { value: 'purchase_order', label: '구매-지급', hint: '구매 주문 한 건과 거기서 나온 입고, 공급사 청구서, 그 청구서의 지급을 한 사례로 묶습니다.' },
+  { value: 'helpdesk_ticket', label: '티켓', hint: '고객 문의 한 건이 한 사례입니다. 배정, 답장, 고객 대기, SLA 위반, 해결과 다시 열림이 차례로 들어갑니다.', needs: 'helpdesk_ticket' },
   { value: 'document', label: '문서별', hint: '문서 하나하나가 한 사례입니다. 문서 유형을 고를 수 있습니다.' },
 ]
 
@@ -203,7 +205,7 @@ export function variantSummary(s: LogStats, opts: { notion: string; from?: strin
 
 /** A file name that says what is in it: erp-o2c-2025-01-01-2026-12-31.csv */
 export function fileName(notion: string, from: string | null | undefined, to: string | null | undefined, ext: string): string {
-  const tag = notion === 'sales_order' ? 'o2c' : notion === 'purchase_order' ? 'p2p' : notion.replace(':', '-')
+  const tag = notion === 'sales_order' ? 'o2c' : notion === 'helpdesk_ticket' ? 'helpdesk' : notion === 'purchase_order' ? 'p2p' : notion.replace(':', '-')
   const span = from || to ? `-${from || 'start'}-${to || 'now'}` : ''
   return `erp-${tag}${span}.${ext}`
 }

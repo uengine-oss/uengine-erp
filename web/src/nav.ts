@@ -129,6 +129,16 @@ function overdueActivity(rows: ErpRecord[]): Promise<Record<string, { label: str
   return Promise.resolve(Object.fromEntries(late.map((r) => [r.id, { label: '활동 지남', color: 'red' }])))
 }
 
+// A ticket's SLA status moves with the clock, so the database works it out for the rows on screen.
+async function slaMarks(rows: ErpRecord[]): Promise<Record<string, { label: string; color: string }>> {
+  const open = rows.filter((r) => ['new', 'in_progress', 'waiting'].includes(r.status ?? '') || r.state.response_breached || r.state.resolve_breached)
+  if (!open.length) return {}
+  const { rpc } = await import('./lib/api')
+  const got = await rpc<{ id: string; status: string }[]>('erp_helpdesk_sla', { p_ids: open.map((r) => r.id), p_at: null })
+  const MARK: Record<string, { label: string; color: string }> = { breached: { label: 'SLA 위반', color: 'red' }, at_risk: { label: 'SLA 위험', color: 'amber' } }
+  return Object.fromEntries(got.filter((x) => MARK[x.status]).map((x) => [x.id, MARK[x.status]]))
+}
+
 export const NAV: NavModule[] = [
   { key: 'home', label: '홈', icon: 'home', route: '/' },
   {
@@ -412,6 +422,21 @@ export const NAV: NavModule[] = [
       },
       { type: 'time_entry', hideWhenOn: { member_id: 'employee' }, hideFields: ['task_name', 'person_name'] },
       { label: '프로젝트 분석', route: '/project/analysis', needs: 'project_task' },
+    ],
+  },
+  {
+    key: 'helpdesk', label: '헬프데스크', icon: 'helpdesk',
+    screens: [
+      {
+        type: 'helpdesk_ticket', formPanel: () => import('./screens/helpdesk/TicketPanel.vue'), readonlyIn: ['solved', 'closed', 'cancelled'], marks: slaMarks,
+        lockedAfterCreate: ['assignee_id'], hideFields: ['assigned_by'], advanced: ['channel', 'opened_at', 'sla_policy_id', 'responded_at', 'solved_at', 'closed_at', 'response_breached', 'resolve_breached', 'reopen_count'],
+        views: { date: 'resolve_due', groups: ['team_id', 'assignee_id'], moves: true, title: 'subject', subtitle: 'number' },
+        filters: [{ key: 'open', label: '열린 티켓', query: { 'in.status': 'new,in_progress,waiting' } }, { key: 'waiting', label: '고객 대기', query: { status: 'waiting' } }],
+      },
+      { type: 'helpdesk_team' },
+      { type: 'helpdesk_sla' },
+      { type: 'helpdesk_ticket_type' },
+      { label: '헬프데스크 분석', route: '/helpdesk/analysis', needs: 'helpdesk_ticket' },
     ],
   },
   {
