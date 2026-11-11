@@ -1811,6 +1811,8 @@ begin
           'expansion', (select coalesce(sum(after_ - before_), 0) from moves v where v.before_ > 0 and v.after_ > v.before_),
           'contraction', (select coalesce(sum(before_ - after_), 0) from moves v where v.before_ > 0 and v.after_ < v.before_ and v.after_ > 0),
           'churn', (select coalesce(sum(before_), 0) from moves v where v.before_ > 0 and v.after_ = 0)) from whole))
+  );
+end $$;
 
 -- Maintenance: how long a machine runs between failures and how long it takes to bring it back, from the request events alone.
 ------------------------------------------------------------------------------------------------
