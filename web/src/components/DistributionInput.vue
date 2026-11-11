@@ -106,7 +106,7 @@ function choose(v: Dist | null) {
 .dist:hover:not(:disabled) { border-color: var(--line); background: var(--surface); }
 .dist-default { color: var(--text-2); font-style: italic; }
 .dist:disabled { cursor: default; opacity: .7; }
-.dist-backdrop { position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; background: rgba(15, 23, 42, .28); }
+.dist-backdrop { position: fixed; inset: 0; z-index: 900; display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; background: rgba(15, 23, 42, .28); }
 .dist-panel { width: min(520px, calc(100vw - 32px)); padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 12px 32px rgba(15, 23, 42, .18); }
 .dist-panel h2 { margin-bottom: 4px; }
 .dist-row { display: grid; grid-template-columns: 1fr 90px auto 30px; gap: 6px; align-items: center; margin: 6px 0; }

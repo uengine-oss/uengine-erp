@@ -142,10 +142,10 @@ select erp.catalog_put('{
       {"name": "analytic_account_id", "label": "분석 계정", "type": "ref", "ref": "analytic_account", "required": true},
       {"name": "side", "label": "구분", "type": "enum", "required": true, "default": "expense",
        "options": [{"value": "expense", "label": "비용"}, {"value": "income", "label": "매출"}]},
+      {"name": "planned", "label": "계획 금액", "type": "money", "default": 0},
       {"name": "month", "label": "월", "type": "text", "help": "2026-01 처럼 적으면 그달만 봅니다. 비우면 예산 기간 전체입니다."},
       {"name": "account_code_from", "label": "계정 코드부터", "type": "text", "help": "비우면 구분에 맞는 모든 계정입니다."},
       {"name": "account_code_to", "label": "계정 코드까지", "type": "text"},
-      {"name": "planned", "label": "계획 금액", "type": "money", "default": 0},
       {"name": "note", "label": "메모", "type": "text"}
     ]},
     {"name": "total_income", "label": "매출 계획", "type": "money", "readonly": true, "computed": true, "list": true},
