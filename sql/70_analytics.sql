@@ -1339,7 +1339,7 @@ declare
   asof timestamptz := coalesce(p_as_of, now());
   today date := ((asof at time zone tz) + interval '1 second')::date;
   spans jsonb := public.erp_module_spans(asof);
-  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계","hr":"인사","payroll":"급여","mrp":"제조","assets":"고정자산","timeoff":"휴가","attendance":"근태","expense":"경비","crm":"CRM","project":"프로젝트"}';
+  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계","hr":"인사","payroll":"급여","mrp":"제조","assets":"고정자산","timeoff":"휴가","attendance":"근태","expense":"경비","crm":"CRM","project":"프로젝트","subscription":"구독"}';
   readable text[] := erp.readable_types();
   m record;
   missing text[];
@@ -1366,6 +1366,7 @@ declare
   expense_months int := 0; expense_first date;
   deals_decided int := 0; deals_first date; repeat_customers int := 0;
   tasks_measured int := 0; project_first date;
+  sub_count int := 0; sub_first date; sub_months int := 0;
   span jsonb;
   a date; b date;
 begin
@@ -1438,6 +1439,12 @@ begin
 
   select count(*) filter (where t.stage = 'done' and t.planned > 0 and t.logged > 0), min(t.started_on) into tasks_measured, project_first from public.erp_project_tasks(asof) t;
 
+  -- Whole months since the first subscription started paying: one month says nothing about how customers stay.
+  select count(distinct r.subscription_id), min(r.effective_on) filter (where r.mrr > 0) into sub_count, sub_first from public.erp_subscription_mrr_rows(asof) r;
+  if sub_first is not null and sub_first <= today then
+    sub_months := extract(year from age(today, sub_first))::int * 12 + extract(month from age(today, sub_first))::int;
+  end if;
+
   -- The drop what-if asks for stockouts. Counted only when stock history exists, because this one walks every stock change.
   stock_out_cases := 0;
   if stock_days > 0 then
@@ -1478,7 +1485,9 @@ begin
       ('crm_forecast', 'forecast', '파이프라인 수주 전망', array['crm'], false, array['opportunity']),
       ('crm_repurchase', 'forecast', '재구매 후보', array['crm', 'sales'], false, array['opportunity', 'sales_order']),
       ('project_effort', 'stat', '작업 소요 실측', array['project'], false, array['project_task', 'time_entry']),
-      ('project_risk', 'forecast', '납기 지연 위험', array['project'], false, array['project', 'project_task', 'time_entry'])
+      ('project_risk', 'forecast', '납기 지연 위험', array['project'], false, array['project', 'project_task', 'time_entry']),
+      ('subscription_mrr', 'stat', 'MRR과 증감', array['subscription'], false, array['subscription']),
+      ('subscription_retention', 'stat', '해지율·순매출 유지율', array['subscription'], false, array['subscription'])
     ) as t(id, kind, label, modules, needs_current, types)
   loop
     missing := '{}'; stale := '{}';
@@ -1530,6 +1539,8 @@ begin
       when 'crm_forecast' then have := deals_decided; need := 20; unit_ := '건'; since_ := deals_first; msg := '수주·실주';
       when 'project_effort', 'project_risk' then have := tasks_measured; need := 20; unit_ := '건'; since_ := project_first; msg := '계획과 기록이 있는 완료 작업';
       when 'crm_repurchase' then have := repeat_customers; need := 3; unit_ := '곳'; since_ := first_sale; msg := '두 번 이상 주문한 고객';
+      when 'subscription_mrr' then have := sub_count; unit_ := '건'; since_ := sub_first; msg := format('구독 %s건', sub_count);
+      when 'subscription_retention' then have := sub_months; need := 3; unit_ := '개월'; since_ := sub_first; msg := '구독 이력';
     end case;
 
     ok := have >= need;
@@ -1538,7 +1549,7 @@ begin
     if m.id = 'whatif_terms' and term_changes < 3 then ok := false; end if;
     -- Stock history says which days to trust; the season still has to have been seen in sales.
     sales_need := case when m.id = 'demand_true' then 12 when m.id in ('whatif_policy', 'whatif_realloc', 'whatif_lead', 'whatif_drop') then 9 else 0 end;
-    if m.id = 'stat_sales' then msg := msg;
+    if m.id in ('stat_sales', 'subscription_mrr') then msg := msg;
     elsif ok and sales_months < sales_need then
       ok := false;
       msg := format('판매 %s개월 필요 (지금 %s개월)', sales_need, sales_months);
@@ -1575,4 +1586,129 @@ begin
       'since', since_);
   end loop;
   return out_;
+end $$;
+
+------------------------------------------------------------------------------------------------
+-- Subscriptions: what they bring in each month (MRR) and how that moved. Every subscription event that changes the
+-- figure states it after the change and the day it took effect, and those days only go forward on one subscription,
+-- so the figure on any day is the newest such event on or before it. Undone work is not evidence.
+--   Movement is counted per customer and day, so a customer who swaps one subscription for a bigger one the same day
+--   expanded rather than churned and came back. A customer at nothing who has had something before is a reactivation.
+--   A pause takes the figure to nothing like a close does: for the customer it is the same money not coming in.
+--   With no as-of time every event counts, also those a company dated ahead of today (a clock moved for a test).
+------------------------------------------------------------------------------------------------
+create index if not exists events_sub_mrr_idx on erp.events (stream_id, seq) where stream_type = 'subscription' and data ? 'mrr_to';
+
+create or replace function public.erp_subscription_mrr_rows(p_as_of timestamptz default null)
+returns table(subscription_id uuid, number text, partner_id text, partner_name text, effective_on date, seq bigint, mrr numeric)
+language sql stable set search_path = public, pg_temp as $$
+  with undone as materialized (select public.erp_undone(coalesce(p_as_of, 'infinity'::timestamptz)) as u)
+  select e.stream_id, e.data ->> 'number', e.data ->> 'partner_id', e.data ->> 'partner_name', (e.data ->> 'effective_on')::date, e.seq,
+         coalesce((e.data ->> 'mrr_to')::numeric, 0)
+    from public.erp_events e, undone
+   where e.stream_type = 'subscription' and e.data ? 'mrr_to' and e.data ? 'effective_on'
+     and (p_as_of is null or e.occurred_at <= p_as_of) and not e.correlation_id = any (undone.u)
+$$;
+
+-- The newest day the ledger knows for subscriptions, or today if that is later.
+create or replace function public.erp_subscription_day(p_as_of timestamptz default null) returns date
+language sql stable set search_path = public, pg_temp as $$
+  select greatest((coalesce(p_as_of, now()) at time zone public.erp_analytics_tz())::date,
+    (select (max(e.occurred_at) at time zone public.erp_analytics_tz())::date from public.erp_events e
+      where e.stream_type = 'subscription' and (p_as_of is null or e.occurred_at <= p_as_of)))
+$$;
+
+create or replace function public.erp_subscription_mrr(p_on date default null, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare on_ date := coalesce(p_on, public.erp_subscription_day(p_as_of));
+begin
+  return (
+    with cur as (
+      select distinct on (r.subscription_id) r.* from public.erp_subscription_mrr_rows(p_as_of) r
+       where r.effective_on <= on_ order by r.subscription_id, r.seq desc
+    ), live as (select * from cur where mrr <> 0)
+    select jsonb_build_object('on', on_, 'mrr', coalesce(sum(mrr), 0), 'arr', coalesce(sum(mrr), 0) * 12,
+      'subscriptions', count(*), 'customers', count(distinct partner_id),
+      'rows', coalesce(jsonb_agg(jsonb_build_object('subscription_id', subscription_id, 'number', number, 'partner_id', partner_id,
+        'partner_name', partner_name, 'mrr', mrr, 'since', effective_on) order by mrr desc, number), '[]'::jsonb))
+      from live);
+end $$;
+
+-- Month by month from p_from to p_to: MRR at the start and the end, and the movement between, which always adds up.
+-- Churn rate is the share of customers paying at the start of the month who pay nothing at its end. Net revenue
+-- retention is what those same customers pay at the end over what they paid at the start: new customers are left out.
+create or replace function public.erp_subscription_movement(p_from date default null, p_to date default null, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  to_ date := coalesce(p_to, public.erp_subscription_day(p_as_of));
+  from_ date := coalesce(p_from, (date_trunc('month', to_) - interval '11 months')::date);
+begin
+  if from_ > to_ then raise exception 'ERP_INVALID: 기간이 올바르지 않습니다'; end if;
+  return (
+    with r as materialized (select * from public.erp_subscription_mrr_rows(p_as_of)),
+    -- Each customer's figure at the end of a day: the newest event of each of their subscriptions up to it.
+    at_ as materialized (
+      select c.partner_id, c.d,
+             (select coalesce(sum(x.mrr), 0) from (select distinct on (q.subscription_id) q.mrr from r q
+                where q.partner_id = c.partner_id and q.effective_on <= c.d order by q.subscription_id, q.seq desc) x) as mrr
+        from (select distinct partner_id, effective_on as d from r where effective_on between from_ and to_
+              union select distinct partner_id, effective_on - 1 from r where effective_on between from_ and to_) c
+    ),
+    moves as (
+      select a.partner_id, a.d, b.mrr as before_, a.mrr as after_,
+             exists (select 1 from r q where q.partner_id = a.partner_id and q.effective_on < a.d and q.mrr > 0) as had
+        from at_ a join at_ b on b.partner_id = a.partner_id and b.d = a.d - 1
+       where a.d between from_ and to_ and a.mrr <> b.mrr
+    ),
+    months as (
+      select m::date as m_start, least((m + interval '1 month')::date - 1, to_) as m_end
+        from generate_series(date_trunc('month', from_), to_, interval '1 month') m
+    ),
+    cust as (select distinct partner_id from r),
+    edge as materialized (
+      select mo.m_start, mo.m_end, c.partner_id,
+             (select coalesce(sum(x.mrr), 0) from (select distinct on (q.subscription_id) q.mrr from r q
+                where q.partner_id = c.partner_id and q.effective_on <= greatest(mo.m_start, from_) - 1 order by q.subscription_id, q.seq desc) x) as s_mrr,
+             (select coalesce(sum(x.mrr), 0) from (select distinct on (q.subscription_id) q.mrr from r q
+                where q.partner_id = c.partner_id and q.effective_on <= mo.m_end order by q.subscription_id, q.seq desc) x) as e_mrr
+        from months mo cross join cust c
+    ),
+    per as (
+      select mo.m_start, mo.m_end,
+        coalesce((select sum(after_ - before_) from moves v where v.d between greatest(mo.m_start, from_) and mo.m_end and v.before_ = 0 and not v.had), 0) as new_,
+        coalesce((select sum(after_ - before_) from moves v where v.d between greatest(mo.m_start, from_) and mo.m_end and v.before_ = 0 and v.had), 0) as reactivation,
+        coalesce((select sum(after_ - before_) from moves v where v.d between greatest(mo.m_start, from_) and mo.m_end and v.before_ > 0 and v.after_ > v.before_), 0) as expansion,
+        coalesce((select sum(before_ - after_) from moves v where v.d between greatest(mo.m_start, from_) and mo.m_end and v.before_ > 0 and v.after_ < v.before_ and v.after_ > 0), 0) as contraction,
+        coalesce((select sum(before_) from moves v where v.d between greatest(mo.m_start, from_) and mo.m_end and v.before_ > 0 and v.after_ = 0), 0) as churn,
+        (select coalesce(sum(s_mrr), 0) from edge e where e.m_start = mo.m_start) as mrr_start,
+        (select coalesce(sum(e_mrr), 0) from edge e where e.m_start = mo.m_start) as mrr_end,
+        (select count(*) from edge e where e.m_start = mo.m_start and e.s_mrr > 0) as customers_start,
+        (select count(*) from edge e where e.m_start = mo.m_start and e.e_mrr > 0) as customers_end,
+        (select count(*) from edge e where e.m_start = mo.m_start and e.s_mrr > 0 and e.e_mrr = 0) as churned_customers,
+        (select coalesce(sum(e_mrr), 0) from edge e where e.m_start = mo.m_start and e.s_mrr > 0) as kept_mrr
+        from months mo
+    ),
+    whole as (
+      select (select coalesce(sum(x.mrr), 0) from (select distinct on (q.subscription_id) q.mrr, q.partner_id from r q where q.effective_on <= from_ - 1 order by q.subscription_id, q.seq desc) x) as s_total,
+             c.partner_id,
+             (select coalesce(sum(x.mrr), 0) from (select distinct on (q.subscription_id) q.mrr from r q where q.partner_id = c.partner_id and q.effective_on <= from_ - 1 order by q.subscription_id, q.seq desc) x) as s_mrr,
+             (select coalesce(sum(x.mrr), 0) from (select distinct on (q.subscription_id) q.mrr from r q where q.partner_id = c.partner_id and q.effective_on <= to_ order by q.subscription_id, q.seq desc) x) as e_mrr
+        from cust c
+    )
+    select jsonb_build_object('from', from_, 'to', to_,
+      'months', coalesce((select jsonb_agg(jsonb_build_object('month', to_char(p.m_start, 'YYYY-MM'), 'from', greatest(p.m_start, from_), 'to', p.m_end,
+          'mrr_start', p.mrr_start, 'new', p.new_, 'expansion', p.expansion, 'contraction', p.contraction, 'churn', p.churn, 'reactivation', p.reactivation,
+          'mrr_end', p.mrr_end, 'customers_start', p.customers_start, 'customers_end', p.customers_end, 'churned_customers', p.churned_customers,
+          'churn_rate', case when p.customers_start > 0 then round(p.churned_customers::numeric / p.customers_start, 4) end,
+          'nrr', case when p.mrr_start > 0 then round(p.kept_mrr / p.mrr_start, 4) end) order by p.m_start) from per p), '[]'::jsonb),
+      'total', (select jsonb_build_object('mrr_start', coalesce(sum(s_mrr), 0), 'mrr_end', coalesce(sum(e_mrr), 0),
+          'customers_start', count(*) filter (where s_mrr > 0), 'churned_customers', count(*) filter (where s_mrr > 0 and e_mrr = 0),
+          'churn_rate', case when count(*) filter (where s_mrr > 0) > 0 then round((count(*) filter (where s_mrr > 0 and e_mrr = 0))::numeric / count(*) filter (where s_mrr > 0), 4) end,
+          'nrr', case when sum(s_mrr) > 0 then round(sum(e_mrr) filter (where s_mrr > 0) / sum(s_mrr), 4) end,
+          'new', (select coalesce(sum(after_ - before_), 0) from moves v where v.before_ = 0 and not v.had),
+          'reactivation', (select coalesce(sum(after_ - before_), 0) from moves v where v.before_ = 0 and v.had),
+          'expansion', (select coalesce(sum(after_ - before_), 0) from moves v where v.before_ > 0 and v.after_ > v.before_),
+          'contraction', (select coalesce(sum(before_ - after_), 0) from moves v where v.before_ > 0 and v.after_ < v.before_ and v.after_ > 0),
+          'churn', (select coalesce(sum(before_), 0) from moves v where v.before_ > 0 and v.after_ = 0)) from whole))
+  );
 end $$;

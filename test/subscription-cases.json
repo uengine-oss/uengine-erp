@@ -1,0 +1,42 @@
+{
+  "_": "구독 모듈의 경계 사례. prorate: 기간 금액의 차이 × 남은 날 ÷ 기간의 날을 회사 통화 자릿수로 한 번 반올림(반은 0에서 먼 쪽). terms: 종료일은 기간의 마지막 날이어야 하고, 아니면 가까운 날 두 개를 말한다.",
+  "prorate": [
+    { "why": "반 달", "decimals": 0, "delta": 10000, "remaining": 14, "length": 28, "expected": 5000 },
+    { "why": "삼분의 일은 내림", "decimals": 0, "delta": 10000, "remaining": 1, "length": 3, "expected": 3333 },
+    { "why": "삼분의 이는 올림", "decimals": 0, "delta": 10000, "remaining": 2, "length": 3, "expected": 6667 },
+    { "why": "정확히 반은 올림", "decimals": 0, "delta": 15, "remaining": 14, "length": 28, "expected": 8 },
+    { "why": "음수의 정확히 반은 0에서 먼 쪽", "decimals": 0, "delta": -15, "remaining": 14, "length": 28, "expected": -8 },
+    { "why": "2.5 는 3", "decimals": 0, "delta": 25, "remaining": 1, "length": 10, "expected": 3 },
+    { "why": "-2.5 는 -3", "decimals": 0, "delta": -25, "remaining": 1, "length": 10, "expected": -3 },
+    { "why": "반 바로 아래", "decimals": 0, "delta": 24, "remaining": 1, "length": 10, "expected": 2 },
+    { "why": "반 바로 위", "decimals": 0, "delta": 26, "remaining": 1, "length": 10, "expected": 3 },
+    { "why": "기간 첫날에 바꾸면 기간 전체", "decimals": 0, "delta": 100000, "remaining": 28, "length": 28, "expected": 100000 },
+    { "why": "남은 날이 기간보다 길어도 기간 전체까지만", "decimals": 0, "delta": 100000, "remaining": 31, "length": 28, "expected": 100000 },
+    { "why": "남은 날이 없으면 0", "decimals": 0, "delta": 100000, "remaining": 0, "length": 31, "expected": 0 },
+    { "why": "31일 달의 마지막 하루", "decimals": 0, "delta": 100000, "remaining": 1, "length": 31, "expected": 3226 },
+    { "why": "31일 달의 30일", "decimals": 0, "delta": 100000, "remaining": 30, "length": 31, "expected": 96774 },
+    { "why": "윤년 2월의 하루", "decimals": 0, "delta": 100000, "remaining": 1, "length": 29, "expected": 3448 },
+    { "why": "차이가 없으면 0", "decimals": 0, "delta": 0, "remaining": 10, "length": 30, "expected": 0 },
+    { "why": "분기 90일의 반", "decimals": 0, "delta": 300000, "remaining": 45, "length": 90, "expected": 150000 },
+    { "why": "분기 92일의 하루", "decimals": 0, "delta": 300000, "remaining": 1, "length": 92, "expected": 3261 },
+    { "why": "평년의 하루", "decimals": 0, "delta": 1200000, "remaining": 1, "length": 365, "expected": 3288 },
+    { "why": "윤년의 하루", "decimals": 0, "delta": 1200000, "remaining": 1, "length": 366, "expected": 3279 },
+    { "why": "소수 둘째 자리 통화", "decimals": 2, "delta": 10, "remaining": 1, "length": 3, "expected": 3.33 },
+    { "why": "소수 통화의 정확히 반", "decimals": 2, "delta": 0.05, "remaining": 1, "length": 2, "expected": 0.03 },
+    { "why": "소수 통화의 음수 반", "decimals": 2, "delta": -0.05, "remaining": 1, "length": 2, "expected": -0.03 },
+    { "why": "소수 통화의 반 바로 아래", "decimals": 2, "delta": 0.049, "remaining": 1, "length": 2, "expected": 0.02 }
+  ],
+  "terms": [
+    { "why": "한 달 계약", "start": "2026-01-05", "plan": "month", "end": "2026-02-04", "term": 1 },
+    { "why": "1년 계약", "start": "2026-01-05", "plan": "month", "end": "2027-01-04", "term": 12 },
+    { "why": "다음 기간의 첫날은 끝이 아니다", "start": "2026-01-05", "plan": "month", "end": "2026-02-05", "error": "2026-02-04, 2026-03-04" },
+    { "why": "끝 하루 전", "start": "2026-01-05", "plan": "month", "end": "2026-02-03", "error": "2026-02-04" },
+    { "why": "31일 시작의 첫 기간은 2월 27일에 끝난다", "start": "2026-01-31", "plan": "month", "end": "2026-02-27", "term": 1 },
+    { "why": "31일 시작은 3월 30일에 두 번째 기간이 끝난다", "start": "2026-01-31", "plan": "month", "end": "2026-03-30", "term": 2 },
+    { "why": "2월 28일은 31일 시작 기간의 끝이 아니다", "start": "2026-01-31", "plan": "month", "end": "2026-02-28", "error": "2026-03-30" },
+    { "why": "분기 한 번", "start": "2026-01-01", "plan": "quarter", "end": "2026-03-31", "term": 1 },
+    { "why": "1년 한 번", "start": "2026-01-01", "plan": "year", "end": "2026-12-31", "term": 1 },
+    { "why": "윤일 시작의 1년", "start": "2024-02-29", "plan": "year", "end": "2025-02-27", "term": 1 },
+    { "why": "시작일보다 빠른 종료일", "start": "2026-03-01", "plan": "month", "end": "2026-02-28", "error": "시작일보다 빠를 수 없습니다" }
+  ]
+}

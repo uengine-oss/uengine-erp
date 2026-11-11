@@ -79,7 +79,7 @@ language sql stable as $$
               where not coalesce((d ->> 'hidden')::boolean, false))
   select jsonb_build_object('tools', jsonb_build_array(
     jsonb_build_object('name', 'erp_read',
-      'description', 'ERP 조회. 인자 없음=유형 목록. type=목록(filter 는 필드 일치, search 는 이름 검색). type+id=한 건. type+schema=필드와 가능한 상태 변경. id+history=이벤트 이력과 correlation_id. as_of(ISO 시각)=그 시점의 값. saga=사가 번호=만든 문서와 구독자 처리 여부. rollback={correlation_id}=되돌리기 방식(rollback|compensate|blocked)·범위·hash 미리보기. events={after,from,to,stream,limit}=원장을 커서로 차례로 읽기. process_log={case,from,to,after,limit,major}=프로세스 마이닝용 사례별 이벤트(case=sales_order|purchase_order|document).',
+      'description', 'ERP 조회. 인자 없음=유형 목록. type=목록(filter 는 필드 일치, search 는 이름 검색). type+id=한 건. type+schema=필드와 가능한 상태 변경. id+history=이벤트 이력과 correlation_id. as_of(ISO 시각)=그 시점의 값. saga=사가 번호=만든 문서와 구독자 처리 여부. rollback={correlation_id}=되돌리기 방식(rollback|compensate|blocked)·범위·hash 미리보기. events={after,from,to,stream,limit}=원장을 커서로 차례로 읽기. process_log={case,from,to,after,limit,major}=프로세스 마이닝용 사례별 이벤트(case=sales_order|purchase_order|document). analytics={fn,args}=모델이 읽는 사실(erp_sales_daily 등). 구독 MRR 은 fn=erp_subscription_mrr(args.p_to=기준일), 증감·해지율·순매출 유지율은 fn=erp_subscription_movement(args.p_from,p_to).',
       'inputSchema', jsonb_build_object('type', 'object', 'properties', jsonb_build_object(
         'type', jsonb_build_object('type', 'string', 'enum', t.e), 'id', '{"type":"string"}'::jsonb, 'schema', '{"type":"boolean"}'::jsonb,
         'history', '{"type":"boolean"}'::jsonb, 'filter', '{"type":"object"}'::jsonb, 'search', '{"type":"string"}'::jsonb,
@@ -126,6 +126,8 @@ declare
     when 'erp_journal_monthly' then 'journal_entry'
     when 'erp_reorder_rules' then 'reorder_rule'
     when 'erp_asset_history' then 'asset'
+    when 'erp_subscription_mrr' then 'subscription'
+    when 'erp_subscription_movement' then 'subscription'
   end;
   out_ jsonb;
 begin
@@ -138,7 +140,8 @@ begin
   end if;
   if need is null then perform erp.fail('ERP_INVALID', format('analytics 로 읽을 수 없는 함수입니다: %s', fn)); end if;
   if not need = any (may) then
-    return case when fn = 'erp_asset_history' then '{"decimals":0,"assets":[]}'::jsonb else '[]'::jsonb end;
+    return case when fn = 'erp_asset_history' then '{"decimals":0,"assets":[]}'::jsonb
+                when fn in ('erp_subscription_mrr', 'erp_subscription_movement') then '{}'::jsonb else '[]'::jsonb end;
   end if;
   case fn
     when 'erp_sales_daily' then return public.erp_sales_daily(f, t, o);
@@ -149,6 +152,9 @@ begin
     when 'erp_payment_delays' then return public.erp_payment_delays(f, t, o);
     when 'erp_journal_monthly' then return public.erp_journal_monthly(f, t, o);
     when 'erp_reorder_rules' then return public.erp_reorder_rules(o);
+    -- MRR on a day (p_to, or the newest day the ledger knows) and its movement month by month.
+    when 'erp_subscription_mrr' then return public.erp_subscription_mrr(t, o);
+    when 'erp_subscription_movement' then return public.erp_subscription_movement(f, t, o);
     else return public.erp_asset_history(o);
   end case;
 end $$;

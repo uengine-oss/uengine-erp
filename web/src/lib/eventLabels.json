@@ -71,7 +71,9 @@
     "attendance_day": "출퇴근 기록",
     "attendance_month": "근태 월 마감",
     "attendance_person": "근태 대상 직원",
-    "attendance_leave": "근태에 반영한 휴가"
+    "attendance_leave": "근태에 반영한 휴가",
+    "subscription": "구독",
+    "subscription_plan": "구독 주기"
   },
   "exact": {
     "CompanyCreated": "회사 생성",
@@ -348,7 +350,32 @@
     "VatEntryWithdrawn": "신고 집계 철회",
     "VatReturnOpened": "부가세 신고 시작",
     "VatFiled": "부가세 신고 마감",
-    "VatFilingReopened": "부가세 신고 다시 열기"
+    "VatFilingReopened": "부가세 신고 다시 열기",
+    "SubscriptionCreated": "구독 등록",
+    "SubscriptionUpdated": "구독 변경",
+    "SubscriptionLineAdded": "구독 품목 추가",
+    "SubscriptionLineChanged": "구독 품목 변경",
+    "SubscriptionLineRemoved": "구독 품목 삭제",
+    "SubscriptionLineReordered": "구독 품목 순서 변경",
+    "SubscriptionStarted": "구독 시작",
+    "SubscriptionChangeScheduled": "다음 기간 변경 예약",
+    "SubscriptionChangeCancelled": "변경 예약 취소",
+    "SubscriptionChanged": "구독 내용 바뀜",
+    "SubscriptionBilled": "정기 청구",
+    "SubscriptionPaused": "구독 일시 중지",
+    "SubscriptionResumed": "구독 재개",
+    "SubscriptionClosed": "구독 해지",
+    "SubscriptionReopened": "구독 다시 열림",
+    "SubscriptionRenewed": "구독 자동 갱신",
+    "SubscriptionInvoiceUpdated": "구독 청구서 반영",
+    "SubscriptionOverdue": "구독 미납",
+    "SubscriptionOriginCancelled": "구독의 원본 주문 취소",
+    "SubscriptionDeleted": "구독 삭제",
+    "SubscriptionPlanCreated": "구독 주기 등록",
+    "SubscriptionPlanUpdated": "구독 주기 변경",
+    "SubscriptionPlanArchived": "구독 주기 보관",
+    "SubscriptionPlanUnarchived": "구독 주기 보관 해제",
+    "SubscriptionPlanDeleted": "구독 주기 삭제"
   },
   "suffix": [
     ["Created$","생성"],
@@ -374,7 +401,8 @@
     "compensation": "보상",
     "setup": "설치",
     "demo": "데모 데이터",
-    "test": "시험"
+    "test": "시험",
+    "schedule": "정기 작업"
   },
   "bus": "다른 모듈",
   "document": "문서",

@@ -21,7 +21,7 @@ select erp.module_put('{
     {"event": "BankLineBooked", "fields": ["date", "amount", "account_id", "journal_account_id", "journal_id", "partner_id", "name"]},
     {"event": "BankLineUnbooked", "fields": ["date", "journal_id"]}
   ],
-  "subscribes": []
+  "subscribes": [{"name": "invoicing.subscriptions", "handler": "erp.inv_on_billing", "events": ["SubscriptionBilled"]}]
 }'::jsonb);
 
 select erp.catalog_put('{
@@ -2239,6 +2239,48 @@ begin
 end $$;
 
 select erp.periodic_register('erp.inv_auto_post_due', interval '1 hour');
+
+------------------------------------------------------------------------------------------------
+-- A recurring charge someone else keeps the contract for: one billing event, one invoice
+------------------------------------------------------------------------------------------------
+-- The event carries the period, its lines and whether to post. The invoice takes its id from the billing, so a second
+-- delivery finds it there, and each line keeps the billing's line id as its origin, so whoever sent it can tell which
+-- period an invoice is for. A billing that comes to less than nothing is a credit note. A post that the books refuse,
+-- such as a date in a closed period, leaves a draft for a person, as an auto-post does.
+create or replace function erp.inv_on_billing(ev erp.events) returns void
+language plpgsql as $$
+declare
+  d jsonb := ev.data;
+  inv uuid;
+  mt text := 'out_invoice';
+  lines_ jsonb;
+  head jsonb;
+begin
+  if not erp.is_uuid(d ->> 'billing_id') or not erp.is_uuid(d ->> 'partner_id') then return; end if;
+  inv := erp.seed_id('invoice-from-billing:' || (d ->> 'billing_id'));
+  if exists (select 1 from erp.records where id = inv) then return; end if;
+  select coalesce(jsonb_agg(erp.inv_amounts(jsonb_build_object('id', gen_random_uuid(), 'sequence', o * 10, 'product_id', l -> 'product_id',
+      'variant_id', l -> 'variant_id', 'name', l -> 'name', 'qty', l -> 'qty', 'uom_id', l -> 'uom_id', 'price_unit', l -> 'price_unit',
+      'discount', coalesce(l -> 'discount', '0'::jsonb), 'tax_ids', coalesce(l -> 'tax_ids', '[]'::jsonb), 'origin_line_id', l ->> 'line_id',
+      'is_downpayment', false)) order by o), '[]'::jsonb)
+    into lines_ from jsonb_array_elements(coalesce(d -> 'lines', '[]'::jsonb)) with ordinality t(l, o);
+  if jsonb_array_length(lines_) = 0 then return; end if;
+  if erp.num(erp.inv_totals(lines_) -> 'amount_total') < 0 then
+    mt := 'out_refund';
+    lines_ := erp.inv_flip(lines_);
+  end if;
+  head := jsonb_strip_nulls(jsonb_build_object('move_type', mt, 'partner_id', d -> 'partner_id', 'invoice_date', d -> 'invoice_date',
+    'payment_term_id', d -> 'payment_term_id', 'currency', d -> 'currency', 'ref', d -> 'ref',
+    'origin_type', ev.stream_type, 'origin_id', ev.stream_id, 'origin_name', d -> 'number'));
+  perform erp.inv_emit_new(inv, erp.inv_partner_defaults(mt, (d ->> 'partner_id')::uuid, head), lines_);
+  if coalesce((d ->> 'post')::boolean, false) then
+    begin
+      perform erp.dispatch('account_move', inv, 'post', '{}'::jsonb);
+    exception when others then
+      raise notice 'billing % stays a draft: %', d ->> 'billing_id', sqlerrm;
+    end;
+  end if;
+end $$;
 
 do $$ begin
   perform cron.schedule('erp-invoice-auto-post', '11 * * * *', 'select erp.inv_auto_post_due()');
