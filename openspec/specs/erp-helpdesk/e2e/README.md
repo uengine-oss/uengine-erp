@@ -10,7 +10,7 @@ node scripts/build-sql.mjs && node --test test/helpdesk.test.mjs test/isolation.
 source scripts/local-env.sh && npm --prefix web run build && lockf -t 1500 /tmp/uengine-erp-e2e.lock npx playwright test -c e2e/playwright.config.mjs e2e/tests/helpdesk.spec.mjs
 ```
 
-이 판의 출력은 `results/` 에 있다(`sql.txt`, `browser.txt`).
+이 판의 출력은 `results/` 에 있다. `sql-helpdesk.txt`(43 통과), `sql-related.txt`(헬프데스크가 손댄 공유 파일을 쓰는 시험 9개 파일, 269 중 268 통과. 떨어진 하나는 로컬 Postgres 의 디버거 확장 `pldbgapi2` 가 설치 중에 낸 오류이고 `sql-crm-rerun.txt` 에서 그 파일만 다시 돌려 20 모두 통과), `browser.txt`(헬프데스크, 프로세스 마이닝 로그, 모듈 화면 29 통과).
 
 ## 시나리오 ↔ 시험
 
