@@ -132,7 +132,7 @@ const docLink = (l: Line) => (l.origin_type && l.origin_id
 </template>
 
 <style scoped>
-.filters { gap: 6px; align-items: center; }
+.filters { gap: 6px; align-items: center; flex-wrap: wrap; }
 .filters .input, .filters .select { width: auto; }
 .clickable { cursor: pointer; }
 .clickable:hover td { background: var(--ink-50); }
