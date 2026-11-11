@@ -102,6 +102,7 @@ export const router = createRouter({
         { path: 'analytic/report', name: 'analytic-report', component: () => import('./screens/analytic/ReportView.vue'), meta: { title: '분석 계정별 손익' } },
         { path: 'analytic/budgets', name: 'analytic-budgets', component: () => import('./screens/analytic/BudgetsView.vue'), meta: { title: '예산 대비 실적' } },
         { path: 'crm/analysis', name: 'crm-analysis', component: () => import('./screens/crm/AnalysisView.vue'), meta: { title: '영업 분석' } },
+        { path: 'subscription/analysis', name: 'subscription-analysis', component: () => import('./screens/subscription/AnalysisView.vue'), meta: { title: 'MRR 분석' } },
         { path: 'expense/trend', name: 'expense-trend', component: () => import('./screens/expense/TrendView.vue'), meta: { title: '부서별 경비 추이' } },
         { path: 'master/variants', name: 'variants', component: () => import('./screens/master/VariantsView.vue'), meta: { title: '전체 변형' } },
         { path: 'master/duplicates', name: 'duplicates', component: () => import('./screens/master/DuplicatesView.vue'), meta: { title: '중복 연락처' } },

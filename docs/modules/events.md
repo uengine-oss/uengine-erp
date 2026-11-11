@@ -325,6 +325,28 @@
 | `TimeLogged`, `TimeRemoved` | 시간 공통 사실 |
 | `TimeChanged` | `changed` + 시간 공통 사실 |
 
+## 구독이 내는 것
+
+공통 사실: `number, partner_id, partner_name, plan_id, plan_name, period, status, start_date, end_date, amount, mrr, next_billing_date, origin`. `status` 는 그 이벤트 뒤의 상태다.
+MRR 을 바꾸는 이벤트(`SubscriptionStarted, SubscriptionChanged, SubscriptionPaused, SubscriptionResumed, SubscriptionClosed, SubscriptionReopened`)는 `effective_on, mrr_from, mrr_to` 를 더 싣는다. 한 구독의 `effective_on` 은 앞으로만 간다. 분석은 이것만 읽어 MRR 과 증감을 센다.
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `SubscriptionCreated` | 공통 사실. 주문에서 오면 `from_order: true` |
+| `SubscriptionStarted` | MRR 사실 + 공통 사실. 주문에서 온 구독은 첫 기간 줄(`kind: order`)을 함께 싣는다 |
+| `SubscriptionChangeScheduled`, `SubscriptionChangeCancelled` | `from_period, mrr_now, mrr_next` + 공통 사실. MRR 은 아직 바뀌지 않는다 |
+| `SubscriptionChanged` | `how(next_period/now), from_lines, from_amount` + MRR 사실 + 공통 사실 |
+| `SubscriptionBilled` | `billing_id, billing_no, kind(period/proration/credit), period_start, period_end, invoice_date, payment_term_id, currency, post, amount_untaxed, ref, lines[{line_id, subscription_line_id, product_id, variant_id, name, qty, uom_id, price_unit, discount, tax_ids, subtotal}]` + 공통 사실. **청구 모듈이 이것으로 청구서를 만든다.** `line_id` 는 이 청구만의 줄 ID 다 |
+| `SubscriptionPaused` | `paused_on` + MRR 사실 |
+| `SubscriptionResumed` | `paused_on, paused_days` + MRR 사실 |
+| `SubscriptionClosed` | `close_reason, close_note, closed_on, credit_unused` + MRR 사실 |
+| `SubscriptionReopened` | `was` + MRR 사실 |
+| `SubscriptionRenewed` | `from, to, renewed_on` |
+| `SubscriptionInvoiceUpdated` | `invoice_id, invoice_event, periods[{id, payment_state}], payment_status_from, payment_status_to` |
+| `SubscriptionOverdue` | `periods, payment_status_from` |
+| `SubscriptionOriginCancelled` | `origin` |
+| `SubscriptionDeleted` | `number` |
+
 ## 기초데이터가 내는 것
 
 | 이벤트 | `data` 의 사실 |
@@ -385,4 +407,7 @@
 | CRM | 없음 | 아무 이벤트도 듣지 않는다 |
 | 관리회계 | `JournalEntryPosted`, `JournalEntryResetToDraft` | 전표 줄의 분석 분배(없으면 원본 게시 시점의 기본 규칙)로 분석 줄을 만든다. 지우는 전표·역분개·초안 복귀는 원래 줄의 음수다. 켠 뒤의 이벤트만 듣는다 |
 | 프로젝트 | `SalesOrderConfirmed`, `SalesOrderLineAdded`, `SalesOrderLineQtyChanged`, `SalesOrderCancelled` | 프로젝트를 요청하는 서비스 줄에서 프로젝트와 작업을 만들고 따라간다 |
+| 구독 | `SalesOrderConfirmed`, `SalesOrderCancelled` | 정기 청구 제품의 줄을 주기별로 묶어 구독을 만든다(첫 기간은 주문). 주문이 취소되면 스스로 청구한 것이 없는 구독을 해지한다. 켠 뒤의 이벤트만 듣는다 |
+| 구독 | `InvoiceDrafted`, `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled`, `InvoicePaymentApplied` | 원본이 구독이나 구독이 된 주문인 청구서를 기간 줄에 적는다(청구서, 만기일, 입금 상태). 같은 구독자라 주문 확정보다 청구서 소식을 먼저 듣는 일이 없다 |
+| 청구 | `SubscriptionBilled` | 청구서(원본 `subscription`, ID 는 `billing_id` 에서). 합계가 음수면 대변 메모. `post` 면 게시하고, 막히면 초안으로 둔다 |
 | 분석 | 원장 전체 | 구독하지 않고 직접 읽는다 |

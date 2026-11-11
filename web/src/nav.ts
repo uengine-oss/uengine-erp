@@ -154,6 +154,11 @@ function overdueActivity(rows: ErpRecord[]): Promise<Record<string, { label: str
   return Promise.resolve(Object.fromEntries(late.map((r) => [r.id, { label: '활동 지남', color: 'red' }])))
 }
 
+// A subscription with a bill past its due date. The database decided that; the list only says so beside the row.
+function overdueSubscriptions(rows: ErpRecord[]): Promise<Record<string, { label: string; color: string }>> {
+  return Promise.resolve(Object.fromEntries(rows.filter((r) => r.state.payment_status === 'overdue').map((r) => [r.id, { label: '미납', color: 'red' }])))
+}
+
 export const NAV: NavModule[] = [
   { key: 'home', label: '홈', icon: 'home', route: '/' },
   {
@@ -295,6 +300,21 @@ export const NAV: NavModule[] = [
       { type: 'payment_method' },
       { type: 'bank_statement' },
       { type: 'bank_line', hideFields: ['matches', 'booked', 'state'], readonlyIn: ['matched'] },
+    ],
+  },
+  {
+    key: 'subscription', label: '구독', icon: 'refresh',
+    screens: [
+      {
+        type: 'subscription', formPanel: loader('SubscriptionPanel'), readonlyIn: ['closed'], marks: overdueSubscriptions,
+        views: { date: 'next_billing_date', amount: 'mrr', groups: ['partner_id', 'plan_id'] },
+        filters: [{ key: 'active', label: '진행 중', query: { status: 'active' } }, { key: 'overdue', label: '미납', query: { 'eq.payment_status': 'overdue' } }],
+        advanced: ['billing_from', 'payment_term_id', 'note', 'term_periods', 'created_on', 'origin_cancelled', 'overdue_since'],
+        hideFields: ['period'],
+        hideColumns: { lines: ['variant_id'] },
+      },
+      { type: 'subscription_plan' },
+      { label: 'MRR 분석', route: '/subscription/analysis', needs: 'subscription' },
     ],
   },
   {
