@@ -1,0 +1,29 @@
+{
+  "_": "분석 분배 칸의 경계. 계정 이름: A·B·C 는 부서 계획, P 는 프로젝트 계획, Z 는 보관한 부서 계정, X 는 없는 계정. 같은 판단을 청구서 줄, 수동 전표 줄, 경비, 기본 분배 규칙이 함께 쓴다.",
+  "distribution": [
+    {"name": "한 계정 100%", "dist": {"A": 100}, "ok": true},
+    {"name": "두 계정 60/40", "dist": {"A": 60, "B": 40}, "ok": true},
+    {"name": "세 계정 33.33/33.33/33.34", "dist": {"A": 33.33, "B": 33.33, "C": 33.34}, "ok": true},
+    {"name": "두 계획이 각각 100%", "dist": {"A": 60, "B": 40, "P": 100}, "ok": true},
+    {"name": "빈 분배는 '없음'으로 받는다", "dist": {}, "ok": true},
+    {"name": "숫자 글자로 적은 비율", "dist": {"A": "100"}, "ok": true},
+    {"name": "합이 100보다 0.01 모자람", "dist": {"A": 60, "B": 39.99}, "error": "ERP_INVALID"},
+    {"name": "합이 100보다 0.01 많음", "dist": {"A": 60, "B": 40.01}, "error": "ERP_INVALID"},
+    {"name": "한 계획은 100, 다른 계획은 50", "dist": {"A": 100, "P": 50}, "error": "ERP_INVALID"},
+    {"name": "한 계정이 100 초과", "dist": {"A": 100.01}, "error": "ERP_INVALID"},
+    {"name": "0% 계정", "dist": {"A": 100, "B": 0}, "error": "ERP_INVALID"},
+    {"name": "음수 비율", "dist": {"A": 110, "B": -10}, "error": "ERP_INVALID"},
+    {"name": "소수 셋째 자리", "dist": {"A": 33.333, "B": 33.333, "C": 33.334}, "error": "ERP_INVALID"},
+    {"name": "글자 비율", "dist": {"A": "백"}, "error": "ERP_INVALID"},
+    {"name": "없는 계정", "dist": {"X": 100}, "error": "ERP_INVALID_REF"},
+    {"name": "보관한 계정", "dist": {"Z": 100}, "error": "ERP_INVALID"},
+    {"name": "목록 형식", "dist": [], "error": "ERP_INVALID"}
+  ],
+  "budget": [
+    {"name": "실적이 계획과 같으면 넘지 않음", "side": "expense", "planned": 300000, "actual": 300000, "remaining": 0, "achieved": 100, "over": false},
+    {"name": "실적이 계획보다 1원 많으면 넘음", "side": "expense", "planned": 299999, "actual": 300000, "remaining": -1, "achieved": 100, "over": true},
+    {"name": "실적이 계획보다 1원 적으면 넘지 않음", "side": "expense", "planned": 300001, "actual": 300000, "remaining": 1, "achieved": 100, "over": false},
+    {"name": "계획 0 은 달성률이 없음", "side": "expense", "planned": 0, "actual": 300000, "remaining": -300000, "achieved": null, "over": true},
+    {"name": "매출은 넘어도 초과 표시가 없음", "side": "income", "planned": 100000, "actual": 150000, "remaining": -50000, "achieved": 150, "over": false}
+  ]
+}

@@ -15,7 +15,8 @@ select erp.module_put('{
     "events": ["InvoicePosted", "InvoiceResetToDraft", "InvoiceCancelled", "PaymentPosted", "PaymentCancelled",
                "PickingValidated", "StockAdjusted", "StockScrapped", "BankLineBooked", "BankLineUnbooked", "PayrollPosted", "PayrollPaid",
                "AssetRegistered", "DepreciationPosted", "AssetDisposed", "ExpenseApproved", "ExpensePaid", "ExpenseCancelled"]}],
-  "publishes": [{"event": "JournalEntryPosted", "fields": ["number", "date", "origin_type", "origin_id", "lines"]}]
+  "publishes": [{"event": "JournalEntryPosted", "fields": ["number", "date", "origin_type", "origin_id", "lines", "reversal_of"]},
+                {"event": "JournalEntryResetToDraft", "fields": ["effects"]}]
 }'::jsonb);
 
 create table if not exists erp.gl_lines (
@@ -97,7 +98,9 @@ select erp.catalog_put('{
       {"name": "debit", "label": "차변", "type": "money", "default": 0},
       {"name": "credit", "label": "대변", "type": "money", "default": 0},
       {"name": "due_date", "label": "만기일", "type": "date"},
-      {"name": "grids", "label": "신고 그리드", "type": "tags", "default": []}
+      {"name": "grids", "label": "신고 그리드", "type": "tags", "default": []},
+      {"name": "analytic_distribution", "label": "분석 분배", "type": "distribution", "ref": "analytic_account", "group": "plan_id", "module": "analytic",
+       "help": "부서·프로젝트 같은 분석 계정에 몇 %씩 나눌지 적습니다. 비우면 수익·비용 계정 줄은 기본 분배 규칙을 따릅니다."}
     ]},
     {"name": "total_debit", "label": "차변 합계", "type": "money", "readonly": true, "computed": true, "list": true},
     {"name": "total_credit", "label": "대변 합계", "type": "money", "readonly": true, "computed": true},
@@ -331,8 +334,11 @@ begin
   for l in select value from jsonb_array_elements(coalesce(d -> 'lines', '[]'::jsonb)) loop
     line_acct := erp.books_line_account(ev, mt, l);
     base_grids := (select coalesce(jsonb_agg(distinct g), '[]'::jsonb) from jsonb_array_elements(coalesce(l -> 'taxes', '[]'::jsonb)) x, jsonb_array_elements(coalesce(x -> 'base_grids', '[]'::jsonb)) g);
+    -- A document line's row carries on what the line said about where its money belongs, and which product it was, for whoever
+    -- keeps accounts by department or project. The books themselves never read it.
     rows_ := rows_ || (erp.books_row(line_acct, partner, l ->> 'name', dir * erp.num(l -> 'subtotal'))
-                       || case when base_grids <> '[]'::jsonb then jsonb_build_object('grids', base_grids) else '{}'::jsonb end);
+                       || case when base_grids <> '[]'::jsonb then jsonb_build_object('grids', base_grids) else '{}'::jsonb end
+                       || jsonb_build_object('analytic', jsonb_strip_nulls(jsonb_build_object('distribution', l -> 'analytic_distribution', 'product_id', l -> 'product_id'))));
     line_taxes := 0;
     for t in select value from jsonb_array_elements(coalesce(l -> 'taxes', '[]'::jsonb)) loop
       acct := coalesce(t ->> 'account_id', erp.books_state_at(t ->> 'tax_id', ev.seq) ->> 'account_id', seed_tax);
@@ -584,7 +590,8 @@ declare
 begin
   if ev.event_type = 'ExpenseApproved' then
     perform erp.books_entry(ev, erp.seed_id('gl:' || ev.seq), erp.books_date(d ->> 'accounting_date', ev), d ->> 'number', null, jsonb_build_array(
-      erp.books_row(coalesce(d ->> 'account_id', erp.seed_id('잡비')::text), null, label_, amount_),
+      erp.books_row(coalesce(d ->> 'account_id', erp.seed_id('잡비')::text), null, label_, amount_)
+        || jsonb_build_object('analytic', jsonb_strip_nulls(jsonb_build_object('distribution', d -> 'analytic_distribution'))),
       erp.books_row(owed, null, label_, -amount_)));
   else
     perform erp.books_entry(ev, erp.seed_id('gl:' || ev.seq), erp.books_date(d ->> 'paid_on', ev), d ->> 'number', null, jsonb_build_array(
@@ -703,7 +710,7 @@ begin
   number_ := coalesce(s ->> 'number', erp.next_number(code_ || '/' || y, code_ || '/' || y || '/', 5));
   perform erp.emit('journal_entry', p_id, 'JournalEntryPosted', jsonb_build_object(
     'set', jsonb_build_object('state', 'posted', 'number', number_, 'open', true) || t,
-    'number', number_, 'date', s -> 'date', 'origin_type', null, 'origin_id', null, 'lines', rows_,
+    'number', number_, 'date', s -> 'date', 'origin_type', null, 'origin_id', null, 'lines', rows_, 'reversal_of', s -> 'reversal_of', 'kind', s -> 'kind',
     'effects', jsonb_build_object('gl', (select jsonb_agg(l - 'id' || jsonb_build_object('move_id', p_id, 'date', s ->> 'date')) from jsonb_array_elements(rows_) l))));
 end $$;
 

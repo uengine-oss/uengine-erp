@@ -192,6 +192,8 @@ language sql immutable as $$
     'department_id', s -> 'department_id', 'department_name', s -> 'department_name',
     'category_id', s -> 'category_id', 'category_name', s -> 'category_name', 'account_id', s -> 'account_id',
     'date', s -> 'date', 'amount', s -> 'amount')
+    -- Said only by a claim that says it: which department or project the money belongs to.
+    || jsonb_strip_nulls(jsonb_build_object('analytic_distribution', s -> 'analytic_distribution'))
 $$;
 
 create or replace function erp.exp_create(p_id uuid, p_p jsonb) returns void
@@ -559,6 +561,8 @@ select erp.catalog_put('{
     {"name": "title", "label": "적요", "type": "text", "required": true, "private": true, "help": "원장 밖에 두어 지울 수 있습니다. MCP 로는 읽지 못합니다."},
     {"name": "category_id", "label": "유형", "type": "ref", "ref": "expense_category", "help": "비우면 기타 경비입니다."},
     {"name": "amount", "label": "금액", "type": "money", "required": true, "list": true},
+    {"name": "analytic_distribution", "label": "분석 분배", "type": "distribution", "ref": "analytic_account", "group": "plan_id", "module": "analytic",
+     "help": "부서·프로젝트 같은 분석 계정에 몇 %씩 나눌지 적습니다. 비우면 승인할 때 기본 분배 규칙을 따릅니다."},
     {"name": "note", "label": "메모", "type": "text", "multiline": true, "private": true},
     {"name": "no_receipt_reason", "label": "영수증이 없는 사유", "type": "text", "private": true, "help": "영수증을 첨부하지 않고 신청할 때 적습니다."},
     {"name": "receipt_count", "label": "영수증", "type": "integer", "readonly": true, "list": true},
@@ -623,7 +627,7 @@ select erp.module_put('{
   "subscribes": [],
   "publishes": [
     {"event": "ExpenseSubmitted", "fields": ["number", "employee_id", "employee_name", "department_id", "department_name", "category_id", "category_name", "account_id", "date", "amount", "approver_id", "approver_name", "approver_user_id", "receipt_count", "possible_duplicates"]},
-    {"event": "ExpenseApproved", "fields": ["number", "employee_id", "employee_name", "department_id", "department_name", "category_id", "category_name", "account_id", "date", "amount", "accounting_date", "self_approved", "approved_by_name", "receipt_count"]},
+    {"event": "ExpenseApproved", "fields": ["number", "employee_id", "employee_name", "department_id", "department_name", "category_id", "category_name", "account_id", "date", "amount", "accounting_date", "self_approved", "approved_by_name", "receipt_count", "analytic_distribution"]},
     {"event": "ExpenseRefused", "fields": ["number", "employee_id", "employee_name", "department_id", "department_name", "category_id", "category_name", "account_id", "date", "amount"]},
     {"event": "ExpensePaid", "fields": ["number", "employee_id", "employee_name", "department_id", "department_name", "category_id", "category_name", "account_id", "date", "amount", "paid_on", "paid_from", "accounting_date"]},
     {"event": "ExpenseCancelled", "fields": ["number", "employee_id", "employee_name", "department_id", "department_name", "category_id", "category_name", "account_id", "date", "amount", "was", "accounting_date", "paid_on"]},

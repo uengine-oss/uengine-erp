@@ -110,6 +110,8 @@ select erp.catalog_put('{
       {"name": "discount", "label": "할인(%)", "type": "number", "default": 0},
       {"name": "tax_ids", "label": "세금", "type": "refs", "ref": "tax"},
       {"name": "account_id", "label": "계정", "type": "ref", "ref": "account", "module": "accounting"},
+      {"name": "analytic_distribution", "label": "분석 분배", "type": "distribution", "ref": "analytic_account", "group": "plan_id", "module": "analytic",
+       "help": "부서·프로젝트 같은 분석 계정에 몇 %씩 나눌지 적습니다. 계획마다 합이 100 이어야 합니다. 비우면 게시할 때 기본 분배 규칙을 따릅니다."},
       {"name": "tax_override", "label": "증빙의 세액", "type": "money", "hidden": true},
       {"name": "fixed_asset", "label": "고정자산", "type": "boolean", "hidden": true},
       {"name": "worked_tax", "label": "세율로 계산한 세액", "type": "money", "readonly": true, "hidden": true},
@@ -345,7 +347,9 @@ language sql immutable as $$
       'name', l -> 'name', 'qty', l -> 'qty', 'uom_id', l -> 'uom_id', 'price_unit', l -> 'price_unit', 'discount', l -> 'discount',
       'subtotal', l -> 'subtotal', 'tax_amount', l -> 'tax_amount', 'total', l -> 'total', 'taxes', coalesce(l -> 'taxes', '[]'::jsonb),
       'is_downpayment', coalesce(l -> 'is_downpayment', 'false'::jsonb), 'downpayment_line_id', l -> 'downpayment_line_id',
-      'account_id', l -> 'account_id', 'fixed_asset', coalesce(l -> 'fixed_asset', 'false'::jsonb)) order by o), '[]'::jsonb)
+      'account_id', l -> 'account_id', 'fixed_asset', coalesce(l -> 'fixed_asset', 'false'::jsonb))
+      -- Said only by a line that says it: where its money belongs, for whoever keeps accounts by department or project.
+      || jsonb_strip_nulls(jsonb_build_object('analytic_distribution', l -> 'analytic_distribution')) order by o), '[]'::jsonb)
     from jsonb_array_elements(coalesce(p_lines, '[]'::jsonb)) with ordinality t(l, o)
    where erp.inv_is_product_line(l)
 $$;

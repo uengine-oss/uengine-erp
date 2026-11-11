@@ -110,9 +110,51 @@ begin
       return to_jsonb(s);
     when 'lines' then
       return erp.clean_rows(p_f, p_v, p_old);
+    when 'distribution' then
+      return erp.clean_distribution(p_f, p_v);
     else null;
   end case;
   return p_v;
+end $$;
+
+-- One amount shared among records of one type, as {record id: percent}. The records fall into groups by one of their fields
+-- (an analytic account by its plan), and every group named adds up to exactly 100. An empty object says "none", which is not
+-- the same as saying nothing. A field that belongs to a module takes a new value only while that module is on.
+create or replace function erp.clean_distribution(p_f jsonb, p_v jsonb) returns jsonb
+language plpgsql as $$
+declare
+  label text := p_f ->> 'label';
+  k text;
+  v jsonb;
+  n numeric;
+  r erp.records;
+  g text;
+  sums jsonb := '{}'::jsonb;
+  out_ jsonb := '{}'::jsonb;
+begin
+  if p_f ? 'module' and not erp.module_on(p_f ->> 'module') and current_setting('erp.seeding', true) is distinct from 'on' then
+    perform erp.fail('ERP_MODULE_OFF', format('%s 항목에 필요한 모듈이 꺼져 있습니다', label));
+  end if;
+  if jsonb_typeof(p_v) <> 'object' then perform erp.fail('ERP_INVALID', format('%s 항목은 {계정: 비율} 형식이어야 합니다', label)); end if;
+  for k, v in select * from jsonb_each(p_v) loop
+    n := erp.num(v, null);
+    if n is null or n <= 0 or n > 100 then perform erp.fail('ERP_INVALID', format('%s 항목의 비율은 0보다 크고 100 이하여야 합니다', label)); end if;
+    if round(n, 2) <> n then perform erp.fail('ERP_INVALID', format('%s 항목의 비율은 소수 둘째 자리까지입니다', label)); end if;
+    r := null;
+    if erp.is_uuid(k) then select * into r from erp.records x where x.id = k::uuid and x.type = p_f ->> 'ref' and not x.deleted; end if;
+    if r.id is null then perform erp.fail('ERP_INVALID_REF', format('%s 항목이 가리키는 레코드가 없습니다', label)); end if;
+    if not r.active then perform erp.fail('ERP_INVALID', format('%s 항목의 %s 은(는) 보관되어 새로 쓸 수 없습니다', label, r.name)); end if;
+    g := coalesce(r.state ->> (p_f ->> 'group'), '');
+    sums := sums || jsonb_build_object(g, erp.num(sums -> g) + n);
+    out_ := out_ || jsonb_build_object(k, n);
+  end loop;
+  for k, v in select * from jsonb_each(sums) loop
+    if erp.num(v) <> 100 then
+      perform erp.fail('ERP_INVALID', format('%s 항목의 %s 비율 합이 %s 입니다. 묶음마다 합이 100 이어야 합니다', label,
+        coalesce(case when erp.is_uuid(k) then (select x.name from erp.records x where x.id = k::uuid) end, ''), erp.num(v)));
+    end if;
+  end loop;
+  return out_;
 end $$;
 
 -- A row with a known id is merged over the old row, so a screen may send only what it edited.

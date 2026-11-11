@@ -86,7 +86,7 @@ begin
   select string_agg(case
       -- "private": the handler keeps it outside the ledger. The column takes a write and reads as nothing.
       when (f ->> 'private')::boolean then format('null::text as %I', f ->> 'name')
-      when f ->> 'type' in ('lines', 'refs', 'tags', 'json') then format('state -> %L as %I', f ->> 'name', f ->> 'name')
+      when f ->> 'type' in ('lines', 'refs', 'tags', 'json', 'distribution') then format('state -> %L as %I', f ->> 'name', f ->> 'name')
       when f ->> 'type' in ('number', 'money', 'integer') then format('(state ->> %L)::numeric as %I', f ->> 'name', f ->> 'name')
       when f ->> 'type' = 'boolean' then format('(state ->> %L)::boolean as %I', f ->> 'name', f ->> 'name')
       when f ->> 'type' = 'ref' then format('(state ->> %L)::uuid as %I', f ->> 'name', f ->> 'name')

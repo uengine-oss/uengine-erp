@@ -83,7 +83,7 @@ begin
         else perform erp.fail('ERP_INVALID', format('%s 항목은 참/거짓이어야 합니다: %s', label_, txt)); end if;
       when t = 'enum' and txt is not null then
         v := coalesce((select o -> 'value' from jsonb_array_elements(f -> 'options') o where o ->> 'value' = txt or o ->> 'label' = txt limit 1), v);
-      when t in ('lines', 'json') and jsonb_typeof(v) = 'string' then
+      when t in ('lines', 'json', 'distribution') and jsonb_typeof(v) = 'string' then
         begin
           v := txt::jsonb;
         exception when others then
