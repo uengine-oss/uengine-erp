@@ -706,3 +706,18 @@ test('draft edits: lines are line events, the form preview works out amounts, an
     assert.deepEqual(await k.verifyProjection(), [])
   } finally { await k.close() }
 })
+
+test('REST: the generated resource lists, creates and starts a subscription through the same commands', async () => {
+  const x = await setup()
+  const { k } = x
+  try {
+    const sqlAs = (text, params) => k.db.asUser(k.adminId, text, params)
+    const made = (await sqlAs(`insert into public.erp_api_subscription(partner_id, plan_id, lines) values ($1, $2, $3::jsonb) returning id, state`,
+      [x.a, x.monthly, JSON.stringify([{ product_id: x.care.id, qty: 2 }])])).rows[0]
+    assert.equal((await k.rec(made.id)).status, 'draft')
+    await sqlAs(`update public.erp_api_subscription set state = 'active' where id = $1`, [made.id])
+    const row = (await sqlAs(`select number, mrr, state, next_billing_date from public.erp_api_subscription where id = $1`, [made.id])).rows[0]
+    assert.equal(row.state, 'active'); assert.equal(Number(row.mrr), 200000); assert.match(row.number, /^SB\d{5}$/)
+    assert.equal((await lastEvent(k, made.id, 'SubscriptionStarted')).source, 'api')
+  } finally { await k.close() }
+})

@@ -56,6 +56,7 @@ source scripts/local-env.sh && lockf -t 1500 /tmp/uengine-erp-e2e.lock npx playw
 | 한 기간의 청구 되돌리기 | `subscription.test.mjs › rolling back the order takes the subscription with it; rolling back a billing takes its invoice, and the period bills again` | SQL | ✅ |
 | 껐다 켜기 | `subscription.test.mjs › M6, M7: orders before turning on stay orders; turned off keeps records, stops billing; back on catches up` | SQL | ✅ |
 | 에이전트 | `subscription.test.mjs › MCP: an agent lists subscriptions, reads MRR, creates one, changes it and closes it, with the rights of its member` | SQL | ✅ |
+| REST 자원 | `subscription.test.mjs › REST: the generated resource lists, creates and starts a subscription through the same commands` | SQL | ✅ |
 | 초안 편집 | `subscription.test.mjs › draft edits: lines are line events, the form preview works out amounts, and the plan sets the period` | SQL | ✅ |
 
 모듈 경계(구독이 판매·청구의 함수와 표를 부르지 않고, 판매와 청구도 구독의 것을 부르지 않는다)는 `isolation.test.mjs › subscription does not reach into other modules` 와 `… sales/invoicing does not reach into other modules` 가 확인한다.

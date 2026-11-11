@@ -540,7 +540,7 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | MRR 과 그 증감은 원장에서 세고 언제나 더하면 맞는다 | `subscription.test.mjs` 2<br>`subscription.spec.mjs` 1<br>`models.test.mjs` 1 | SQL, 브라우저 | ✅ |
 | 되돌리면 구독과 청구서가 함께 돌아간다 | `subscription.test.mjs` 1 | SQL | ✅ |
 | 끄면 청구가 멈추고 다시 켜면 밀린 기간을 청구한다 | `subscription.test.mjs` 1 | SQL | ✅ |
-| MCP 는 구성원의 권한만큼만 한다 | `subscription.test.mjs` 1 | SQL | ✅ |
+| MCP 는 구성원의 권한만큼만 한다 | `subscription.test.mjs` 2 | SQL | ✅ |
 | 초안은 화면에서 금액을 미리 보고 품목은 줄 이벤트로 남는다 | `subscription.test.mjs` 1 | SQL | ✅ |
 
 ## 단계별 시험 수

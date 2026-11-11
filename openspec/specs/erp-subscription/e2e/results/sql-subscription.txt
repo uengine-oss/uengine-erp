@@ -1,28 +1,29 @@
-✔ S24. off by default, needs invoicing, and nothing of it shows or runs while off (588.296209ms)
-✔ S24. a confirmed order with a recurring product becomes a subscription; sales knew nothing; the order bills the first month (320.20575ms)
-✔ catch-up after downtime bills each missed period once, on its own date; month ends hold (430.856958ms)
-✔ a past start bills what is due; billing_from leaves earlier periods to whoever billed them; the option posts the invoices (319.248667ms)
-✔ terms: an end date is the last day of a period, or the refusal names the nearest ones (242.660875ms)
-✔ a fixed term closes on the day after its last day, or renews for the same term; a plan sets the default (272.816167ms)
-✔ a change waits for the next period by default, takes effect there, and can be cancelled (338.120959ms)
-✔ a change applied now is charged or credited for the days left, rounded as the cases say (833.231625ms)
-✔ pause and resume move the next billing day by the days paused; nothing bills while paused (238.503292ms)
-✔ closing needs a reason from the list; it can give the unused days back; reopening bills a new period from today (370.829125ms)
-✔ a period paid late marks the subscription 미납 without stopping it, and payment clears it (271.354791ms)
-✔ MRR on any day and its movement: new, expansion, contraction, churn, reactivation, churn rate and NRR, all adding up (296.631084ms)
-✔ the retention card needs three months of history; the MRR card is ready with any (240.65075ms)
-✔ rolling back the order takes the subscription with it; rolling back a billing takes its invoice, and the period bills again (415.2145ms)
-✔ a cancelled order closes a subscription that billed nothing of its own, and flags one that did (274.2315ms)
-✔ M6, M7: orders before turning on stay orders; turned off keeps records, stops billing; back on catches up (267.445292ms)
-✔ invoicing off for a while: billings wait on the bus and become invoices when it is back (215.93175ms)
-✔ sales and admin write; accounting may run the billing; every member reads (269.47825ms)
-✔ MCP: an agent lists subscriptions, reads MRR, creates one, changes it and closes it, with the rights of its member (245.480083ms)
-✔ draft edits: lines are line events, the form preview works out amounts, and the plan sets the period (225.968375ms)
-ℹ tests 20
+✔ S24. off by default, needs invoicing, and nothing of it shows or runs while off (540.673709ms)
+✔ S24. a confirmed order with a recurring product becomes a subscription; sales knew nothing; the order bills the first month (983.958917ms)
+✔ catch-up after downtime bills each missed period once, on its own date; month ends hold (816.206334ms)
+✔ a past start bills what is due; billing_from leaves earlier periods to whoever billed them; the option posts the invoices (380.213125ms)
+✔ terms: an end date is the last day of a period, or the refusal names the nearest ones (275.173333ms)
+✔ a fixed term closes on the day after its last day, or renews for the same term; a plan sets the default (382.807ms)
+✔ a change waits for the next period by default, takes effect there, and can be cancelled (449.1695ms)
+✔ a change applied now is charged or credited for the days left, rounded as the cases say (1396.92325ms)
+✔ pause and resume move the next billing day by the days paused; nothing bills while paused (497.519083ms)
+✔ closing needs a reason from the list; it can give the unused days back; reopening bills a new period from today (901.92575ms)
+✔ a period paid late marks the subscription 미납 without stopping it, and payment clears it (1112.215917ms)
+✔ MRR on any day and its movement: new, expansion, contraction, churn, reactivation, churn rate and NRR, all adding up (306.60025ms)
+✔ the retention card needs three months of history; the MRR card is ready with any (273.425417ms)
+✔ rolling back the order takes the subscription with it; rolling back a billing takes its invoice, and the period bills again (1374.784291ms)
+✔ a cancelled order closes a subscription that billed nothing of its own, and flags one that did (673.176292ms)
+✔ M6, M7: orders before turning on stay orders; turned off keeps records, stops billing; back on catches up (490.343833ms)
+✔ invoicing off for a while: billings wait on the bus and become invoices when it is back (440.480417ms)
+✔ sales and admin write; accounting may run the billing; every member reads (239.392708ms)
+✔ MCP: an agent lists subscriptions, reads MRR, creates one, changes it and closes it, with the rights of its member (402.748167ms)
+✔ draft edits: lines are line events, the form preview works out amounts, and the plan sets the period (234.1165ms)
+✔ REST: the generated resource lists, creates and starts a subscription through the same commands (200.797ms)
+ℹ tests 21
 ℹ suites 0
-ℹ pass 20
+ℹ pass 21
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 6791.848625
+ℹ duration_ms 12467.504625
