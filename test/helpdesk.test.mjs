@@ -77,7 +77,8 @@ test('S26. round robin hands tickets out in the team\'s order and goes round aga
   const first = before_ % 2 === 0 ? agentA.record : agentB.record
   const other = first === agentA.record ? agentB.record : agentA.record
   assert.deepEqual(got, [first, other, first, other])
-  const created = (await c.events((await c.list('helpdesk_ticket')).at(-1).id))[0]
+  const newest = (await q(c, `select id from erp.records where type = 'helpdesk_ticket' order by length(name) desc, name desc limit 1`))[0].id
+  const created = (await c.events(newest))[0]
   assert.equal(created.data.assigned_by, 'round_robin')
   for (const f of CONTRACT) assert.ok(f in facts(created), f)
 
@@ -219,7 +220,7 @@ test('the most specific policy wins: one for the ticket\'s type, then the highes
     const ev = (await k.events(t.id)).at(-1)
     assert.equal(ms(ev.data.changed.response_due.from), ms(`${TODAY}T18:00`))
     await k.admin('helpdesk_sla', all.id, 'update', { response_hours: 1 })
-    const kept = await k.rec((await k.list('helpdesk_ticket'))[0].id)
+    const kept = (await q(k, `select * from erp.records where type = 'helpdesk_ticket' and name = 'HD00001'`))[0]
     assert.equal(ms(kept.state.response_due), ms(`${TODAY}T18:00`), 'the terms it was given stay')
     assert.equal(kept.state.sla_terms.response_minutes, 480)
     assert.equal((await due({})).at(-1), new Date(`${TODAY}T12:00:00+09:00`).toISOString(), 'a new ticket gets the new terms')
@@ -541,6 +542,13 @@ test('MCP: an agent opens a ticket for a customer, reads its SLA status, replies
   assert.ok(open.every((r) => ['new', 'in_progress', 'waiting'].includes(r.stage)), 'without ids: the open tickets')
   const tools = (await c.db.asUser(bot.id, 'select public.erp_mcp($1) r', [JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })])).rows[0].r.result.tools
   assert.ok(tools[0].inputSchema.properties.type.enum.includes('helpdesk_ticket'))
+  // REST: the generated resource takes a ticket like any other type, and its SLA status is one RPC away.
+  const restId = (await c.db.asUser(bot.id, `insert into public.erp_api_helpdesk_ticket(subject, partner_id, priority) values ('REST 로 연 문의', $1, '2') returning id`, [partner])).rows[0].id
+  const viaRest = (await c.db.asUser(bot.id, `select number, team_id, state from public.erp_api_helpdesk_ticket where id = $1`, [restId])).rows[0]
+  assert.match(viaRest.number, /^HD\d{5}$/)
+  assert.equal(viaRest.team_id, team, 'the one team of the company')
+  assert.equal(viaRest.state, 'new')
+  await rejects(c.db.asUser(viewer.id, `insert into public.erp_api_helpdesk_ticket(subject, partner_id) values ('x', $1)`, [partner]), 'ERP_FORBIDDEN')
 })
 
 test('saga over MCP: an agent\'s ticket and its moves go back by rollback, nothing to offset', async () => {
