@@ -524,6 +524,31 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 꺼도 이력과 분석이 남는다 | `project.test.mjs` 1 | SQL | ✅ |
 | 가상 회사에 프로젝트가 더해져도 다른 수치는 그대로다 | `project.test.mjs` 1 | SQL | ✅ |
 
+### 26. 헬프데스크 (spec `erp-helpdesk`)
+
+`helpdesk.test.mjs` 의 `case:` 시험은 `test/helpdesk-cases.json` 의 사례마다 하나씩 생긴다(지금 23개).
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 헬프데스크는 꺼진 채 시작하고 다른 모듈 없이 동작한다 | `helpdesk.test.mjs` 1<br>`helpdesk.spec.mjs` 1<br>`isolation.test.mjs` 2 | SQL, 브라우저 | ✅ |
+| 쓰기는 helpdesk 와 관리자, 읽기는 모든 구성원이다 | `helpdesk.test.mjs` 1<br>`helpdesk.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 팀이 정한 방식으로 담당이 배정된다 | `helpdesk.test.mjs` 2<br>`helpdesk.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 잘못된 값은 칸 이름으로 알려 주고 아무것도 남기지 않는다 | `helpdesk.test.mjs` 1 | SQL | ✅ |
+| SLA 정책은 목표가 있고 앞뒤가 맞아야 한다 | `helpdesk.test.mjs` 2<br>`helpdesk.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 기한은 접수부터 정책의 방식대로 센다 | `helpdesk.test.mjs` case 8, 1 | SQL | ✅ |
+| 고객 대기는 해결 시계만 멈춘다 | `helpdesk.test.mjs` case 5 | SQL | ✅ |
+| 지난 기한은 기한 시각의 위반 이벤트 하나로 남는다 | `helpdesk.test.mjs` case 9, 2<br>`helpdesk.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| SLA 상태는 물을 때 지금 시각으로 계산한다 | `helpdesk.test.mjs` case 3<br>`helpdesk.spec.mjs` 3 | SQL, 브라우저 | ✅ |
+| 대화와 단계 | `helpdesk.test.mjs` 2<br>`helpdesk.spec.mjs` 3 | SQL, 브라우저 | ✅ |
+| 고객은 받은 링크로 자기 티켓만 본다 | `helpdesk.test.mjs` 1<br>`helpdesk.spec.mjs` 1 | SQL, 브라우저 | ◐ |
+| 고객 담당자 연락처는 원장 밖에 두고 지울 수 있다 | `helpdesk.test.mjs` 1<br>`helpdesk.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 판매와 청구가 켜져 있을 때만 주문과 청구서를 연결한다 | `helpdesk.test.mjs` 1 | SQL | ✅ |
+| 꺼도 기록은 남고, 다시 켜면 지난 기한을 제 시각으로 기록한다 | `helpdesk.test.mjs` 1 | SQL | ✅ |
+| 에이전트는 MCP 로 티켓을 열고 상태를 읽고 옮긴다 | `helpdesk.test.mjs` 2<br>`helpdesk.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| SLA 준수율은 판단한 티켓으로만 세고 근거가 찰 때까지 믿을 만하지 않다고 말한다 | `helpdesk.test.mjs` 2<br>`helpdesk.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 프로세스 마이닝 로그에 티켓 사례가 있다 | `helpdesk.test.mjs` 1<br>`helpdesk.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| ✗ 메일로 티켓을 받고 답장을 메일로 보낸다 | 없음. 메일 서버가 필요하다(`docs/modules/helpdesk.md` 범위) | | ✗ |
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |
