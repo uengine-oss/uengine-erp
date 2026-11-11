@@ -203,7 +203,8 @@ onDataChanged(() => { void loadSla() })
     <div v-if="link" class="block" data-testid="hd-link">
       <h2>고객 링크 <span class="muted small">계정 없이 이 문의의 진행을 보고 글을 남깁니다. 고객이 남긴 글은 대기 중인 티켓을 다시 진행으로 돌립니다</span></h2>
       <div class="row-wrap">
-        <input class="input grow" :value="link" readonly aria-label="고객 링크" data-testid="hd-link-url" />
+        <!-- The link carries the project's public key: copied or opened whole, shown only by its ticket part. -->
+        <code class="link-short grow" data-testid="hd-link-url">…/support/{{ String(record.state.portal_token).slice(0, 10) }}…</code>
         <button type="button" class="btn" data-testid="hd-link-copy" @click="copyLink"><Icon name="copy" :size="13" />복사</button>
         <a class="btn" :href="link" target="_blank" rel="noopener" data-testid="hd-link-open"><Icon name="external" :size="13" />열기</a>
         <button v-if="canWrite" type="button" class="btn btn-ghost" data-testid="hd-link-renew" @click="renewLink">새로 만들기</button>
@@ -244,4 +245,5 @@ onDataChanged(() => { void loadSla() })
 .compose textarea { width: 100%; resize: vertical; }
 .note { margin-bottom: 8px; padding: 6px 8px; background: var(--navy-50); border-radius: var(--radius-sm); }
 .grow { flex: 1 1 auto; }
+.link-short { padding: 5px 8px; background: var(--ink-50); border-radius: var(--radius-sm); color: var(--text-2); }
 </style>

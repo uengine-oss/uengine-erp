@@ -165,7 +165,7 @@ test('S26-5. 둘째 티켓은 묻고 고객 대기로 둔다. 고객이 자기 �
   await page.getByTestId('hd-send').click()
   await expect(pill(page, '고객 대기')).toBeVisible()
   await expect(page.getByTestId('hd-sla-resolve')).toContainText('고객 대기라 멈춤')
-  const link = await page.getByTestId('hd-link-url').inputValue()
+  const link = await page.getByTestId('hd-link-open').getAttribute('href')
 
   const customer = await browser.newPage()
   await customer.goto(link)
