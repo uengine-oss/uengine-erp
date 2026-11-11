@@ -74,7 +74,7 @@ test('S25. quality starts off, needs stock first, and hears stock and manufactur
 
 test('S25. a receipt that is ready makes a measurement check once, the goods go in whatever it says, and a failure opens one alert', async () => {
   const point = await qa.cmd('quality_point', null, 'create', { name: '볼트 길이', operation: 'receipt', product_id: bolt.id, check_type: 'measure', norm_min: 49.8, norm_max: 50.2, unit: 'mm', responsible_id: qa.record, instructions: '다섯 개를 재서 가장 먼 값을 적습니다' })
-  assert.match(point.state.number, /^QP\d{5}$/)
+  assert.match(point.state.code, /^QP\d{5}$/)
   const { po, picking } = await receive(c, vendorA, bolt, 100)
   assert.equal(picking.status, 'ready')
   let [check] = await checksOf(c, 'picking_id', picking.id)

@@ -49,7 +49,7 @@ end $$;
 ------------------------------------------------------------------------------------------------
 create or replace function erp.mnt_equipment_facts(s jsonb) returns jsonb
 language sql immutable as $$
-  select jsonb_build_object('number', s -> 'number', 'name', s -> 'name', 'serial_no', s -> 'serial_no', 'category_id', s -> 'category_id',
+  select jsonb_build_object('code', s -> 'code', 'name', s -> 'name', 'serial_no', s -> 'serial_no', 'category_id', s -> 'category_id',
     'work_center_id', s -> 'work_center_id', 'technician_id', s -> 'technician_id', 'in_service_on', s -> 'in_service_on', 'cost', s -> 'cost', 'state', s -> 'state')
 $$;
 
@@ -97,7 +97,7 @@ begin
         cat := erp.state_of((vals ->> 'category_id')::uuid);
         vals := vals || jsonb_build_object('technician_id', cat -> 'technician_id');
       end if;
-      nx := jsonb_strip_nulls(vals) || jsonb_build_object('number', erp.next_number('EQ', 'EQ', 5), 'state', 'active', 'active', true,
+      nx := jsonb_strip_nulls(vals) || jsonb_build_object('code', erp.next_number('EQ', 'EQ', 5), 'state', 'active', 'active', true,
         'in_service_on', coalesce(vals ->> 'in_service_on', erp.today()::text));
       perform erp.emit('equipment', new_id, 'EquipmentCreated', jsonb_build_object('set', nx) || erp.mnt_equipment_facts(nx));
     when 'update' then
@@ -127,7 +127,7 @@ begin
       if exists (select 1 from erp.records where type in ('maintenance_request', 'maintenance_plan') and not deleted and state ->> 'equipment_id' = p_id::text) then
         perform erp.fail('ERP_IN_USE', '보전 기록이 있는 설비는 지울 수 없습니다. 기록은 고장 간격 계산에 쓰입니다. 보관하세요');
       end if;
-      perform erp.emit('equipment', p_id, 'EquipmentDeleted', jsonb_build_object('set', '{"deleted": true, "active": false}'::jsonb, 'number', s -> 'number'));
+      perform erp.emit('equipment', p_id, 'EquipmentDeleted', jsonb_build_object('set', '{"deleted": true, "active": false}'::jsonb, 'code', s -> 'code'));
     else
       perform erp.fail('ERP_COMMAND', format('설비: 지원하지 않는 명령입니다 (%s)', p_command));
   end case;
@@ -169,7 +169,9 @@ begin
   if kind_ = 'corrective' then failed := coalesce(erp.mnt_moment(p_vals -> 'failed_at', '고장 시각'), erp.now()); end if;
   nx := jsonb_strip_nulls(p_vals) || jsonb_strip_nulls(jsonb_build_object('equipment_name', eq -> 'equipment_name', 'category_id', eq -> 'category_id', 'work_center_id', eq -> 'work_center_id'))
     || jsonb_build_object('number', erp.next_number('MR', 'MR', 5), 'state', 'new', 'active', true, 'kind', kind_,
-         'priority', coalesce(p_vals ->> 'priority', 'normal'), 'scheduled_date', coalesce(p_vals ->> 'scheduled_date', erp.today()::text), 'requested_on', erp.today())
+         'priority', coalesce(p_vals ->> 'priority', 'normal'), 'requested_on', erp.today(),
+         -- A breakdown written down afterwards belongs on the day it happened.
+         'scheduled_date', coalesce(p_vals ->> 'scheduled_date', ((failed at time zone coalesce(erp.setting('timezone'), 'Asia/Seoul'))::date)::text, erp.today()::text))
     || case when failed is not null then jsonb_build_object('failed_at', failed) else '{}'::jsonb end
     || case when p_vals ->> 'technician_id' is null and eq ->> 'technician_id' is not null then jsonb_build_object('technician_id', eq -> 'technician_id') else '{}'::jsonb end;
   return erp.emit('maintenance_request', p_id, 'MaintenanceRequestCreated', jsonb_build_object('set', nx, 'source', case when p_vals ? 'plan_id' then 'plan' else 'person' end) || erp.mnt_request_facts(nx));
@@ -452,7 +454,7 @@ begin
       perform erp.mnt_equipment_of((vals ->> 'equipment_id')::uuid);
       if vals ->> 'schedule' = 'interval' and vals ->> 'start_on' is null then vals := vals || jsonb_build_object('start_on', erp.today()); end if;
       vals := erp.mnt_plan_check(vals);
-      nx := jsonb_strip_nulls(vals) || jsonb_build_object('number', erp.next_number('PM', 'PM', 5), 'active', true);
+      nx := jsonb_strip_nulls(vals) || jsonb_build_object('code', erp.next_number('PM', 'PM', 5), 'active', true);
       nx := nx || jsonb_build_object('next_due', erp.mnt_plan_upcoming(nx));
       perform erp.emit('maintenance_plan', new_id, 'MaintenancePlanCreated', jsonb_build_object('set', nx, 'equipment_id', nx -> 'equipment_id', 'next_due', nx -> 'next_due'));
     when 'update' then
@@ -487,7 +489,7 @@ begin
     when 'delete' then
       s := erp.require_state(p_id, 'maintenance_plan');
       if s ->> 'last_request_id' is not null then perform erp.fail('ERP_IN_USE', '요청을 만든 계획은 지울 수 없습니다. 보관하세요'); end if;
-      perform erp.emit('maintenance_plan', p_id, 'MaintenancePlanDeleted', jsonb_build_object('set', '{"deleted": true, "active": false}'::jsonb, 'number', s -> 'number'));
+      perform erp.emit('maintenance_plan', p_id, 'MaintenancePlanDeleted', jsonb_build_object('set', '{"deleted": true, "active": false}'::jsonb, 'code', s -> 'code'));
     else
       perform erp.fail('ERP_COMMAND', format('예방 보전 계획: 지원하지 않는 명령입니다 (%s)', p_command));
   end case;
@@ -519,7 +521,7 @@ select erp.catalog_master('{
 select erp.catalog_put('{
   "type": "equipment", "module": "maintenance", "sort": 800, "label": "설비", "label_en": "Equipment",
   "fields": [
-    {"name": "number", "label": "번호", "type": "text", "readonly": true, "list": true, "search": true},
+    {"name": "code", "label": "설비 번호", "type": "text", "readonly": true, "list": true, "search": true},
     {"name": "name", "label": "이름", "type": "text", "required": true, "list": true, "search": true},
     {"name": "serial_no", "label": "일련번호", "type": "text", "unique": true, "list": true, "search": true},
     {"name": "category_id", "label": "분류", "type": "ref", "ref": "equipment_category", "list": true},
@@ -562,7 +564,7 @@ select erp.catalog_put('{
     {"name": "priority", "label": "우선순위", "type": "enum", "default": "normal", "list": true,
      "options": [{"value": "low", "label": "낮음"}, {"value": "normal", "label": "보통"}, {"value": "high", "label": "높음"}, {"value": "urgent", "label": "긴급"}]},
     {"name": "technician_id", "label": "담당 기술자", "type": "ref", "ref": "member", "list": true, "help": "비우면 설비의 담당 기술자입니다."},
-    {"name": "scheduled_date", "label": "예정일", "type": "date", "list": true, "help": "비우면 오늘입니다."},
+    {"name": "scheduled_date", "label": "예정일", "type": "date", "list": true, "help": "비우면 고장 수리는 고장 난 날, 예방 점검은 오늘입니다."},
     {"name": "failed_at", "label": "고장 시각", "type": "datetime", "help": "고장 수리에만 적습니다. 비우면 지금입니다. 정지 시간을 이때부터 셉니다."},
     {"name": "requested_on", "label": "요청일", "type": "date", "readonly": true},
     {"name": "plan_id", "label": "예방 보전 계획", "type": "ref", "ref": "maintenance_plan", "readonly": true},
@@ -600,7 +602,7 @@ select erp.catalog_put('{
 select erp.catalog_put('{
   "type": "maintenance_plan", "module": "maintenance", "sort": 820, "label": "예방 보전 계획", "label_en": "Preventive Plan",
   "fields": [
-    {"name": "number", "label": "번호", "type": "text", "readonly": true, "list": true, "search": true},
+    {"name": "code", "label": "계획 번호", "type": "text", "readonly": true, "list": true, "search": true},
     {"name": "name", "label": "이름", "type": "text", "required": true, "list": true, "search": true, "help": "만들어지는 요청의 제목이 됩니다."},
     {"name": "equipment_id", "label": "설비", "type": "ref", "ref": "equipment", "required": true, "list": true},
     {"name": "schedule", "label": "주기", "type": "enum", "default": "interval", "list": true,
@@ -636,12 +638,12 @@ select erp.module_put('{
   "not_rebuilt": "켜기 전의 고장과 수리는 원장에 없습니다. 고장 간격은 켠 뒤의 기록으로 셉니다. 지난 고장을 적으려면 요청을 만들 때 고장 시각을 그때로 적습니다.",
   "subscribes": [],
   "publishes": [
-    {"event": "EquipmentCreated", "fields": ["number", "name", "serial_no", "category_id", "work_center_id", "technician_id", "in_service_on", "cost", "state"]},
-    {"event": "EquipmentChanged", "fields": ["changed", "number", "name", "serial_no", "category_id", "work_center_id", "technician_id", "in_service_on", "cost", "state"]},
-    {"event": "EquipmentScrapped", "fields": ["scrapped_on", "request_id", "number", "name", "serial_no", "category_id", "work_center_id", "technician_id", "in_service_on", "cost", "state"]},
-    {"event": "EquipmentArchived", "fields": ["number", "name"]},
-    {"event": "EquipmentUnarchived", "fields": ["number", "name"]},
-    {"event": "EquipmentDeleted", "fields": ["number"]},
+    {"event": "EquipmentCreated", "fields": ["code", "name", "serial_no", "category_id", "work_center_id", "technician_id", "in_service_on", "cost", "state"]},
+    {"event": "EquipmentChanged", "fields": ["changed", "code", "name", "serial_no", "category_id", "work_center_id", "technician_id", "in_service_on", "cost", "state"]},
+    {"event": "EquipmentScrapped", "fields": ["scrapped_on", "request_id", "code", "name", "serial_no", "category_id", "work_center_id", "technician_id", "in_service_on", "cost", "state"]},
+    {"event": "EquipmentArchived", "fields": ["code", "name"]},
+    {"event": "EquipmentUnarchived", "fields": ["code", "name"]},
+    {"event": "EquipmentDeleted", "fields": ["code"]},
     {"event": "MaintenanceRequestCreated", "fields": ["source", "number", "name", "kind", "state", "priority", "equipment_id", "equipment_name", "category_id", "work_center_id", "technician_id", "scheduled_date", "plan_id", "due_date", "failed_at", "started_at", "finished_at", "duration_hours", "downtime_hours"]},
     {"event": "MaintenanceRequestChanged", "fields": ["changed", "number", "name", "kind", "state", "priority", "equipment_id", "equipment_name", "category_id", "work_center_id", "technician_id", "scheduled_date", "plan_id", "due_date", "failed_at", "started_at", "finished_at", "duration_hours", "downtime_hours"]},
     {"event": "MaintenanceStarted", "fields": ["number", "name", "kind", "state", "priority", "equipment_id", "equipment_name", "category_id", "work_center_id", "technician_id", "scheduled_date", "plan_id", "due_date", "failed_at", "started_at", "finished_at", "duration_hours", "downtime_hours"]},
@@ -654,6 +656,6 @@ select erp.module_put('{
     {"event": "MaintenancePlanScheduled", "fields": ["due", "request_id", "request_number", "skipped", "equipment_id"]},
     {"event": "MaintenancePlanArchived", "fields": []},
     {"event": "MaintenancePlanUnarchived", "fields": []},
-    {"event": "MaintenancePlanDeleted", "fields": ["number"]}
+    {"event": "MaintenancePlanDeleted", "fields": ["code"]}
   ]
 }'::jsonb);

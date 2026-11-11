@@ -64,7 +64,8 @@ test('S25. maintenance starts off, needs nothing else, hears nobody, and works w
 
 test('S25. equipment: a number, a unique serial, the category\'s technician, a cost not below zero, and history keeps it from being deleted', async () => {
   const e = await machine({ serial_no: 'SN-100', cost: 0, vendor_id: (await c.admin('partner', null, 'create', { name: '프레스 공급사', company_type: 'company' })).id, warranty_end: '2027-06-30' })
-  assert.match(e.state.number, /^EQ\d{5}$/)
+  assert.match(e.state.code, /^EQ\d{5}$/)
+  assert.equal((await c.rec(e.id)).name, e.state.name, 'a machine is known by its name')
   assert.equal(e.state.technician_id, tech.record, 'the category says who looks after it')
   assert.equal(e.state.in_service_on, '2026-06-15', 'counted from today unless said')
   assert.equal(e.status, 'active')
@@ -263,7 +264,7 @@ test('S25. a 30-day plan makes each request a week ahead, once, whoever ticks it
     await t.cmd('maintenance_plan', edge.id, 'archive', {})
 
     const plan = await t.cmd('maintenance_plan', null, 'create', { name: '월간 점검', equipment_id: e.id, every_days: 30, start_on: '2026-07-01', duration_hours: 2, note: '유압유 확인' })
-    assert.match(plan.state.number, /^PM\d{5}$/)
+    assert.match(plan.state.code, /^PM\d{5}$/)
     assert.equal(plan.state.next_due, '2026-07-01'); assert.equal(plan.state.lead_days, 7)
 
     await day(k, '2026-06-23')

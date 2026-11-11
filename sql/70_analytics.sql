@@ -1626,7 +1626,7 @@ begin
          and (p_equipment_id is null or e.stream_id = p_equipment_id)
        order by e.stream_id, e.seq desc
     ), machines as (
-      select id, data ->> 'number' as number, data ->> 'name' as name, data ->> 'state' as state, data ->> 'work_center_id' as work_center_id,
+      select id, data ->> 'code' as number, data ->> 'name' as name, data ->> 'state' as state, data ->> 'work_center_id' as work_center_id,
              ((coalesce(data ->> 'in_service_on', '1970-01-01'))::date)::timestamp at time zone tz as since,
              least(asof, case when data ->> 'state' = 'scrapped' then (((select max(x.data ->> 'scrapped_on') from public.erp_events x where x.stream_id = eq.id and x.event_type = 'EquipmentScrapped'))::date + 1)::timestamp at time zone tz end) as until_
         from eq where event_type <> 'EquipmentDeleted'

@@ -62,7 +62,7 @@ begin
       if exists (select 1 from erp.records where id = new_id) then perform erp.fail('ERP_DUPLICATE', format('이미 있는 레코드입니다: %s', new_id)); end if;
       vals := erp.validate('quality_point', erp.strict_payload('quality_point', p), true);
       perform erp.qc_point_check(vals);
-      nx := jsonb_strip_nulls(vals) || jsonb_build_object('number', erp.next_number('QP', 'QP', 5), 'active', true);
+      nx := jsonb_strip_nulls(vals) || jsonb_build_object('code', erp.next_number('QP', 'QP', 5), 'active', true);
       perform erp.emit('quality_point', new_id, 'QualityPointCreated', jsonb_build_object('set', nx, 'operation', nx -> 'operation', 'check_type', nx -> 'check_type'));
     when 'update' then
       s := erp.require_state(p_id, 'quality_point');
@@ -84,7 +84,7 @@ begin
       if exists (select 1 from erp.records where type = 'quality_check' and state ->> 'point_id' = p_id::text) then
         perform erp.fail('ERP_IN_USE', '검사를 만든 기준은 지울 수 없습니다. 불량률이 이 기준을 읽습니다. 보관하세요');
       end if;
-      perform erp.emit('quality_point', p_id, 'QualityPointDeleted', jsonb_build_object('set', '{"deleted": true, "active": false}'::jsonb, 'number', s -> 'number'));
+      perform erp.emit('quality_point', p_id, 'QualityPointDeleted', jsonb_build_object('set', '{"deleted": true, "active": false}'::jsonb, 'code', s -> 'code'));
     else
       perform erp.fail('ERP_COMMAND', format('검사 기준: 지원하지 않는 명령입니다 (%s)', p_command));
   end case;
@@ -398,7 +398,7 @@ end $$;
 select erp.catalog_put('{
   "type": "quality_point", "module": "quality", "sort": 870, "label": "검사 기준", "label_en": "Control Point",
   "fields": [
-    {"name": "number", "label": "번호", "type": "text", "readonly": true, "list": true, "search": true},
+    {"name": "code", "label": "기준 번호", "type": "text", "readonly": true, "list": true, "search": true},
     {"name": "name", "label": "이름", "type": "text", "required": true, "list": true, "search": true, "help": "검사의 제목이 됩니다."},
     {"name": "operation", "label": "언제", "type": "enum", "required": true, "default": "receipt", "list": true,
      "options": [{"value": "receipt", "label": "입고"}, {"value": "delivery", "label": "출고"}, {"value": "manufacturing", "label": "제조"}],
@@ -551,7 +551,7 @@ select erp.module_put('{
     {"event": "QualityPointChanged", "fields": ["changed", "operation", "check_type"]},
     {"event": "QualityPointArchived", "fields": []},
     {"event": "QualityPointUnarchived", "fields": []},
-    {"event": "QualityPointDeleted", "fields": ["number"]},
+    {"event": "QualityPointDeleted", "fields": ["code"]},
     {"event": "QualityCheckCreated", "fields": ["number", "name", "state", "result", "check_type", "operation", "point_id", "product_id", "variant_id", "product_name", "partner_id", "partner_name", "picking_id", "manufacturing_order_id", "origin", "qty", "norm_min", "norm_max", "unit", "measured_value", "retest_of", "sample_no", "checked_at"]},
     {"event": "QualityCheckChanged", "fields": ["number", "name", "state", "result", "check_type", "operation", "point_id", "product_id", "variant_id", "product_name", "partner_id", "partner_name", "picking_id", "manufacturing_order_id", "origin", "qty", "norm_min", "norm_max", "unit", "measured_value", "retest_of", "sample_no", "checked_at"]},
     {"event": "QualityCheckPassed", "fields": ["number", "name", "state", "result", "check_type", "operation", "point_id", "product_id", "variant_id", "product_name", "partner_id", "partner_name", "picking_id", "manufacturing_order_id", "origin", "qty", "norm_min", "norm_max", "unit", "measured_value", "retest_of", "sample_no", "checked_at"]},
