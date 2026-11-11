@@ -53,7 +53,9 @@ test('S1. 판매만 켜져 있으면 메뉴에 판매만 있고, 재고 명령�
   await expect(card(page, 'sales')).toContainText('거래처, 제품, 가격표')
   for (const id of ['inventory', 'purchase', 'invoicing', 'accounting']) await expect(card(page, id).getByTestId('module-state')).toHaveText('꺼짐')
   await expect(card(page, 'inventory').getByTestId('module-subs')).toHaveText(/\d+개 · 꺼짐/)
-  await expect(card(page, 'invoicing').getByTestId('module-subs')).toHaveText('없음')
+  // Invoicing now listens to the subscription module's billing, so a module with no subscriptions of its own is helpdesk.
+  await expect(card(page, 'invoicing').getByTestId('module-subs')).toHaveText(/\d+개 · 꺼짐/)
+  await expect(card(page, 'helpdesk').getByTestId('module-subs')).toHaveText('없음')
   await shot(page, '72-modules-s1')
 
   await expect(page.locator('[data-module="sales"]')).toBeVisible()
