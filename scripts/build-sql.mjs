@@ -32,8 +32,8 @@ const PARTS = [
   { label: '기본(판매)', from: '00' },
   { label: '재고·구매', from: '40' },
   { label: '청구·회계', from: '60' },
-  { label: '자산·세금·인사', from: '66' },
-  { label: '급여·경비·CRM·프로젝트·제조', from: '67c' },
+  { label: '자산·세금·인사·급여', from: '66' },
+  { label: '경비·CRM·프로젝트·제조·보전·품질·헬프데스크', from: '67d' },
   { label: '장부·분석·연동', from: '68' },
 ]
 const PART_MAX_BYTES = 450 * 1024
