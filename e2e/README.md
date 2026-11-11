@@ -543,6 +543,48 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | MCP 는 구성원의 권한만큼만 한다 | `subscription.test.mjs` 2 | SQL | ✅ |
 | 초안은 화면에서 금액을 미리 보고 품목은 줄 이벤트로 남는다 | `subscription.test.mjs` 1 | SQL | ✅ |
 
+### 24. 설비 보전 (spec `erp-maintenance`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 설비 보전은 꺼진 채 시작하고 다른 모듈 없이 동작한다 | `maintenance.test.mjs` 1<br>`maintenance.spec.mjs` 1<br>`isolation.test.mjs` 3 | SQL, 브라우저 | ✅ |
+| 쓰기는 maintenance 와 관리자, 읽기는 모든 구성원이다 | `maintenance.test.mjs` 4<br>`maintenance.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 설비는 이름으로 부르고 일련번호는 겹치지 않으며 기록이 있으면 지울 수 없다 | `maintenance.test.mjs` 1<br>`maintenance.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 고장 수리는 고장부터 정지 시간을, 시작부터 작업 시간을 잰다 | `maintenance.test.mjs` 1 | SQL | ✅ |
+| 고칠 수 없는 설비는 폐기로 끝나고 열린 일을 정리한다 | `maintenance.test.mjs` 1 | SQL | ✅ |
+| 작업장은 이벤트로만 보전 중을 안다 | `maintenance.test.mjs` 2<br>`maintenance.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 예방 보전 계획은 예정일 앞에 요청을 한 번만 만든다 | `maintenance.test.mjs` 3<br>`maintenance.spec.mjs` 1 | SQL, 브라우저 | ◐ |
+| 고장 간격과 수리 시간은 원장에서 셈하고 다음 고장은 세 번부터 말한다 | `maintenance.test.mjs` 1<br>`maintenance.spec.mjs` 2 | SQL, 브라우저 | ✅ |
+| 꺼도 기록과 수치가 남는다 | `maintenance.test.mjs` 1 | SQL | ✅ |
+| 되돌릴 수 없는 상태가 없으므로 사가는 되돌리기다 | `maintenance.test.mjs` 2 | SQL | ✅ |
+| MCP 는 구성원의 권한만큼만 한다 | `maintenance.test.mjs` 1 | SQL | ✅ |
+| 화면은 달력과 신뢰도를 보여 준다 | `maintenance.spec.mjs` 3 | 브라우저 | ✅ |
+
+◐ 예방 보전 계획: pg_cron 이 정한 시각에 정말 부르는지는 재지 않았다. 등록과 같은 함수를 부르는 다른 길(앱의 재촉, 사람)은 시험한다. 보관만 한 설비의 계획이 쉬는 것은 시험이 없다.
+
+### 25. 품질 (spec `erp-quality`)
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 품질은 꺼진 채 시작하고 재고가 먼저 켜져 있어야 한다 | `quality.test.mjs` 1<br>`quality.spec.mjs` 1<br>`isolation.test.mjs` 3 | SQL, 브라우저 | ✅ |
+| 검사 기준은 경계와 빈도를 바르게 적어야 한다 | `quality.test.mjs` 1(사례 13)<br>`quality.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 입고와 출고가 준비되면 검사가 한 번 생긴다 | `quality.test.mjs` 3 | SQL | ✅ |
+| 검사는 재고와 제조를 막지 않는다 | `quality.test.mjs` 2<br>`quality.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 측정값이 판정하고 경계는 포함이다 | `quality.test.mjs` 2(사례 13)<br>`quality.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 표본에서 빠진 것도 기록한다 | `quality.test.mjs` 2(사례 20) | SQL | ✅ |
+| 불합격은 경보를 하나 열고 재검사는 처음 결과를 남긴다 | `quality.test.mjs` 2 | SQL | ✅ |
+| 경보는 원인과 시정 조치를 적어야 해결로 닫힌다 | `quality.test.mjs` 1<br>`quality.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 제조 지시는 완제품을 검사하고 직행률을 센다 | `quality.test.mjs` 1 | SQL | ✅ |
+| 불량률은 처음 검사로 셈하고 근거가 모자라면 그렇다고 말한다 | `quality.test.mjs` 1<br>`quality.spec.mjs` 1 | SQL, 브라우저 | ✅ |
+| 결과는 그 일을 하는 사람이 적고 기준과 경보는 품질 담당이 다룬다 | `quality.test.mjs` 3 | SQL | ✅ |
+| 품질이 멈춰도 입고는 진행된다 | `quality.test.mjs` 1 | SQL | ✅ |
+| 나중에 켜고 꺼도 기록이 남는다 | `quality.test.mjs` 1 | SQL | ✅ |
+| 되돌릴 수 없는 상태가 없으므로 사가는 되돌리기다 | `quality.test.mjs` 1 | SQL | ✅ |
+| MCP 는 구성원의 권한만큼만 한다 | `quality.test.mjs` 1 | SQL | ✅ |
+| 불합격한 물건을 붙잡아 두기 | 없음 | | ✗ |
+
+✗ 불합격한 물건을 붙잡아 두기: 검사가 입고·출고·제조 완료를 막지 않는다. 재고가 품질을 알아야 하고, 재고에 다단계 입고(검사 위치)가 없기 때문이다. 기록과 경보까지만 하고 반품·폐기는 사람이 한다(`docs/modules/quality.md` 「결정」).
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |

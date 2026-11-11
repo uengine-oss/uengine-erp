@@ -147,6 +147,13 @@ const mayApproveExpense = (r: ErpRecord | null) => {
   return isAdmin()
 }
 
+// A machine someone is working on right now. The list asks only about the rows on screen.
+async function underRepair(rows: ErpRecord[]): Promise<Record<string, { label: string; color: string }>> {
+  const { db } = await import('./lib/conn')
+  const { data } = await db().from('erp_records').select('state').eq('type', 'maintenance_request').eq('status', 'in_progress').in('state->>equipment_id', rows.map((r) => r.id))
+  return Object.fromEntries((data ?? []).map((r: { state: State }) => [r.state.equipment_id, { label: '보전 중', color: 'amber' }]))
+}
+
 // A next step that has gone by. The list only reads what is on screen and says so beside it.
 function overdueActivity(rows: ErpRecord[]): Promise<Record<string, { label: string; color: string }>> {
   const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(new Date())
@@ -407,7 +414,51 @@ export const NAV: NavModule[] = [
         },
       },
       { type: 'bom', hideColumns: { lines: ['name', 'product_id'] }, advanced: ['sequence', 'uom_id'] },
+      { type: 'work_center', hideFields: ['maintenance_open'] },
       { label: '제조 현황', route: '/mrp/outlook', needs: 'manufacturing_order' },
+    ],
+  },
+  {
+    key: 'maintenance', label: '설비 보전', icon: 'maintenance',
+    screens: [
+      {
+        type: 'maintenance_request', readonlyIn: ['done', 'scrapped', 'cancelled'], hideFields: ['equipment_name'], lockedAfterCreate: ['failed_at'],
+        views: { date: 'scheduled_date', groups: ['equipment_id', 'technician_id'], moves: true, title: 'name', subtitle: 'equipment_name' },
+        filters: [{ key: 'open', label: '진행 중', query: { status: 'in_progress' } }, { key: 'new', label: '신규', query: { status: 'new' } }],
+        advanced: ['category_id', 'requested_on', 'plan_id', 'due_date', 'planned_hours', 'cancel_reason'],
+      },
+      {
+        type: 'equipment', formPanel: () => import('./screens/maintenance/EquipmentPanel.vue'), readonlyIn: ['scrapped'], marks: underRepair,
+        advanced: ['vendor_id', 'model', 'warranty_end', 'cost', 'in_service_on', 'scrapped_on', 'note'],
+      },
+      { type: 'maintenance_plan', advanced: ['start_on', 'dates', 'technician_id', 'duration_hours', 'last_due', 'last_request_id'] },
+      { type: 'equipment_category' },
+      { label: '설비 신뢰도', route: '/maintenance/reliability', needs: 'equipment' },
+    ],
+  },
+  {
+    key: 'quality', label: '품질', icon: 'quality',
+    screens: [
+      {
+        type: 'quality_check', readonlyIn: ['passed', 'failed', 'skipped', 'cancelled'], hideFields: ['product_name', 'partner_name', 'variant_id'],
+        lockedAfterCreate: ['name', 'check_type', 'norm_min', 'norm_max', 'unit', 'instructions', 'product_id', 'partner_id'],
+        views: { groups: ['partner_id', 'product_id'] },
+        filters: [{ key: 'todo', label: '검사 대기', query: { status: 'todo' } }, { key: 'failed', label: '불합격', query: { status: 'failed' } }],
+        advanced: ['point_id', 'sample_no', 'retest_of', 'retest_id', 'checked_by'],
+        // A measurement is recorded as a value and the bounds decide. The other kinds are passed or failed by a person.
+        commands: {
+          measure: { showIf: (r) => r?.state.check_type === 'measure' },
+          pass: { showIf: (r) => r?.state.check_type !== 'measure' },
+          fail: { showIf: (r) => r?.state.check_type !== 'measure' },
+        },
+      },
+      {
+        type: 'quality_alert', readonlyIn: ['done', 'cancelled'], hideFields: ['product_name', 'partner_name', 'variant_id'],
+        views: { date: 'deadline', groups: ['partner_id', 'responsible_id'], moves: true, title: 'name', subtitle: 'partner_name' },
+        advanced: ['raised_on', 'closed_on', 'cancel_reason', 'check_id', 'point_id', 'picking_id', 'manufacturing_order_id', 'note'],
+      },
+      { type: 'quality_point', advanced: ['instructions', 'responsible_id'] },
+      { label: '불량률', route: '/quality/analysis', needs: 'quality_check' },
     ],
   },
   {

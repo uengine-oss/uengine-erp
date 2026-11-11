@@ -245,6 +245,7 @@
 | `ManufacturingReversed` | 공통 사실. 사가가 완료한 지시를 상쇄할 때. 재고가 듣고 실제 반품으로 되돌린다 |
 | `ManufacturingPlanChanged` | `number, warehouse_id, lines:[{line_id, variant_id, product_id, name, qty, uom_id}], requests:[요청 ID]`. 수량은 제품 기준 단위이고 지금 열린 전체다. 완제품은 양수(`line_id: "finished"`), 자재는 음수이며 끝나면 빈 목록이다. 초안에는 자재가 없다 |
 | `ManufacturingStockApplied` | `number, picking_id, picking_number, is_return`. 재고가 움직였음을 지시에 남긴 것 |
+| `WorkCenterMaintenanceChanged` | `name, maintenance_state(available/maintenance), request_id, request_number, heard`. 설비 보전의 이벤트를 듣고 작업장에 적은 것. 작업장 ID 는 `ev.stream_id` 다 |
 ## 휴가가 내는 것
 
 신청 공통 사실: `number, employee_id, employee_no, employee_name, department_id, department_name, leave_type_id, leave_type_code, leave_type_name, paid, attendance_treatment, date_from, date_to, half_day, dates, days, allocations:[{grant_id, days}], shortfall, has_reason`. 신청 ID 는 `ev.stream_id` 다. `dates` 는 주말과 공휴일을 뺀 날들이다. `half_day` 는 `am`, `pm`, `null` 이다. `attendance_treatment` 는 연차 출근율에서의 처리로 `attended`, `suspended`(소정근로일에서 뺌), `absent` 다.
@@ -347,6 +348,42 @@ MRR 을 바꾸는 이벤트(`SubscriptionStarted, SubscriptionChanged, Subscript
 | `SubscriptionOriginCancelled` | `origin` |
 | `SubscriptionDeleted` | `number` |
 
+## 설비 보전이 내는 것
+
+요청의 공통 사실: `number, name, kind(corrective/preventive), state, priority, equipment_id, equipment_name, category_id, work_center_id, technician_id, scheduled_date, plan_id, due_date, failed_at, started_at, finished_at, duration_hours, downtime_hours`. 요청 ID 는 `ev.stream_id` 다. `state` 는 그 이벤트 뒤의 단계, 시간은 시간 단위다. `work_center_id` 는 제조가 켜져 있을 때 설비가 놓인 작업장이고, 시작할 때 다시 읽는다.
+설비의 공통 사실: `code, name, serial_no, category_id, work_center_id, technician_id, in_service_on, cost, state`.
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `MaintenanceRequestCreated` | `source(person/plan)` + 공통 사실 |
+| `MaintenanceRequestChanged` | `changed:{칸:{from, to}}` + 공통 사실 |
+| `MaintenanceStarted` | 공통 사실. **제조가 듣고 작업장을 보전 중으로 적는다** |
+| `MaintenanceDone`, `MaintenanceScrapped`, `MaintenanceCancelled` | `was` + 공통 사실. 제조가 듣고 작업장에서 그 요청을 뺀다 |
+| `MaintenanceRequestDeleted` | `number, plan_id, due_date` |
+| `EquipmentCreated`, `EquipmentArchived`, `EquipmentUnarchived` | 설비 공통 사실 |
+| `EquipmentChanged` | `changed` + 설비 공통 사실 |
+| `EquipmentScrapped` | `scrapped_on, request_id` + 설비 공통 사실 |
+| `EquipmentDeleted` | `code` |
+| `MaintenancePlanCreated`, `MaintenancePlanChanged` | `equipment_id, next_due` (`changed`) |
+| `MaintenancePlanScheduled` | `due, request_id, request_number, skipped, equipment_id`. 예정일이 와서 요청을 만든 것. `skipped` 는 만들지 않고 지나간 예정일 수 |
+
+## 품질이 내는 것
+
+검사의 공통 사실: `number, name, state, result, check_type, operation(receipt/delivery/manufacturing/manual), point_id, product_id, variant_id, product_name, partner_id, partner_name, picking_id, manufacturing_order_id, origin, qty, norm_min, norm_max, unit, measured_value, retest_of, sample_no, checked_at`.
+경보의 공통 사실: `number, name, state, priority, check_id, point_id, product_id, product_name, partner_id, partner_name, operation, origin, responsible_id, root_cause, raised_on, closed_on`.
+
+| 이벤트 | `data` 의 사실 |
+|---|---|
+| `QualityCheckCreated` | 검사 공통 사실. 표본에서 빠진 대상은 `state: skipped` 로 생긴다 |
+| `QualityCheckPassed`, `QualityCheckFailed`, `QualityCheckChanged` | 검사 공통 사실 |
+| `QualityCheckCancelled` | `why(person/picking_cancelled/order_cancelled)` + 검사 공통 사실 |
+| `QualityCheckAlertLinked`, `QualityCheckRetestRequested` | `alert_id` / `retest_id`, `number` |
+| `QualityAlertCreated` | `source(check/person)` + 경보 공통 사실 |
+| `QualityAlertChanged`, `QualityAlertStarted`, `QualityAlertCancelled` | (`changed`) + 경보 공통 사실 |
+| `QualityAlertResolved` | `corrective_action` + 경보 공통 사실 |
+| `QualityAlertReopened` | `was` + 경보 공통 사실 |
+| `QualityPointCreated`, `QualityPointChanged` | `operation, check_type` (`changed`) |
+
 ## 기초데이터가 내는 것
 
 | 이벤트 | `data` 의 사실 |
@@ -380,6 +417,9 @@ MRR 을 바꾸는 이벤트(`SubscriptionStarted, SubscriptionChanged, Subscript
 | 재고 | `ManufacturingPlanChanged`, `ManufacturingDone`, `ManufacturingReversed` | 예측 합계와 요청 응답, 자재와 완제품 전표, 반품. 제조는 이것을 모른다 |
 | 제조 | `ReorderRequested`(`replenish_by` 가 `make` 인 것만) | 지시 초안 |
 | 제조 | `PickingValidated`(`origin_type` 이 `manufacturing_order` 인 것만) | 재고 반영 여부, 자재비, 완제품 단가 |
+| 제조 | `MaintenanceStarted`, `MaintenanceDone`, `MaintenanceScrapped`, `MaintenanceCancelled`(`work_center_id` 가 있는 것) | 작업장의 보전 중·가동. 설비 보전은 이것을 모른다 |
+| 품질 | `PickingStateChanged`(입고·출고, 반품 아님, 준비·완료·취소) | 검사 생성과 취소. 재고는 이것을 모르고 검사를 기다리지 않는다 |
+| 품질 | `ManufacturingConfirmed`, `ManufacturingStarted`, `ManufacturingDone`, `ManufacturingCancelled`, `ManufacturingReversed` | 완제품 검사 생성과 취소. 제조는 이것을 모른다 |
 | 판매 | `PickingStateChanged`, `PickingValidated` | 납품 상태, `qty_delivered` |
 | 판매 | `InvoiceDrafted`, `InvoicePosted`, `InvoiceResetToDraft`, `InvoiceCancelled` | 청구 상태, `qty_invoiced` |
 | 판매 | `ModuleEnabled` | 재고·청구가 켜진 시점을 기록해 그 뒤의 주문만 추적 대상으로 본다 |

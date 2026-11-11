@@ -635,6 +635,63 @@ begin
 end $$;
 
 ------------------------------------------------------------------------------------------------
+-- Work centers: where goods are made. A machine standing there may be under repair; maintenance says so in its events and
+-- never hears back. This module keeps the work center's word up to date and does not need maintenance to exist.
+------------------------------------------------------------------------------------------------
+create or replace function erp.h_work_center(p_id uuid, p_command text, p_p jsonb) returns uuid
+language plpgsql as $$
+declare new_id uuid := coalesce(p_id, gen_random_uuid()); vals jsonb;
+begin
+  if p_command = 'create' then
+    if exists (select 1 from erp.records where id = new_id) then perform erp.fail('ERP_DUPLICATE', format('이미 있는 레코드입니다: %s', new_id)); end if;
+    vals := erp.validate('work_center', coalesce(p_p, '{}'::jsonb), true);
+    perform erp.check_unique('work_center', new_id, vals);
+    perform erp.emit('work_center', new_id, 'WorkCenterCreated', jsonb_build_object('set', vals || '{"active": true, "maintenance_state": "available"}'::jsonb));
+    return new_id;
+  end if;
+  return erp.h_generic('work_center', p_id, p_command, p_p);
+end $$;
+
+-- The open work on a work center, newest last. The word on the list is what is on it now.
+create or replace function erp.mrp_wc_put(p_id uuid, p_open jsonb, ev erp.events) returns void
+language plpgsql as $$
+declare s jsonb := erp.state_of(p_id); set_ jsonb;
+begin
+  set_ := jsonb_build_object('maintenance_open', p_open,
+    'maintenance_state', case when jsonb_array_length(p_open) > 0 then 'maintenance' else 'available' end,
+    'maintenance_note', (select string_agg(concat_ws(' ', x ->> 'equipment_name', x ->> 'number'), ', ' order by o) from jsonb_array_elements(p_open) with ordinality t(x, o)));
+  if set_ ->> 'maintenance_open' is not distinct from coalesce(s -> 'maintenance_open', '[]'::jsonb)::text and set_ ->> 'maintenance_state' is not distinct from s ->> 'maintenance_state' then return; end if;
+  perform erp.emit('work_center', p_id, 'WorkCenterMaintenanceChanged', jsonb_build_object('set', set_,
+    'name', s -> 'name', 'maintenance_state', set_ -> 'maintenance_state', 'request_id', ev.stream_id, 'request_number', ev.data -> 'number', 'heard', ev.event_type));
+end $$;
+
+-- Work on a machine started or ended. Whichever work center lists the request lets go of it, and the one the machine stands on now
+-- takes it while the work is open. Heard twice, it changes nothing the second time.
+create or replace function erp.mrp_on_maintenance(ev erp.events) returns void
+language plpgsql as $$
+declare
+  rid text := ev.stream_id::text;
+  here text := case when ev.event_type = 'MaintenanceStarted' then ev.data ->> 'work_center_id' end;
+  wc uuid; s jsonb; open_ jsonb;
+begin
+  for wc in select id from erp.records where type = 'work_center' and not deleted and coalesce(state -> 'maintenance_open', '[]'::jsonb) @> jsonb_build_array(jsonb_build_object('request_id', rid))
+             order by id for update loop
+    continue when wc::text = here;
+    s := erp.state_of(wc);
+    open_ := (select coalesce(jsonb_agg(x order by o), '[]'::jsonb) from jsonb_array_elements(s -> 'maintenance_open') with ordinality t(x, o) where x ->> 'request_id' <> rid);
+    perform erp.mrp_wc_put(wc, open_, ev);
+  end loop;
+  if not erp.is_uuid(here) then return; end if;
+  perform 1 from erp.records where id = here::uuid and type = 'work_center' and not deleted for update;
+  if not found then return; end if;
+  s := erp.state_of(here::uuid);
+  if coalesce(s -> 'maintenance_open', '[]'::jsonb) @> jsonb_build_array(jsonb_build_object('request_id', rid)) then return; end if;
+  open_ := coalesce(s -> 'maintenance_open', '[]'::jsonb) || jsonb_build_array(jsonb_build_object('request_id', rid, 'number', ev.data -> 'number', 'kind', ev.data -> 'kind',
+    'equipment_id', ev.data -> 'equipment_id', 'equipment_name', ev.data -> 'equipment_name', 'since', ev.data -> 'started_at'));
+  perform erp.mrp_wc_put(here::uuid, open_, ev);
+end $$;
+
+------------------------------------------------------------------------------------------------
 -- Catalog and module
 ------------------------------------------------------------------------------------------------
 select erp.catalog_master('{
@@ -657,6 +714,20 @@ select erp.catalog_master('{
       {"name": "qty", "label": "수량", "type": "number", "default": 1},
       {"name": "uom_id", "label": "단위", "type": "ref", "ref": "uom"}
     ]}
+  ]
+}'::jsonb, '["mrp"]'::jsonb);
+
+select erp.catalog_master('{
+  "type": "work_center", "module": "mrp", "sort": 720, "label": "작업장", "label_en": "Work Center",
+  "fields": [
+    {"name": "name", "label": "이름", "type": "text", "required": true, "list": true, "search": true},
+    {"name": "code", "label": "코드", "type": "text", "unique": true, "list": true, "search": true},
+    {"name": "note", "label": "메모", "type": "text", "multiline": true},
+    {"name": "active", "label": "사용", "type": "boolean", "readonly": true},
+    {"name": "maintenance_state", "label": "설비 상태", "type": "enum", "readonly": true, "list": true, "module": "maintenance",
+     "options": [{"value": "available", "label": "가동"}, {"value": "maintenance", "label": "보전 중"}]},
+    {"name": "maintenance_note", "label": "보전 중인 설비", "type": "text", "readonly": true, "list": true, "module": "maintenance"},
+    {"name": "maintenance_open", "label": "진행 중인 보전", "type": "json", "readonly": true, "hidden": true, "module": "maintenance"}
   ]
 }'::jsonb, '["mrp"]'::jsonb);
 
@@ -738,7 +809,8 @@ select erp.module_put('{
   "not_rebuilt": "켜기 전의 제조는 원장에 없습니다. 그 전에 만든 완제품은 재고 조정이나 입고로 넣으세요.",
   "subscribes": [
     {"name": "mrp.reorder", "handler": "erp.mrp_on_reorder", "events": ["ReorderRequested"]},
-    {"name": "mrp.stock", "handler": "erp.mrp_on_picking", "events": ["PickingValidated"]}
+    {"name": "mrp.stock", "handler": "erp.mrp_on_picking", "events": ["PickingValidated"]},
+    {"name": "mrp.maintenance", "handler": "erp.mrp_on_maintenance", "events": ["MaintenanceStarted", "MaintenanceDone", "MaintenanceScrapped", "MaintenanceCancelled"]}
   ],
   "publishes": [
     {"event": "BomCreated", "fields": ["name", "variant_id", "product_id", "output_qty", "uom_id", "lines"]},
@@ -752,6 +824,7 @@ select erp.module_put('{
     {"event": "ManufacturingCancelled", "fields": ["was", "number", "variant_id", "product_id", "name", "qty", "uom_id", "warehouse_id", "bom_id", "origin", "date_planned", "components"]},
     {"event": "ManufacturingReversed", "fields": ["number", "variant_id", "product_id", "name", "qty", "uom_id", "warehouse_id", "bom_id", "origin", "date_planned", "components"]},
     {"event": "ManufacturingPlanChanged", "fields": ["number", "warehouse_id", "lines", "requests"]},
-    {"event": "ManufacturingStockApplied", "fields": ["number", "picking_id", "picking_number", "is_return"]}
+    {"event": "ManufacturingStockApplied", "fields": ["number", "picking_id", "picking_number", "is_return"]},
+    {"event": "WorkCenterMaintenanceChanged", "fields": ["name", "maintenance_state", "request_id", "request_number", "heard"]}
   ]
 }'::jsonb);

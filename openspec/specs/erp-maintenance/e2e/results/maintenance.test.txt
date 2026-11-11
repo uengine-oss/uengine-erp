@@ -1,0 +1,20 @@
+✔ S25. maintenance starts off, needs nothing else, hears nobody, and works with no manufacturing (650.352208ms)
+✔ S25. equipment: a number, a unique serial, the category's technician, a cost not below zero, and history keeps it from being deleted (49.163083ms)
+✔ S25. a breakdown is reported, started and finished: downtime runs from the failure, work from the start (77.803291ms)
+✔ S25. a machine beyond repair: the request ends in scrap, the machine retires, its other work is called off and its plans put away (34.272917ms)
+✔ S25. a work center shows 보전 중 while a machine on it is being repaired, learnt from events only, and goes back when the work ends (110.596125ms)
+✔ S25. manufacturing works without maintenance, and a stuck manufacturing listener does not stop a repair (279.5725ms)
+✔ S25. a 30-day plan makes each request a week ahead, once, whoever ticks it; dates passed over are counted, not made (385.98475ms)
+✔ S25. a plan on written dates, and the jobs that run it without a person (285.273583ms)
+✔ S25. MTBF, MTTR, the next failure and downtime by month come from the events, and say nothing about the next failure before three (415.009333ms)
+✔ M6, M7: turned off it refuses and keeps everything, and the numbers still answer from the ledger (409.999375ms)
+✔ S25. undoing a start takes the work center back with it (213.910459ms)
+✔ MCP: an agent reports a breakdown, starts and finishes it with the rights of the member it speaks for (32.186041ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 12
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3139.169833

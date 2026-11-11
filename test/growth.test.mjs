@@ -33,7 +33,7 @@ after(async () => { await c.db.query(`select set_config('erp.clock', '', false)`
 test('S1. a new company starts with sales alone', async () => {
   const on = (await c.db.asUser(c.adminId, 'select public.erp_modules() r')).rows[0].r
   assert.deepEqual(on.filter((m) => m.enabled).map((m) => m.id), ['sales'])
-  assert.deepEqual(on.filter((m) => !m.enabled).map((m) => m.id).sort(), ['accounting', 'analytic', 'assets', 'attendance', 'crm', 'expense', 'hr', 'inventory', 'invoicing', 'krtax', 'mrp', 'payroll', 'project', 'purchase', 'subscription', 'timeoff'])
+  assert.deepEqual(on.filter((m) => !m.enabled).map((m) => m.id).sort(), ['accounting', 'analytic', 'assets', 'attendance', 'crm', 'expense', 'hr', 'inventory', 'invoicing', 'krtax', 'maintenance', 'mrp', 'payroll', 'project', 'purchase', 'quality', 'subscription', 'timeoff'])
   const t = await types()
   for (const x of ['partner', 'product', 'pricelist', 'sales_order', 'quote_template']) assert.ok(t.includes(x), x)
   for (const x of ['picking', 'warehouse', 'purchase_order', 'account_move', 'account', 'journal_entry', 'asset', 'depreciation_run']) assert.ok(!t.includes(x), x)

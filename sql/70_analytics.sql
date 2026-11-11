@@ -1339,7 +1339,7 @@ declare
   asof timestamptz := coalesce(p_as_of, now());
   today date := ((asof at time zone tz) + interval '1 second')::date;
   spans jsonb := public.erp_module_spans(asof);
-  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계","hr":"인사","payroll":"급여","mrp":"제조","assets":"고정자산","timeoff":"휴가","attendance":"근태","expense":"경비","crm":"CRM","project":"프로젝트","subscription":"구독"}';
+  labels jsonb := '{"sales":"판매","inventory":"재고","purchase":"구매","invoicing":"청구","accounting":"회계","hr":"인사","payroll":"급여","mrp":"제조","assets":"고정자산","timeoff":"휴가","attendance":"근태","expense":"경비","crm":"CRM","project":"프로젝트","subscription":"구독","maintenance":"설비 보전","quality":"품질"}';
   readable text[] := erp.readable_types();
   m record;
   missing text[];
@@ -1367,6 +1367,7 @@ declare
   deals_decided int := 0; deals_first date; repeat_customers int := 0;
   tasks_measured int := 0; project_first date;
   sub_count int := 0; sub_first date; sub_months int := 0;
+  repairs int := 0; repair_first date; qc_decided int := 0; qc_first date; undone_ uuid[];
   span jsonb;
   a date; b date;
 begin
@@ -1444,6 +1445,11 @@ begin
   if sub_first is not null and sub_first <= today then
     sub_months := extract(year from age(today, sub_first))::int * 12 + extract(month from age(today, sub_first))::int;
   end if;
+  undone_ := public.erp_undone(asof);
+  select count(*), (min(e.occurred_at) at time zone tz)::date into repairs, repair_first from public.erp_events e
+   where e.event_type = 'MaintenanceDone' and e.data ->> 'kind' = 'corrective' and e.occurred_at <= asof and not e.correlation_id = any (undone_);
+  select count(*), (min(e.occurred_at) at time zone tz)::date into qc_decided, qc_first from public.erp_events e
+   where e.event_type in ('QualityCheckPassed', 'QualityCheckFailed') and e.data ->> 'retest_of' is null and e.occurred_at <= asof and not e.correlation_id = any (undone_);
 
   -- The drop what-if asks for stockouts. Counted only when stock history exists, because this one walks every stock change.
   stock_out_cases := 0;
@@ -1487,7 +1493,9 @@ begin
       ('project_effort', 'stat', '작업 소요 실측', array['project'], false, array['project_task', 'time_entry']),
       ('project_risk', 'forecast', '납기 지연 위험', array['project'], false, array['project', 'project_task', 'time_entry']),
       ('subscription_mrr', 'stat', 'MRR과 증감', array['subscription'], false, array['subscription']),
-      ('subscription_retention', 'stat', '해지율·순매출 유지율', array['subscription'], false, array['subscription'])
+      ('subscription_retention', 'stat', '해지율·순매출 유지율', array['subscription'], false, array['subscription']),
+      ('maintenance_reliability', 'forecast', '고장 간격·다음 고장', array['maintenance'], false, array['equipment', 'maintenance_request']),
+      ('quality_defects', 'stat', '불량률·직행률', array['quality'], false, array['quality_check'])
     ) as t(id, kind, label, modules, needs_current, types)
   loop
     missing := '{}'; stale := '{}';
@@ -1541,6 +1549,8 @@ begin
       when 'crm_repurchase' then have := repeat_customers; need := 3; unit_ := '곳'; since_ := first_sale; msg := '두 번 이상 주문한 고객';
       when 'subscription_mrr' then have := sub_count; unit_ := '건'; since_ := sub_first; msg := format('구독 %s건', sub_count);
       when 'subscription_retention' then have := sub_months; need := 3; unit_ := '개월'; since_ := sub_first; msg := '구독 이력';
+      when 'maintenance_reliability' then have := repairs; need := 3; unit_ := '건'; since_ := repair_first; msg := '고장 수리 완료';
+      when 'quality_defects' then have := qc_decided; need := 30; unit_ := '건'; since_ := qc_first; msg := '판정한 검사';
     end case;
 
     ok := have >= need;
@@ -1712,5 +1722,157 @@ begin
           'expansion', (select coalesce(sum(after_ - before_), 0) from moves v where v.before_ > 0 and v.after_ > v.before_),
           'contraction', (select coalesce(sum(before_ - after_), 0) from moves v where v.before_ > 0 and v.after_ < v.before_ and v.after_ > 0),
           'churn', (select coalesce(sum(before_), 0) from moves v where v.before_ > 0 and v.after_ = 0)) from whole))
+
+-- Maintenance: how long a machine runs between failures and how long it takes to bring it back, from the request events alone.
+------------------------------------------------------------------------------------------------
+-- Every request as the ledger last stated it. A deleted request is not among them, and neither is anything undone.
+create or replace function public.erp_maintenance_requests(p_as_of timestamptz)
+returns table(id uuid, number text, equipment_id uuid, kind text, state text, failed_at timestamptz, started_at timestamptz, finished_at timestamptz,
+              duration_hours numeric, downtime_hours numeric, scheduled_date date, plan_id text)
+language sql stable set search_path = public, pg_temp as $$
+  with undone as materialized (select public.erp_undone(p_as_of) as u),
+  newest as (
+    select distinct on (e.stream_id) e.stream_id, e.event_type, e.data from public.erp_events e, undone
+     where e.stream_type = 'maintenance_request' and e.occurred_at <= p_as_of and not e.correlation_id = any (undone.u)
+     order by e.stream_id, e.seq desc
+  )
+  select n.stream_id, n.data ->> 'number', (n.data ->> 'equipment_id')::uuid, n.data ->> 'kind', n.data ->> 'state',
+         (n.data ->> 'failed_at')::timestamptz, (n.data ->> 'started_at')::timestamptz, (n.data ->> 'finished_at')::timestamptz,
+         (n.data ->> 'duration_hours')::numeric, (n.data ->> 'downtime_hours')::numeric, (n.data ->> 'scheduled_date')::date, n.data ->> 'plan_id'
+    from newest n where n.event_type <> 'MaintenanceRequestDeleted'
+$$;
+
+-- Per machine: failures (breakdowns reported and not called off), repairs, the hours it stood still, MTBF as running hours per failure,
+-- MTTR as the hours from a failure to running again, and when the next failure is due at that pace. Standing still is counted once
+-- when two requests overlap. A guess at the next failure needs three failures; with fewer it says so and gives none.
+create or replace function public.erp_maintenance_reliability(p_equipment_id uuid default null, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  asof timestamptz := coalesce(p_as_of, now());
+  tz text := public.erp_analytics_tz();
+  need int := 3;
+begin
+  return (
+    with undone as materialized (select public.erp_undone(asof) as u),
+    eq as (
+      select distinct on (e.stream_id) e.stream_id as id, e.event_type, e.data from public.erp_events e, undone
+       where e.stream_type = 'equipment' and e.occurred_at <= asof and not e.correlation_id = any (undone.u)
+         and (p_equipment_id is null or e.stream_id = p_equipment_id)
+       order by e.stream_id, e.seq desc
+    ), machines as (
+      select id, data ->> 'code' as number, data ->> 'name' as name, data ->> 'state' as state, data ->> 'work_center_id' as work_center_id,
+             ((coalesce(data ->> 'in_service_on', '1970-01-01'))::date)::timestamp at time zone tz as since,
+             least(asof, case when data ->> 'state' = 'scrapped' then (((select max(x.data ->> 'scrapped_on') from public.erp_events x where x.stream_id = eq.id and x.event_type = 'EquipmentScrapped'))::date + 1)::timestamp at time zone tz end) as until_
+        from eq where event_type <> 'EquipmentDeleted'
+    ), req as (
+      select r.* from public.erp_maintenance_requests(asof) r join machines m on m.id = r.equipment_id
+    ), down as (
+      -- When each request kept the machine from running: a finished one by the hours it says, ending when it finished; an open
+      -- breakdown from the failure until now.
+      select r.equipment_id, r.id,
+             case when r.state in ('done', 'scrapped') and r.finished_at is not null then r.finished_at - coalesce(r.downtime_hours, 0) * interval '1 hour'
+                  when r.kind = 'corrective' and r.state in ('new', 'in_progress') then r.failed_at end as a,
+             case when r.state in ('done', 'scrapped') then r.finished_at when r.kind = 'corrective' and r.state in ('new', 'in_progress') then asof end as b
+        from req r
+    ), spans as (
+      select d.equipment_id, range_agg(tstzrange(greatest(d.a, m.since), least(d.b, coalesce(m.until_, asof)))) as mr
+        from down d join machines m on m.id = d.equipment_id
+       where d.a is not null and d.b is not null and greatest(d.a, m.since) < least(d.b, coalesce(m.until_, asof))
+       group by 1
+    ), down_total as (
+      select s.equipment_id, sum(extract(epoch from upper(x) - lower(x)) / 3600.0) as hours from spans s, unnest(s.mr) x group by 1
+    ), fails as (
+      select r.equipment_id, count(*) as failures, count(*) filter (where r.state = 'done') as repairs,
+             count(*) filter (where r.state in ('new', 'in_progress')) as open_,
+             avg(r.downtime_hours) filter (where r.state = 'done') as mttr, avg(r.duration_hours) filter (where r.state = 'done') as work,
+             max(r.failed_at) as last_failure
+        from req r where r.kind = 'corrective' and r.state in ('new', 'in_progress', 'done', 'scrapped') and r.failed_at <= asof group by 1
+    ), prev as (
+      select r.equipment_id, count(*) filter (where r.state = 'done') as checks_done from req r where r.kind = 'preventive' group by 1
+    ), last_fix as (
+      select distinct on (r.equipment_id) r.equipment_id, r.state, r.finished_at from req r
+       where r.kind = 'corrective' and r.state in ('new', 'in_progress', 'done', 'scrapped') and r.failed_at <= asof order by r.equipment_id, r.failed_at desc, r.id
+    ), rows_ as (
+      select m.*, coalesce(f.failures, 0) as failures, coalesce(f.repairs, 0) as repairs, coalesce(f.open_, 0) as open_, f.mttr, f.work, f.last_failure,
+             coalesce(dt.hours, 0) as down_hours, coalesce(p.checks_done, 0) as checks_done, lf.state as last_state, lf.finished_at as last_restored,
+             greatest(0, extract(epoch from coalesce(m.until_, asof) - m.since) / 3600.0 - coalesce(dt.hours, 0)) as run_hours
+        from machines m left join fails f on f.equipment_id = m.id left join down_total dt on dt.equipment_id = m.id
+        left join prev p on p.equipment_id = m.id left join last_fix lf on lf.equipment_id = m.id
+       where coalesce(m.until_, asof) > m.since or m.state = 'scrapped'
+    ), months as (
+      select s.equipment_id, to_char(g, 'YYYY-MM') as month,
+             sum(extract(epoch from upper(x * tstzrange(g at time zone tz, (g + interval '1 month') at time zone tz)) - lower(x * tstzrange(g at time zone tz, (g + interval '1 month') at time zone tz))) / 3600.0) as hours
+        from spans s, unnest(s.mr) x,
+             generate_series(date_trunc('month', lower(x) at time zone tz), date_trunc('month', upper(x) at time zone tz), interval '1 month') g
+       where not isempty(x * tstzrange(g at time zone tz, (g + interval '1 month') at time zone tz))
+       group by 1, 2
+    )
+    select jsonb_build_object('as_of', asof, 'need', need,
+      'equipment', coalesce((select jsonb_agg(jsonb_build_object(
+          'id', r.id, 'number', r.number, 'name', r.name, 'state', r.state, 'work_center_id', r.work_center_id, 'since', r.since,
+          'failures', r.failures, 'repairs', r.repairs, 'open', r.open_, 'preventive_done', r.checks_done,
+          'run_hours', round(r.run_hours::numeric, 1), 'downtime_hours', round(r.down_hours::numeric, 1),
+          'mtbf_hours', case when r.failures > 0 then round((r.run_hours / r.failures)::numeric, 1) end,
+          'mttr_hours', round(r.mttr, 2), 'work_hours', round(r.work, 2),
+          'availability', case when r.run_hours + r.down_hours > 0 then round((r.run_hours / (r.run_hours + r.down_hours))::numeric, 4) end,
+          'last_failure_at', r.last_failure, 'down_now', r.open_ > 0,
+          'ready', r.failures >= need,
+          'next_failure_at', case when r.failures >= need and r.open_ = 0 and r.state <> 'scrapped' and r.last_restored is not null
+                                  then r.last_restored + (r.run_hours / r.failures) * interval '1 hour' end) order by r.number, r.id) from rows_ r), '[]'::jsonb),
+      'months', coalesce((select jsonb_agg(jsonb_build_object('equipment_id', x.equipment_id, 'month', x.month, 'hours', round(x.hours::numeric, 1)) order by x.month, x.equipment_id)
+                            from months x where x.hours > 0), '[]'::jsonb))
+  );
+end $$;
+
+------------------------------------------------------------------------------------------------
+-- Quality: how often things fail their checks, by product and by supplier, and how many orders were made right the first time.
+------------------------------------------------------------------------------------------------
+create or replace function public.erp_quality_checks(p_as_of timestamptz)
+returns table(id uuid, number text, state text, operation text, point_id text, product_id text, product_name text, partner_id text, partner_name text,
+              manufacturing_order_id text, origin text, retest_of text, checked_at timestamptz)
+language sql stable set search_path = public, pg_temp as $$
+  with undone as materialized (select public.erp_undone(p_as_of) as u),
+  newest as (
+    select distinct on (e.stream_id) e.stream_id, e.event_type, e.data from public.erp_events e, undone
+     where e.stream_type = 'quality_check' and e.event_type <> 'QualityCheckAlertLinked' and e.event_type <> 'QualityCheckRetestRequested'
+       and e.occurred_at <= p_as_of and not e.correlation_id = any (undone.u)
+     order by e.stream_id, e.seq desc
+  )
+  select n.stream_id, n.data ->> 'number', n.data ->> 'state', n.data ->> 'operation', n.data ->> 'point_id', n.data ->> 'product_id', n.data ->> 'product_name',
+         n.data ->> 'partner_id', n.data ->> 'partner_name', n.data ->> 'manufacturing_order_id', n.data ->> 'origin', n.data ->> 'retest_of', (n.data ->> 'checked_at')::timestamptz
+    from newest n where n.event_type <> 'QualityCheckDeleted'
+$$;
+
+-- Rates count each thing once, by its first check: a retest after rework says whether the rework worked, not how the goods came in.
+-- The period is the day a check was decided. Checks left out of the sample and checks still waiting say nothing about defects.
+create or replace function public.erp_quality_rates(p_from date default null, p_to date default null, p_as_of timestamptz default null) returns jsonb
+language plpgsql stable set search_path = public, pg_temp as $$
+declare
+  asof timestamptz := coalesce(p_as_of, now());
+  tz text := public.erp_analytics_tz();
+begin
+  if p_from > p_to then raise exception 'ERP_INVALID: 기간이 올바르지 않습니다'; end if;
+  return (
+    with c as (select * from public.erp_quality_checks(asof) x where x.retest_of is null),
+    d as (select * from c where c.state in ('passed', 'failed')
+            and (p_from is null or (c.checked_at at time zone tz)::date >= p_from) and (p_to is null or (c.checked_at at time zone tz)::date <= p_to)),
+    sup as (select partner_id, max(partner_name) as name, count(*) as n, count(*) filter (where state = 'failed') as bad from d
+             where operation = 'receipt' and partner_id is not null group by 1),
+    prod as (select product_id, max(product_name) as name, count(*) as n, count(*) filter (where state = 'failed') as bad from d where product_id is not null group by 1),
+    mo as (select manufacturing_order_id, max(origin) as origin, bool_and(state in ('passed', 'failed')) as decided, bool_or(state = 'failed') as failed_,
+                  max(checked_at) as last_at
+             from c where operation = 'manufacturing' and manufacturing_order_id is not null and state not in ('skipped', 'cancelled') group by 1),
+    mo_in as (select * from mo where decided and (p_from is null or (last_at at time zone tz)::date >= p_from) and (p_to is null or (last_at at time zone tz)::date <= p_to))
+    select jsonb_build_object('from', p_from, 'to', p_to,
+      'checks', (select count(*) from d), 'failed', (select count(*) from d where state = 'failed'),
+      'waiting', (select count(*) from c where state = 'todo'), 'skipped', (select count(*) from c where state = 'skipped'),
+      'overall', public.erp_rate_band((select count(*) from d where state = 'failed'), (select count(*) from d)),
+      'by_supplier', coalesce((select jsonb_agg(jsonb_build_object('partner_id', s.partner_id, 'name', s.name, 'checks', s.n, 'failed', s.bad) || public.erp_rate_band(s.bad, s.n)
+                                 order by s.bad::numeric / s.n desc, s.n desc, s.name) from sup s), '[]'::jsonb),
+      'by_product', coalesce((select jsonb_agg(jsonb_build_object('product_id', p.product_id, 'name', p.name, 'checks', p.n, 'failed', p.bad) || public.erp_rate_band(p.bad, p.n)
+                                order by p.bad::numeric / p.n desc, p.n desc, p.name) from prod p), '[]'::jsonb),
+      'first_pass', jsonb_build_object('orders', (select count(*) from mo_in), 'first_pass', (select count(*) from mo_in where not failed_),
+                                       'waiting', (select count(*) from mo where not decided))
+                    || public.erp_rate_band((select count(*) from mo_in where not failed_), (select count(*) from mo_in)))
   );
 end $$;
