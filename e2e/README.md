@@ -626,21 +626,35 @@ npx playwright test -c e2e/playwright.config.mjs --list   # 목록만
 | 프로세스 마이닝 로그에 티켓 사례가 있다 | `helpdesk.test.mjs` 1<br>`helpdesk.spec.mjs` 1 | SQL, 브라우저 | ✅ |
 | ✗ 메일로 티켓을 받고 답장을 메일로 보낸다 | 없음. 메일 서버가 필요하다(`docs/modules/helpdesk.md` 범위) | | ✗ |
 
+### 27. 화면 테마 (spec `erp-themes`)
+
+테마는 화면만 바꾸므로 SQL 시험이 없다. 다른 브라우저 시험은 테마를 고르지 않으므로 모두 기본으로 돈다.
+
+| 요구사항 | 시험 | 단계 | |
+|---|---|---|---|
+| 기본 테마는 테마가 생기기 전과 같다 | `themes.spec.mjs` 1<br>나머지 브라우저 시험 전체(기본으로 돈다) | 브라우저 | ✅ |
+| 테마는 브라우저마다 고르고 원장에 남지 않는다 | `themes.spec.mjs` 1 | 브라우저 | ✅ |
+| 어느 테마에서나 같은 메뉴로 같은 화면에 간다 | `themes.spec.mjs` 2 | 브라우저 | ✅ |
+| 대화 테마는 문서의 지금 상태와 다음 일을 말하고, 이력을 누가 무엇을 했는지로 보여 준다 | `themes.spec.mjs` 1 | 브라우저 | ✅ |
+| 관제 테마는 원장 띠와 연결 지도를 보여 준다 | `themes.spec.mjs` 1 | 브라우저 | ✅ |
+| 휴대폰 폭에서는 어느 테마든 같은 서랍 메뉴다 | `themes.spec.mjs` 1 | 브라우저 | ✅ |
+| 인쇄물은 테마를 따르지 않는다 | `themes.spec.mjs` 1 | 브라우저 | ✅ |
+
 ## 단계별 시험 수
 
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
 | SQL | `test/*.test.mjs` (43개) | 1273 |
 | HTTP | `test/*.e2e.mjs` (2개) | 17 |
-| 브라우저 | `e2e/tests/*.spec.mjs` (24개) | 277 |
-| 합계 | 69개 | 1567 |
+| 브라우저 | `e2e/tests/*.spec.mjs` (32개) | 326 |
+| 합계 | 77개 | 1616 |
 
 | 단계 | 파일별 시험 수 |
 |---|---|
 | HTTP | `api.e2e.mjs` 10 · `stack.e2e.mjs` 7 |
-| 브라우저 | `attendance.spec.mjs` 8 · `books.spec.mjs` 10 · `crm.spec.mjs` 8 · `demo.spec.mjs` 5 · `expense.spec.mjs` 13 · `growth.spec.mjs` 10 · `history.spec.mjs` 8 · `hr.spec.mjs` 13 · `integration.spec.mjs` 3 · `krtax.spec.mjs` 8 · `ledger.spec.mjs` 7 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `mrp.spec.mjs` 15 · `pages.spec.mjs` 4 · `parity-screens.spec.mjs` 36 · `payroll.spec.mjs` 17 · `project.spec.mjs` 8 · `resilience.spec.mjs` 9 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `timeoff.spec.mjs` 11 · `whatif.spec.mjs` 15 |
+| 브라우저 | `analytic.spec.mjs` 6 · `attendance.spec.mjs` 8 · `books.spec.mjs` 10 · `crm.spec.mjs` 8 · `demo.spec.mjs` 5 · `expense.spec.mjs` 13 · `growth.spec.mjs` 10 · `helpdesk.spec.mjs` 10 · `history.spec.mjs` 8 · `hr.spec.mjs` 13 · `integration.spec.mjs` 3 · `krtax.spec.mjs` 8 · `ledger.spec.mjs` 7 · `maintenance.spec.mjs` 6 · `master.spec.mjs` 7 · `meta.spec.mjs` 23 · `modules.spec.mjs` 16 · `mrp.spec.mjs` 15 · `pages.spec.mjs` 4 · `parity-screens.spec.mjs` 36 · `payroll.spec.mjs` 17 · `process-log.spec.mjs` 3 · `project.spec.mjs` 8 · `quality.spec.mjs` 5 · `read-models.spec.mjs` 6 · `resilience.spec.mjs` 10 · `rollback.spec.mjs` 13 · `setup.spec.mjs` 10 · `subscription.spec.mjs` 7 · `themes.spec.mjs` 5 · `timeoff.spec.mjs` 11 · `whatif.spec.mjs` 15 |
 
-위 표는 실제로 돌려 센 값이다(SQL `tests 1273`, 브라우저 `277 passed`, HTTP `api.e2e.mjs` 10, `stack.e2e.mjs` 7). SQL 의 파일별 수는 다시 세지 않아 뺐다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 조합은 모듈의 조합마다 하나씩 생긴다. `expense-privacy.test.mjs` 의 표는 사람과 키와 읽는 길을 곱한 것이지만 시험 하나로 센다. 로컬 Postgres 의 디버거 확장(`pldbgapi2`)이 가끔 시험 하나를 떨어뜨린다. 그 파일만 다시 돌리면 통과한다.
+위 표는 실제로 돌려 센 값이다(SQL `tests 1273`, HTTP `api.e2e.mjs` 10, `stack.e2e.mjs` 7). 브라우저 326 은 화면 테마 판의 전체 실행 325개(`317 passed`, `2 failed`, `6 did not run`)에 그 뒤 더한 `themes.spec.mjs` 의 인쇄 시험 하나를 더한 수다. 떨어진 2개와 돌지 않은 6개는 `integration.spec.mjs`, `whatif.spec.mjs` 만 다시 돌려 모두 통과했다. 파일별 수는 그 실행의 출력에서 셌다(`openspec/specs/erp-themes/e2e/results/`). SQL 의 파일별 수는 다시 세지 않아 뺐다. `pricing.test.mjs` 의 `case:` 시험은 `test/pricing-cases.json` 의 사례마다 하나씩 생긴다. `isolation.test.mjs` 의 조합은 모듈의 조합마다 하나씩 생긴다. `expense-privacy.test.mjs` 의 표는 사람과 키와 읽는 길을 곱한 것이지만 시험 하나로 센다. 로컬 Postgres 의 디버거 확장(`pldbgapi2`)이 가끔 시험 하나를 떨어뜨린다. 그 파일만 다시 돌리면 통과한다.
 
 **경비 읽기 규칙의 시험을 시험했다.** 읽는 길의 거름 조건 20개를 하나씩 빼고 `expense-privacy.test.mjs` 를 돌려 모두 실패하는 것을 확인했다(RLS 두 정책, `require_readable`, `erp_correlation`, 명령과 `erp_update` 의 범위 확인, `erp_records_at`, MCP 목록, 사가 상태 둘, `erp_references`, 가져오기, 사유 셋, 전표 적요, Storage, 글 함수, 상태의 적요, 역할). 처음에는 둘이 잡히지 않아 시험을 더했다.
 

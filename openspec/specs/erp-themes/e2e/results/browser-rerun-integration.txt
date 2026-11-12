@@ -1,0 +1,8 @@
+
+Running 3 tests using 1 worker
+
+  ✓  1 e2e/tests/integration.spec.mjs:22:1 › 연동 키가 없으면 안내하고, 주소와 헤더, REST 자원을 보여 준다 (1.1s)
+  ✓  2 e2e/tests/integration.spec.mjs:37:1 › 키를 만들면 한 번만 보여 주고, 고른 구성원의 권한으로 동작하며, 폐기하면 끊긴다 (1.1s)
+  ✓  3 e2e/tests/integration.spec.mjs:92:1 › 비관리자에게는 메뉴가 없고, 목록을 읽지 못하면 오류를 보여 주며, 휴대폰과 어두운 테마에서도 읽힌다 (760ms)
+
+  3 passed (6.5s)

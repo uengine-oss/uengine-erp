@@ -31,4 +31,11 @@ export function sourceColor(source: string): string {
   }
 }
 
+/** Who wrote an event, as the history draws it: a person, an agent acting for one, or the system reacting by itself. */
+export function actorKind(ev: { source: string; actor_name: string | null }): 'person' | 'agent' | 'system' {
+  if (ev.source === 'agent' || ev.source === 'mcp') return 'agent'
+  if ((ev.source === 'ui' || ev.source === 'rollback') && ev.actor_name) return 'person'
+  return 'system'
+}
+
 export const SOURCES = ['ui', 'agent', 'mcp', 'reaction', 'rollback', 'compensation', 'setup', 'demo']

@@ -1,9 +1,12 @@
 /*
  * Dark theme, following the system setting. The ink and navy scales are redefined, so most of the app needs
  * nothing else. Screen only: paper stays black on white.
+ *
+ * It belongs to the 기본 theme, which carries no data-theme attribute: a chosen theme brings its own ground. `:where`
+ * adds no weight, so each rule below applies exactly as strongly as it did before themes existed.
  */
 @media screen and (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     color-scheme: dark;
 
     --ink-950: #f4f6f9;
@@ -47,17 +50,17 @@
   }
 
   /* The side menu and sign-in panel are dark in both themes, so they keep the original scale. */
-  .side, .split-side, .toast {
+  :where(:root:not([data-theme])) .side, :where(:root:not([data-theme])) .split-side, :where(:root:not([data-theme])) .toast {
     --ink-950: #0a1322; --ink-900: #0d1524; --ink-800: #1a2740; --ink-700: #2a3a55; --ink-600: #46566f; --ink-500: #5f6d83; --ink-400: #8a96a8; --ink-300: #b5becb;
     --navy-600: #24498f;
   }
-  .toast-error { background: #a53b3b; }
+  :where(:root:not([data-theme])) .toast-error { background: #a53b3b; }
 
   /* Navy reads as text on a dark page, so it is lightened wherever it colours letters. */
-  a, .th-sort.on { color: #9dbcf2; }
-  .btn-primary:active:not(:disabled) { background: #264a91; }
-  .banner-info, .how > li::before, .pipeline { --navy-800: #b4caf4; }
-  .btn-danger-solid, .pipeline { --red-fg: #b53f3f; }
-  .btn-danger-solid:hover:not(:disabled) { background: #c64c4c; border-color: #c64c4c; }
-  .select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23aab3c1' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 9l7 7 7-7'/%3E%3C/svg%3E"); }
+  :where(:root:not([data-theme])) a, :where(:root:not([data-theme])) .th-sort.on { color: #9dbcf2; }
+  :where(:root:not([data-theme])) .btn-primary:active:not(:disabled) { background: #264a91; }
+  :where(:root:not([data-theme])) .banner-info, :where(:root:not([data-theme])) .how > li::before, :where(:root:not([data-theme])) .pipeline { --navy-800: #b4caf4; }
+  :where(:root:not([data-theme])) .btn-danger-solid, :where(:root:not([data-theme])) .pipeline { --red-fg: #b53f3f; }
+  :where(:root:not([data-theme])) .btn-danger-solid:hover:not(:disabled) { background: #c64c4c; border-color: #c64c4c; }
+  :where(:root:not([data-theme])) .select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23aab3c1' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 9l7 7 7-7'/%3E%3C/svg%3E"); }
 }

@@ -8,15 +8,17 @@ import { timeView, writeBlock } from '../lib/mode'
 import { openRollback } from '../lib/rollback'
 import { catalogOf, isAdmin, loadCompany, session } from '../lib/session'
 import {
-  canCommand, collectRefIds, deepEqual, emptyDraft, formFields, isDangerous, isDerived, isLongText, isNumeric, newId,
+  canCommand, collectRefIds, deepEqual, emptyDraft, formFields, isDangerous, isDerived, isLongText, isNumeric, newId, stateOf,
   visibleExtraCommands, visibleTransitions,
 } from '../lib/fields'
 import { fmtDateTime } from '../lib/format'
 import { ensureNames, forgetName } from '../lib/refs'
+import { theme } from '../lib/theme'
 import { onLedgerEvent } from '../lib/realtime'
 import { ask, toast } from '../lib/ui'
 import { COMPANY_ID, type CommandDef, type CommandResult, type ErpEvent, type ErpRecord, type Field, type State } from '../lib/types'
 import { screenFor } from '../nav'
+import ChainMap from '../components/ChainMap.vue'
 import EmptyState from '../components/EmptyState.vue'
 import FieldInput from '../components/FieldInput.vue'
 import FieldValue from '../components/FieldValue.vue'
@@ -451,6 +453,13 @@ async function runCommand(command: string, label: string, def: Pick<CommandDef, 
 const transitions = computed(() => (doc.value && !isNew.value && !timeTraveling.value
   ? visibleTransitions(doc.value, status.value).filter((t) => screen.value?.commands?.[t.command]?.showIf?.(record.value) ?? true)
   : []))
+// The step this document is waiting for, which the 대화 theme says in a sentence and offers beside the history.
+const nextStep = computed(() => (dirty.value || busy.value ? null : transitions.value.find((t) => t.primary) ?? null))
+const stateLabel = computed(() => (doc.value && status.value ? stateOf(doc.value, status.value)?.label ?? '' : ''))
+function runNext() {
+  const t = nextStep.value
+  if (t) void runCommand(t.command, t.label, t)
+}
 const extraCommands = computed(() => (doc.value && !isNew.value && !timeTraveling.value ? visibleExtraCommands(doc.value) : []))
 const isActive = computed(() => record.value?.state?.active !== false)
 
@@ -754,10 +763,13 @@ const isCompanyForm = computed(() => props.id === COMPANY_ID)
     <div v-if="previewWarnings.length && !timeTraveling" class="banner banner-warn banner-flush no-print" role="status" data-testid="preview-warnings"><Icon name="alert" /><span class="grow">{{ previewWarnings.join(' ') }}</span></div>
     <div v-if="previewError && !formError && !timeTraveling" class="banner banner-warn banner-flush no-print" data-testid="preview-error"><Icon name="info" /><span class="grow">자동 계산을 하지 못했습니다: {{ previewError }}</span></div>
 
-    <div class="form-layout">
+    <div class="form-layout" :class="{ 'has-side': !isNew && showHistory }">
       <div class="form-main">
         <p v-if="loading" class="muted" style="padding: 16px">불러오는 중…</p>
         <form v-else class="form-sheet" autocomplete="off" @submit.prevent="save">
+          <p v-if="theme === 'talk' && !isNew && !timeTraveling && stateLabel" class="sheet-lede no-print" data-testid="sheet-lede">
+            지금 <strong>{{ stateLabel }}</strong> 상태입니다.<template v-if="nextStep"> 다음 일은 <strong>{{ nextStep.label }}</strong>입니다.</template>
+          </p>
           <div class="field-grid">
             <div v-for="f in mainFields" :key="f.name" class="field" :class="{ full: isFull(f) }" :data-field="f.name">
               <label class="field-label" :for="fieldId(f)">{{ f.label }}<span v-if="f.required && !isShownAsValue(f)" class="req" aria-hidden="true">*</span></label>
@@ -803,8 +815,9 @@ const isCompanyForm = computed(() => props.id === COMPANY_ID)
           <ReferencesPanel v-if="record && !isNew && !asOf" :id="record.id" />
         </form>
       </div>
+      <ChainMap v-if="theme === 'console' && record && !isNew && showHistory" :events="events" :id="record.id" />
       <HistoryPanel v-if="!isNew && showHistory" :doc="doc" :events="events" :version="asOf?.version ?? null" :loading="eventsLoading" :error="eventsError" :can-rollback="canRollback"
-                    @select="selectVersion" @retry="loadStream" @rollback-work="rollbackWork" @rollback-version="rollbackVersion" />
+                    :next="nextStep" @select="selectVersion" @retry="loadStream" @rollback-work="rollbackWork" @rollback-version="rollbackVersion" @next="runNext" />
     </div>
   </div>
 </template>
@@ -835,6 +848,30 @@ const isCompanyForm = computed(() => props.id === COMPANY_ID)
   .form-layout { flex-direction: column; overflow: auto; }
   .form-main { flex: none; overflow: visible; }
   .pipeline { max-width: 100%; overflow-x: auto; }
+}
+@media screen {
+  /* 대화: the document is a sheet of paper on the ground, opening with where it stands. */
+  :root[data-theme='talk'] .form-head { background: var(--bg); border-bottom-color: transparent; }
+  :root[data-theme='talk'] .form-title-row { min-height: 46px; padding-top: 10px; }
+  :root[data-theme='talk'] .crumbs h1 { font-size: 20px; font-weight: 750; letter-spacing: -0.02em; }
+  :root[data-theme='talk'] .form-main { background: var(--bg); }
+  :root[data-theme='talk'] .form-sheet { max-width: 860px; margin: 4px auto 24px; padding: 20px 24px 26px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 1px 2px rgba(23, 24, 28, 0.04); }
+  :root[data-theme='talk'] .sheet-lede { margin: 0 0 14px; padding-bottom: 12px; border-bottom: 1px solid var(--line); font-size: 15px; letter-spacing: -0.01em; color: var(--text-2); }
+  :root[data-theme='talk'] .sheet-lede strong { color: var(--text); font-weight: 750; }
+  :root[data-theme='console'] .form-head { background: var(--bg); }
+  :root[data-theme='console'] .totals dd { font-family: var(--mono); font-size: 12px; }
+  :root[data-theme='console'] .totals dd.grand { font-size: 14px; color: var(--navy-700); }
+}
+@media screen and (min-width: 721px) {
+  :root[data-theme='talk'] .form-main { padding: 0 20px; }
+  /* 관제: the connection map sits above the history, beside the document. */
+  :root[data-theme='console'] .form-layout.has-side { display: grid; grid-template-columns: minmax(0, 1fr) 340px; grid-template-rows: minmax(0, auto) minmax(0, 1fr); }
+  :root[data-theme='console'] .form-layout.has-side > .form-main { grid-column: 1; grid-row: 1 / span 2; }
+  :root[data-theme='console'] .form-layout.has-side > .map { grid-column: 2; grid-row: 1; max-height: 38vh; }
+  :root[data-theme='console'] .form-layout.has-side > .history { grid-column: 2; grid-row: 2; }
+}
+@media (max-width: 720px) {
+  :root[data-theme='talk'] .form-sheet { margin: 0 10px 16px; padding: 14px; }
 }
 @media print {
   .form-head { border: 0; }

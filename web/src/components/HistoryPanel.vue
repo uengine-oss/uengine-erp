@@ -4,11 +4,13 @@ import type { CatalogDoc, ErpEvent, Field } from '../lib/types'
 import { collectRefIds, displayValue } from '../lib/fields'
 import { fmtDateTime } from '../lib/format'
 import { ensureNames } from '../lib/refs'
-import { eventLabel, sourceColor, sourceLabel } from '../lib/eventText'
+import { actorKind, eventLabel, sourceColor, sourceLabel } from '../lib/eventText'
+import { theme } from '../lib/theme'
 import Icon from './Icon.vue'
 
-const props = defineProps<{ doc: CatalogDoc; events: ErpEvent[]; version: number | null; loading?: boolean; error?: string; canRollback?: boolean }>()
-const emit = defineEmits<{ select: [version: number | null]; retry: []; rollbackWork: [ev: ErpEvent]; rollbackVersion: [ev: ErpEvent] }>()
+// `next` is the step this document is waiting for; the 대화 theme offers it at the top of the conversation.
+const props = defineProps<{ doc: CatalogDoc; events: ErpEvent[]; version: number | null; loading?: boolean; error?: string; canRollback?: boolean; next?: { label: string } | null }>()
+const emit = defineEmits<{ select: [version: number | null]; retry: []; rollbackWork: [ev: ErpEvent]; rollbackVersion: [ev: ErpEvent]; next: [] }>()
 
 const META_FIELDS: Record<string, Field> = {
   active: { name: 'active', label: '사용 여부', type: 'boolean' },
@@ -110,8 +112,13 @@ function pick(index: number) {
 <template>
   <aside class="history no-print" aria-label="변경 이력" data-testid="history">
     <div class="history-head">
-      <h2><Icon name="history" :size="14" />이력</h2>
+      <h2><Icon name="history" :size="14" />{{ theme === 'talk' ? `이 ${doc.label}의 작업` : '이력' }}</h2>
       <span class="muted small">{{ events.length }}건</span>
+    </div>
+
+    <div v-if="theme === 'talk' && next && !version" class="history-next" data-testid="history-next">
+      <span><small>다음 일</small>{{ next.label }}</span>
+      <button type="button" class="btn btn-primary btn-sm" @click="$emit('next')">지금 하기</button>
     </div>
 
     <div v-if="events.length > 1" class="history-slider" data-testid="time-slider">
@@ -130,15 +137,16 @@ function pick(index: number) {
       <p v-else-if="!events.length" class="muted" style="padding: 12px">아직 이력이 없습니다.</p>
       <ol class="timeline">
         <li v-for="{ ev, lines, shown, hidden } in items" :key="ev.seq" :class="{ on: version === ev.version, later: version !== null && ev.version > version }" data-testid="history-item">
+          <span class="actor" :class="`actor-${actorKind(ev)}`" aria-hidden="true">{{ actorKind(ev) === 'person' ? (ev.actor_name ?? '').trim().slice(0, 1) : '' }}</span>
           <button type="button" class="timeline-head" :aria-label="`${fmtDateTime(ev.occurred_at)} 시점으로 보기`" @click="pick(ev.version)">
-            <span class="timeline-title">{{ eventLabel(ev.event_type, doc.label) }}</span>
+            <span class="timeline-title"><span class="timeline-seq">#{{ ev.seq }}</span>{{ eventLabel(ev.event_type, doc.label) }}</span>
             <span class="muted small nowrap">{{ fmtDateTime(ev.occurred_at).slice(5, 16) }}</span>
           </button>
           <div class="timeline-meta">
             <span class="ellipsis">{{ ev.actor_name ?? '시스템' }}</span>
             <span class="pill" :class="`pill-${sourceColor(ev.source)}`">{{ sourceLabel(ev.source) }}</span>
           </div>
-          <p v-if="ev.reason" class="timeline-reason">사유: {{ ev.reason }}</p>
+          <p v-if="ev.reason" class="timeline-reason"><span class="reason-label">사유: </span>{{ ev.reason }}</p>
           <ul v-if="lines.length" class="changes">
             <li v-for="c in shown" :key="c.key">
               <span class="change-label">{{ c.label }}</span>
@@ -148,7 +156,7 @@ function pick(index: number) {
           </ul>
           <button v-if="hidden && !expanded.has(ev.seq)" type="button" class="btn btn-ghost btn-sm" @click="expanded.add(ev.seq)">외 {{ hidden }}건 더 보기</button>
           <div v-if="canRollback" class="timeline-actions">
-            <button type="button" class="btn btn-ghost btn-sm" data-testid="history-rollback-work" @click="$emit('rollbackWork', ev)"><Icon name="undo" :size="12" />이 작업 되돌리기</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-testid="history-rollback-work" @click="$emit('rollbackWork', ev)"><Icon name="undo" :size="12" />{{ theme === 'talk' ? '이 작업 취소' : '이 작업 되돌리기' }}</button>
             <button v-if="ev.version < max" type="button" class="btn btn-ghost btn-sm" data-testid="history-rollback-version" @click="$emit('rollbackVersion', ev)">이 버전으로 되돌리기</button>
           </div>
         </li>
@@ -180,8 +188,42 @@ function pick(index: number) {
 .change-from { color: var(--text-3); text-decoration: line-through; }
 .change-to { color: var(--text); font-weight: 500; }
 .timeline-actions { display: flex; flex-wrap: wrap; gap: 2px; margin: 4px 0 0 -7px; }
+.actor, .timeline-seq { display: none; }
 @media (max-width: 720px) {
   .history { width: 100%; border-left: 0; border-top: 1px solid var(--line); }
   .history-body { overflow: visible; }
+}
+
+@media screen {
+  /* 대화: the history reads as who did what, each with a face, and what they said about it. */
+  :root[data-theme='talk'] .history { background: var(--bg); }
+  :root[data-theme='talk'] .history-head { padding: 12px 16px 8px; }
+  :root[data-theme='talk'] .history-head h2 { font-size: 14.5px; font-weight: 750; letter-spacing: -0.01em; }
+  :root[data-theme='talk'] .history-next { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 14px 10px; padding: 9px 10px 9px 12px; border: 1.5px dashed var(--navy-300); border-radius: 12px; background: var(--navy-50); font-weight: 650; }
+  :root[data-theme='talk'] .history-next small { display: block; font-size: 11px; font-weight: 600; color: var(--brand-ink); }
+  :root[data-theme='talk'] .history-slider { padding: 0 16px 8px; }
+  :root[data-theme='talk'] .timeline > li { position: relative; padding: 10px 16px 10px 52px; border-bottom: 0; }
+  :root[data-theme='talk'] .actor { position: absolute; left: 14px; top: 10px; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; font-size: 12px; font-weight: 700; }
+  :root[data-theme='talk'] .actor-person { border-radius: 50%; background: var(--ink-900); color: #fff; }
+  :root[data-theme='talk'] .actor-agent::before { content: ''; width: 17px; height: 17px; border-radius: 4px; background: var(--navy-700); transform: rotate(45deg); }
+  :root[data-theme='talk'] .actor-system { border-radius: 50%; border: 1.5px solid var(--line-strong); background: var(--surface); }
+  :root[data-theme='talk'] .actor-system::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-300); }
+  :root[data-theme='talk'] .timeline-reason { margin-top: 6px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 4px 12px 12px 12px; background: var(--surface); color: var(--text); font-size: 12.5px; }
+  :root[data-theme='talk'] .timeline-reason::before { content: '“'; }
+  :root[data-theme='talk'] .timeline-reason::after { content: '”'; }
+  :root[data-theme='talk'] .reason-label { display: none; }
+  :root[data-theme='talk'] .changes { margin-top: 6px; padding: 6px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  :root[data-theme='talk'] .timeline-actions { gap: 2px 14px; margin: 6px 0 0; }
+  :root[data-theme='talk'] .timeline-actions .btn { height: auto; padding: 0; border: 0; background: none; color: var(--brand-ink); font-size: 12px; font-weight: 650; }
+  :root[data-theme='talk'] .timeline-actions .btn:hover { background: none; text-decoration: underline; }
+
+  /* 관제: flat rows, each carrying its place in the ledger. */
+  :root[data-theme='console'] .timeline > li { padding: 7px 12px; border-bottom-color: var(--line); }
+  :root[data-theme='console'] .timeline-seq { display: inline; margin-right: 6px; font-family: var(--mono); font-size: 11px; font-weight: 500; color: var(--navy-700); }
+  :root[data-theme='console'] .timeline-head > .muted { font-family: var(--mono); font-size: 11px; }
+}
+@media screen and (min-width: 721px) {
+  :root[data-theme='talk'] .history { width: 360px; }
+  :root[data-theme='console'] .history { width: auto; min-width: 0; }
 }
 </style>

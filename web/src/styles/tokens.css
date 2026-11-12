@@ -20,6 +20,9 @@
   --navy-300: #9db0d6;
   --navy-100: #dfe6f4;
   --navy-50: #eff2f9;
+  /* What is written on a brand fill, and the brand when it colours letters. Themes with a bright brand change both. */
+  --on-brand: #ffffff;
+  --brand-ink: var(--navy-700);
 
   /* Restrained accent: required marks and time travel only */
   --accent: #a8481f;

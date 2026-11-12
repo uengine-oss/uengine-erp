@@ -423,9 +423,9 @@ onBeforeUnmount(stopPolling)
 .install-parts .part.next { border-color: var(--navy-700); box-shadow: 0 0 0 2px var(--navy-100); }
 .install-parts .part.done { opacity: .78; }
 .install-parts .part-no { flex: none; display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--ink-100); font-weight: 700; font-size: 13px; }
-.install-parts .part.next .part-no { background: var(--navy-700); color: #fff; }
+.install-parts .part.next .part-no { background: var(--navy-700); color: var(--on-brand); }
 .install-parts .part.done .part-no { background: var(--green-fg); color: #fff; }
 .install-parts .part-text { flex: 1; display: grid; gap: 2px; min-width: 0; }
 .install-parts .part-text small { color: var(--text-3); }
-.install-parts .part.copied .part-text small { color: var(--navy-700); font-weight: 600; }
+.install-parts .part.copied .part-text small { color: var(--brand-ink); font-weight: 600; }
 </style>

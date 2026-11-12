@@ -5,6 +5,8 @@ import { session, signOut } from '../lib/session'
 import { live } from '../lib/realtime'
 import { enterTimeView, exitTimeView, timeView } from '../lib/mode'
 import { fmtDay } from '../lib/format'
+import { tail } from '../lib/ledgerTail'
+import { theme } from '../lib/theme'
 import { navOpen } from '../lib/ui'
 import Icon from './Icon.vue'
 
@@ -34,6 +36,7 @@ async function logout() {
 <template>
   <header class="top">
     <button type="button" class="btn btn-ghost btn-icon nav-toggle" :aria-expanded="navOpen" aria-label="메뉴" data-testid="nav-toggle" @click="navOpen = !navOpen"><Icon name="menu" /></button>
+    <router-link v-if="theme === 'console'" to="/" class="top-brand"><span class="brand-mark"><svg width="12" height="12" viewBox="0 0 32 32" aria-hidden="true"><path d="M7 5v14a9 9 0 0 0 18 0V5h-5v14a4 4 0 0 1-8 0V5z" fill="#fff" /></svg></span>uEngine ERP</router-link>
     <strong class="ellipsis" data-testid="company-name">{{ session.company?.state?.name ?? session.status?.company_name }}</strong>
     <span v-if="session.status?.demo" class="pill pill-violet" style="flex: none" title="지어낸 회사입니다. 실제 업무 데이터가 아닙니다." data-testid="demo-mark">가상 회사입니다</span>
     <span class="top-right">
@@ -44,6 +47,7 @@ async function logout() {
       </label>
       <span class="top-sep"></span>
       <span class="live" :class="`live-${live.status}`" :title="liveTitle" data-testid="live"><i></i>{{ liveText }}</span>
+      <span v-if="theme === 'console' && tail.lastSeq" class="top-seq" title="원장에 적힌 마지막 이벤트의 순번" data-testid="ledger-seq">seq {{ tail.lastSeq }}</span>
       <span class="top-sep"></span>
       <span class="top-user" data-testid="user"><span>{{ session.me?.name }}</span><span class="muted small">{{ roleNames }}</span></span>
       <button type="button" class="btn btn-ghost btn-sm" aria-label="로그아웃" data-testid="logout" @click="logout"><Icon name="logout" :size="13" /><span class="top-logout">로그아웃</span></button>
@@ -66,7 +70,18 @@ async function logout() {
 .live-live { color: var(--green-fg); }
 .live-live i { background: #1f9d63; }
 .live-connecting i { background: #c9981f; }
+.top-brand { display: inline-flex; align-items: center; gap: 7px; flex: none; padding-right: 12px; border-right: 1px solid var(--line); color: var(--text); font-weight: 700; text-decoration: none; }
+.top-brand .brand-mark { width: 20px; height: 20px; border-radius: 3px; }
+.top-seq { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); white-space: nowrap; }
+@media screen {
+  :root[data-theme='talk'] .top { height: 48px; }
+  :root[data-theme='talk'] .top strong { font-size: 14.5px; font-weight: 750; letter-spacing: -0.01em; }
+  :root[data-theme='console'] .top { order: -3; height: 38px; background: var(--bg); }
+  :root[data-theme='console'] .live-live { color: var(--navy-700); }
+  :root[data-theme='console'] .live-live i { background: var(--navy-700); box-shadow: 0 0 0 3px rgba(198, 242, 58, 0.18); }
+}
 @media (max-width: 720px) {
+  .top-brand, .top-seq { display: none; }
   .top { gap: 6px; padding: 0 8px; }
   .nav-toggle { display: inline-flex; flex: none; }
   .top-right { gap: 6px; }

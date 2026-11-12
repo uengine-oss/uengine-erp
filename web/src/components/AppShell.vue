@@ -3,12 +3,15 @@ import { onBeforeUnmount, onMounted } from 'vue'
 import { refreshBus } from '../lib/bus'
 import { onLedgerEvent } from '../lib/realtime'
 import { loadCatalog } from '../lib/session'
+import { narrow, theme } from '../lib/theme'
 import { navOpen } from '../lib/ui'
 import DemoBanner from './DemoBanner.vue'
+import LedgerStrip from './LedgerStrip.vue'
 import NetBanner from './NetBanner.vue'
 import RollbackDialog from './RollbackDialog.vue'
 import SideNav from './SideNav.vue'
 import StallBanner from './StallBanner.vue'
+import SubNav from './SubNav.vue'
 import TimeBanner from './TimeBanner.vue'
 import TopBar from './TopBar.vue'
 import UpgradeBanner from './UpgradeBanner.vue'
@@ -46,12 +49,14 @@ onBeforeUnmount(() => {
     <SideNav class="no-print" />
     <div class="shell-main">
       <TopBar class="no-print" />
+      <SubNav v-if="theme !== 'classic' && !narrow" class="no-print" />
       <UpgradeBanner />
       <DemoBanner />
       <TimeBanner />
       <StallBanner />
       <NetBanner />
       <main class="shell-body"><router-view /></main>
+      <LedgerStrip v-if="theme === 'console'" class="no-print" />
     </div>
     <RollbackDialog />
   </div>
@@ -66,5 +71,11 @@ onBeforeUnmount(() => {
   .shell > .side { position: fixed; inset: 0 auto 0 0; z-index: 800; width: 240px; visibility: hidden; transform: translateX(-100%); transition: transform 0.15s, visibility 0.15s; }
   .shell.nav-open > .side { visibility: visible; transform: none; }
   .shell.nav-open > .side-scrim { display: block; position: fixed; inset: 0; z-index: 790; background: rgba(10, 19, 34, 0.42); }
+}
+/* 관제 stacks the menu above the page: top bar, module tabs, the module's screens, then the page and the ledger strip.
+   The column on the right dissolves so the menu can sit between its children; each of them says where it goes. */
+@media screen and (min-width: 721px) {
+  :root[data-theme='console'] .shell { flex-direction: column; }
+  :root[data-theme='console'] .shell-main { display: contents; }
 }
 </style>

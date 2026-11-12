@@ -592,6 +592,7 @@ export const NAV: NavModule[] = [
       { label: '백업', route: '/settings/backup' },
       { label: '접속·보안', route: '/settings/access' },
       { label: '표 파일 가져오기', route: '/settings/import' },
+      { label: '화면 테마', route: '/settings/theme' },
       { label: '마감 잠금', route: '/settings/locks', adminOnly: true },
       { label: '문서 양식', route: '/settings/documents', adminOnly: true },
       { label: '모듈', route: '/settings/modules', adminOnly: true },

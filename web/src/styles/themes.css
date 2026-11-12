@@ -1,0 +1,176 @@
+/*
+ * The themes a person can choose besides 기본. Each one redefines the whole token set, so nothing leaks in from the
+ * system's dark setting, and then adjusts the few shared classes whose shape is part of the theme.
+ *
+ * Screen only: paper stays black on white in every theme. Rules on shared classes are prefixed with `:where(…)`,
+ * which adds no weight, so they override the base rule by coming later and still lose to anything more specific.
+ * What belongs to one component (the menu, the history panel) is in that component's own style block.
+ */
+@media screen {
+  /* ───────────────────────── 대화: light ground, tangerine, the document as a sheet of paper ───────────────────────── */
+  :root[data-theme='talk'] {
+    color-scheme: light;
+
+    --ink-950: #0e0f12;
+    --ink-900: #17181c;
+    --ink-800: #25262c;
+    --ink-700: #3a3b42;
+    --ink-600: #55565e;
+    --ink-500: #6e6f77;
+    --ink-400: #98988f;
+    --ink-300: #bdbdb5;
+    --ink-200: #d9d9d2;
+    --ink-150: #e4e4df;
+    --ink-100: #ecece7;
+    --ink-50: #f4f4f1;
+
+    --navy-800: #e85a1e;
+    --navy-700: #ff6a2b;
+    --navy-600: #f2601f;
+    --navy-300: #ffb590;
+    --navy-100: #ffe4d6;
+    --navy-50: #fff3ec;
+    /* Tangerine carries dark letters, and is too light to be letters itself on a white sheet. */
+    --on-brand: #1f0e05;
+    --brand-ink: #c2410c;
+
+    --accent: #4f46b8;
+    --accent-soft: #eeedfb;
+    --accent-line: #d2cff3;
+
+    --bg: #f4f4f1;
+    --surface: #ffffff;
+    --line: #e4e4df;
+    --line-strong: #cfcfc8;
+    --text: #17181c;
+    --text-2: #55565e;
+    --text-3: #7a7b82;
+
+    --gray-fg: #4b4c53;   --gray-bg: #ededea;   --gray-line: #dadad4;
+    --blue-fg: #1d4289;   --blue-bg: #e4ebf8;   --blue-line: #c6d4ee;
+    --green-fg: #186343;  --green-bg: #e2f2ea;  --green-line: #bfe0cf;
+    --amber-fg: #7d5206;  --amber-bg: #faf0d9;  --amber-line: #eddcae;
+    --red-fg: #a02a2a;    --red-bg: #fae8e6;    --red-line: #f0cbc7;
+    --violet-fg: #54398f; --violet-bg: #eee9f8; --violet-line: #d9cfee;
+
+    --radius: 8px;
+    --radius-sm: 6px;
+    --row-h: 34px;
+    --ctl-h: 30px;
+    --shadow-pop: 0 10px 30px rgba(23, 24, 28, 0.14), 0 0 0 1px rgba(23, 24, 28, 0.07);
+  }
+
+  :where(:root[data-theme='talk']) a,
+  :where(:root[data-theme='talk']) .th-sort.on,
+  :where(:root[data-theme='talk']) .combo-make { color: var(--brand-ink); }
+  :where(:root[data-theme='talk']) .banner-info,
+  :where(:root[data-theme='talk']) .how > li::before,
+  :where(:root[data-theme='talk']) .pipeline { --navy-800: #9a3412; }
+  :where(:root[data-theme='talk']) .btn { font-weight: 600; }
+  :where(:root[data-theme='talk']) .btn-primary { font-weight: 700; }
+  :where(:root[data-theme='talk']) .btn-primary:active:not(:disabled) { background: #d94f14; }
+  :where(:root[data-theme='talk']) .btn-sm { border-radius: 6px; }
+
+  /* Titles sit on the ground; what you read and fill in sits on white. */
+  :where(:root[data-theme='talk']) .page-head { background: var(--bg); border-bottom-color: transparent; min-height: 52px; }
+  :where(:root[data-theme='talk']) .page-head h1 { font-size: 19px; font-weight: 750; letter-spacing: -0.02em; }
+  :where(:root[data-theme='talk']) .toolbar { background: var(--bg); }
+  :where(:root[data-theme='talk']) .tbl th { height: 32px; background: var(--surface); font-size: 11.5px; color: var(--text-3); border-bottom-color: var(--line); }
+  :where(:root[data-theme='talk']) .stat { padding: 11px 14px; border-radius: 12px; }
+  :where(:root[data-theme='talk']) .stat-value { font-size: 20px; font-weight: 750; letter-spacing: -0.02em; }
+  :where(:root[data-theme='talk']) .dlg { border-radius: 14px; }
+  :where(:root[data-theme='talk']) .menu,
+  :where(:root[data-theme='talk']) .combo-menu { border-radius: 10px; padding: 4px; }
+  :where(:root[data-theme='talk']) .toast { border-radius: 10px; padding: 9px 14px; }
+  :where(:root[data-theme='talk']) .banner-flush { border-radius: 0; }
+  /* Home panels: two components carry these classes in their own style blocks, so the rule needs its full weight. */
+  :root[data-theme='talk'] .home-panel { border-radius: 14px; }
+  :root[data-theme='talk'] .home-panel-head { height: 42px; padding: 0 16px; }
+  :root[data-theme='talk'] .home-panel-head h2 { font-size: 14.5px; font-weight: 750; letter-spacing: -0.01em; }
+  :root[data-theme='talk'] .home-links a { padding: 6px 16px; color: var(--text); }
+
+  /* ───────────────────────── 관제: dark ground, lime, numbers in fixed width ───────────────────────── */
+  :root[data-theme='console'] {
+    color-scheme: dark;
+
+    --ink-950: #f4f7fb;
+    --ink-900: #e8ecf2;
+    --ink-800: #d3d9e3;
+    --ink-700: #bac3d0;
+    --ink-600: #9aa5b5;
+    --ink-500: #8490a1;
+    --ink-400: #6b7687;
+    --ink-300: #4a5566;
+    --ink-200: #333e4e;
+    --ink-150: #2a3442;
+    --ink-100: #212a37;
+    --ink-50: #1b2330;
+
+    --navy-800: #d4f75e;
+    --navy-700: #c6f23a;
+    --navy-600: #c6f23a;
+    --navy-300: #7e9a2a;
+    --navy-100: #2c3a12;
+    --navy-50: #1e2a10;
+    --on-brand: #0f1403;
+    --brand-ink: #c6f23a;
+
+    --accent: #ffb454;
+    --accent-soft: #33260f;
+    --accent-line: #5e4520;
+
+    --bg: #0c1016;
+    --surface: #141a23;
+    --line: #26303f;
+    --line-strong: #36425a;
+    --text: #e8ecf2;
+    --text-2: #9aa5b5;
+    --text-3: #7e8a9c;
+
+    --gray-fg: #bcc4d0;   --gray-bg: #232c3a;   --gray-line: #36425a;
+    --blue-fg: #a9c3f3;   --blue-bg: #1d2c49;   --blue-line: #33497a;
+    --green-fg: #8fd8b3;  --green-bg: #15302a;  --green-line: #285245;
+    --amber-fg: #ecc873;  --amber-bg: #33290f;  --amber-line: #5c4a1c;
+    --red-fg: #f2a59d;    --red-bg: #3a1c1b;    --red-line: #6b302c;
+    --violet-fg: #c5b5ee; --violet-bg: #2a2342; --violet-line: #463a6e;
+
+    --radius: 2px;
+    --radius-sm: 2px;
+    --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.09);
+  }
+
+  :where(:root[data-theme='console']) a,
+  :where(:root[data-theme='console']) .th-sort.on,
+  :where(:root[data-theme='console']) .combo-make { color: var(--brand-ink); }
+  :where(:root[data-theme='console']) .btn-primary { font-weight: 700; }
+  :where(:root[data-theme='console']) .btn-primary:active:not(:disabled) { background: #a9d62a; }
+  /* The pill reds are letters here; a filled danger button needs a red that carries white. */
+  :where(:root[data-theme='console']) .btn-danger-solid,
+  :where(:root[data-theme='console']) .pipeline { --red-fg: #b53f3f; }
+  :where(:root[data-theme='console']) .btn-danger-solid:hover:not(:disabled) { background: #c64c4c; border-color: #c64c4c; }
+  :where(:root[data-theme='console']) .select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239aa5b5' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 9l7 7 7-7'/%3E%3C/svg%3E"); }
+  /* The ink scale runs light here, so what was dark by being ink gets its dark back. */
+  :where(:root[data-theme='console']) .split-side {
+    --ink-950: #070a0f; --ink-900: #0c1016; --ink-800: #1b2330; --ink-700: #26303f; --ink-600: #4a5566; --ink-500: #6b7687; --ink-400: #8490a1; --ink-300: #bac3d0;
+    border-right: 1px solid var(--line);
+  }
+  :where(:root[data-theme='console']) .brand-mark svg path { fill: var(--on-brand); }
+  :where(:root[data-theme='console']) .toast { background: #1b2330; border: 1px solid #36425a; }
+  :where(:root[data-theme='console']) .toast-error { background: #a53b3b; border-color: #a53b3b; }
+  :where(:root[data-theme='console']) .dlg-overlay { background: rgba(0, 0, 0, 0.6); }
+  :where(:root[data-theme='console']) .dlg { border-radius: 3px; border: 1px solid var(--line-strong); }
+
+  :where(:root[data-theme='console']) .page-head { min-height: 42px; }
+  :where(:root[data-theme='console']) .page-head h1 { font-size: 15px; }
+  :where(:root[data-theme='console']) .tbl th { background: #101620; color: var(--text-3); font-size: 11px; letter-spacing: 0.04em; border-bottom-color: var(--line); }
+  :where(:root[data-theme='console']) .tbl td.num,
+  :where(:root[data-theme='console']) .stat-value,
+  :where(:root[data-theme='console']) .page-count { font-family: var(--mono); font-size: 12px; }
+  :where(:root[data-theme='console']) .stat-value { font-size: 17px; }
+  :where(:root[data-theme='console']) .pill { border-radius: 2px; }
+  :where(:root[data-theme='console']) .toggle { border-radius: 2px; }
+  /* Home panels: titles small and spaced, like the labels on an instrument. */
+  :root[data-theme='console'] .home-panel-head { height: 30px; background: #101620; }
+  :root[data-theme='console'] .home-panel-head h2 { font-size: 11.5px; letter-spacing: 0.06em; color: var(--text-2); }
+  :root[data-theme='console'] .home-links a { color: var(--text); }
+}

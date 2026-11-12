@@ -31,6 +31,11 @@ const currentIndex = computed(() => steps.value.findIndex((s) => s.value === pro
 }
 .pipeline li:first-child { padding-left: 10px; margin-left: 0; clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 50%, calc(100% - 7px) 100%, 0 100%); border-radius: 3px 0 0 3px; }
 .pipeline li.past { background: var(--navy-100); color: var(--navy-800); }
-.pipeline li.on { background: var(--navy-700); color: #fff; font-weight: 600; }
+.pipeline li.on { background: var(--navy-700); color: var(--on-brand); font-weight: 600; }
 .pipeline li.bad { background: var(--red-fg); color: #fff; }
+@media screen {
+  /* 대화: separate round steps instead of a chevron band. */
+  :root[data-theme='talk'] .pipeline { gap: 4px; }
+  :root[data-theme='talk'] .pipeline li, :root[data-theme='talk'] .pipeline li:first-child { margin-left: 0; padding: 0 11px; border-radius: 999px; clip-path: none; }
+}
 </style>

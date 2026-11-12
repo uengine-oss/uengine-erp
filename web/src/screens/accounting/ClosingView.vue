@@ -158,7 +158,7 @@ async function lockYear() {
 .steps { display: flex; flex-direction: column; gap: 12px; max-width: 820px; }
 .step { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 .step h2 { display: flex; align-items: center; gap: 8px; }
-.num-badge { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--navy-700); color: #fff; font-size: 12px; }
+.num-badge { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--navy-700); color: var(--on-brand); font-size: 12px; }
 .step .scroll-x { align-self: stretch; }
 .entry { max-width: 620px; }
 .foot td { font-weight: 650; border-top: 1px solid var(--line-strong); }

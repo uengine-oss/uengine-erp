@@ -116,6 +116,7 @@ export const router = createRouter({
         { path: 'settings/import', name: 'import', component: () => import('./screens/settings/ImportView.vue'), meta: { title: '표 파일 가져오기' } },
         { path: 'settings/locks', name: 'locks', component: () => import('./screens/settings/LocksView.vue'), meta: { title: '마감 잠금' } },
         { path: 'settings/documents', name: 'documents', component: () => import('./screens/settings/DocumentsView.vue'), meta: { title: '문서 양식' } },
+        { path: 'settings/theme', name: 'theme', component: () => import('./screens/settings/ThemeView.vue'), meta: { title: '화면 테마' } },
         { path: 'settings/modules', name: 'modules', component: ModulesView, meta: { title: '모듈' } },
         { path: 'settings/bus', name: 'bus', component: BusView, meta: { title: '이벤트 버스' } },
         { path: 'settings/integration', name: 'integration', component: IntegrationView, meta: { title: '연동' } },

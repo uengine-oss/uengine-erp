@@ -1,0 +1,20 @@
+
+Running 15 tests using 1 worker
+
+  ✓   1 e2e/tests/whatif.spec.mjs:56:1 › 첫 화면은 모델을 세 상태로 보여 주고, 각자 무엇을 기다리는지 말한다 (1.1s)
+  ✓   2 e2e/tests/whatif.spec.mjs:83:1 › 잠긴 모델은 계산하지 않고 어떤 모듈을 켜면 되는지 안내한다 (519ms)
+  ✓   3 e2e/tests/whatif.spec.mjs:97:1 › 근거가 모자라면 숫자 대신 무엇이 얼마나 더 필요한지와 범위만 보여 준다 (897ms)
+  ✓   4 e2e/tests/whatif.spec.mjs:122:1 › 회사 전체는 되어도 그 제품·공급사의 근거가 모자라면 함수의 답을 따른다 (2.4s)
+  ✓   5 e2e/tests/whatif.spec.mjs:138:1 › 예측은 결과와 80% 구간, 근거, 경고를 그대로 보여 준다 (3.8s)
+  ✓   6 e2e/tests/whatif.spec.mjs:179:1 › what-if: 입력 폼에서 기준 대비 변화를 P10·P50·P90 으로 보여 주고, 원장은 그대로다 (2.0s)
+  ✓   7 e2e/tests/whatif.spec.mjs:205:1 › 구간이 0 을 포함하면 숫자보다 먼저 효과를 구분할 수 없다고 말한다 (2.8s)
+  ✓   8 e2e/tests/whatif.spec.mjs:232:1 › 단종·납기·결제 조건도 같은 틀로 답하고, 납기와 대체율을 함께 보여 준다 (2.9s)
+  ✓   9 e2e/tests/whatif.spec.mjs:259:1 › 구매 기록이 없는 단계에서는 기준 매출을 믿지 말라고 하고, 그 시점으로 계산한다 (1.3s)
+  ✓  10 e2e/tests/whatif.spec.mjs:277:1 › 계산은 별도 스레드에서 돌고, 읽는 동안 진행을 보여 주며 화면을 막지 않는다 (1.1s)
+  ✓  11 e2e/tests/whatif.spec.mjs:295:1 › 읽지 못하면 오류와 다시 시도를 보여 주고, 다른 시점으로 옮기면 다시 읽는다 (3.2s)
+  ✓  12 e2e/tests/whatif.spec.mjs:322:1 › 통계는 지역·제품·기간 매출을 SVG 로 그리고, 고르면 좁혀지고, 없으면 빈 상태로 말한다 (950ms)
+  ✓  13 e2e/tests/whatif.spec.mjs:348:1 › 견적 전환율은 근거가 모자라면 범위로만 말한다 (761ms)
+  ✓  14 e2e/tests/whatif.spec.mjs:363:1 › 문서를 읽을 권한이 없는 역할에는 그 문서로 계산하는 모델이 잠긴다 (868ms)
+  ✓  15 e2e/tests/whatif.spec.mjs:376:1 › 휴대폰 폭과 어두운 테마에서도 읽힌다 (3.2s)
+
+  15 passed (37.0s)

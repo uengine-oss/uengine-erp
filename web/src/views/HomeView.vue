@@ -125,6 +125,19 @@ const openingHint = computed(() => shortcuts.value.length === 0)
 .home-links a { display: flex; align-items: center; gap: 8px; padding: 5px 12px; color: var(--ink-800); }
 .home-links a:hover { background: var(--navy-50); text-decoration: none; }
 .ev-name { max-width: 220px; }
+@media screen {
+  /* The panels themselves are restyled in themes.css: the alerts panel is a component of its own with the same classes. */
+  :root[data-theme='talk'] .home-grid { gap: 14px; padding: 4px 20px 24px; }
+  :root[data-theme='talk'] .home-side { gap: 14px; }
+  :root[data-theme='talk'] .home-usage { padding: 12px 16px 14px; }
+  :root[data-theme='console'] .home-grid { gap: 8px; padding: 8px; }
+  :root[data-theme='console'] .home-side { gap: 8px; }
+  :root[data-theme='console'] .home-panel td.muted.nowrap { font-family: var(--mono); font-size: 11.5px; }
+}
+@media screen and (min-width: 721px) {
+  :root[data-theme='talk'] .home-grid { grid-template-columns: minmax(0, 1fr) 340px; }
+  :root[data-theme='console'] .home-grid { grid-template-columns: minmax(0, 1fr) 320px; }
+}
 @media (max-width: 720px) {
   .home-grid { grid-template-columns: minmax(0, 1fr); }
   .home-panel { overflow-x: auto; }

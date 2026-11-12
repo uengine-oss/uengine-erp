@@ -116,7 +116,10 @@ const describe = computed(() => props.months.map((m) => `${m.month} 신규 ${pro
   --k-new: #3a62b8; --k-expansion: #2f8a5b; --k-reactivation: #7a5cc4; --k-contraction: #c08a1e; --k-churn: #c0392b;
 }
 @media screen and (prefers-color-scheme: dark) {
-  .move { --k-new: #6a8fd6; --k-expansion: #4aa87a; --k-reactivation: #9a80dc; --k-contraction: #cf9f3c; --k-churn: #e05a4e; }
+  :root:not([data-theme]) .move { --k-new: #6a8fd6; --k-expansion: #4aa87a; --k-reactivation: #9a80dc; --k-contraction: #cf9f3c; --k-churn: #e05a4e; }
+}
+@media screen {
+  :root[data-theme='console'] .move { --k-new: #6a8fd6; --k-expansion: #4aa87a; --k-reactivation: #9a80dc; --k-contraction: #cf9f3c; --k-churn: #e05a4e; }
 }
 .chart { position: relative; width: 100%; }
 svg { display: block; }

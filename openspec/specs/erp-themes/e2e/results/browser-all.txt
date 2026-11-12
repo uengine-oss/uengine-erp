@@ -1,0 +1,649 @@
+
+> uengine-erp@0.1.0 test:e2e
+> npm --prefix web run build && playwright test -c e2e/playwright.config.mjs
+
+
+> uengine-erp-web@0.1.0 build
+> npm run gen && vue-tsc --noEmit && vite build
+
+
+> uengine-erp-web@0.1.0 gen
+> node ../scripts/build-sql.mjs
+
+install.sql: 39 files, 1965 KB, build 0.1.0+1794407102.30d32eba82f0; 6 parts: 1 기본(판매) 395 KB, 2 재고·구매 222 KB, 3 청구·회계 407 KB, 4 자산·세금·인사·급여 355 KB, 5 경비·CRM·프로젝트·제조·보전·품질·헬프데스크 341 KB, 6 장부·분석·연동 335 KB
+vite v8.3.5 building client environment for production...
+transforming...
+✓ 586 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                       2.23 kB │ gzip:   0.74 kB
+dist/assets/worker-BGbHGD5K.js                       65.05 kB
+dist/assets/ImportView-PnygfhAv.css                   0.04 kB │ gzip:   0.06 kB
+dist/assets/AnalysisView-DXu9qPrG.css                 0.04 kB │ gzip:   0.06 kB
+dist/assets/LawNotice-BqpWDiGt.css                    0.05 kB │ gzip:   0.07 kB
+dist/assets/GeneralLedgerView-DJ38hMLG.css            0.06 kB │ gzip:   0.08 kB
+dist/assets/AgedView-Cf_blIXE.css                     0.08 kB │ gzip:   0.10 kB
+dist/assets/DepreciationRunView-DfgWm7aS.css          0.08 kB │ gzip:   0.10 kB
+dist/assets/ReplenishView-BIztOR_l.css                0.08 kB │ gzip:   0.10 kB
+dist/assets/CatalogView-VCtle2kD.css                  0.09 kB │ gzip:   0.10 kB
+dist/assets/ValueBar-CIOHT7b-.css                     0.09 kB │ gzip:   0.10 kB
+dist/assets/ProfilesView-6qQNUyxa.css                 0.10 kB │ gzip:   0.09 kB
+dist/assets/AttributePanel-BO1XM5cB.css               0.10 kB │ gzip:   0.09 kB
+dist/assets/PickingPanel-DqUHeIBr.css                 0.10 kB │ gzip:   0.09 kB
+dist/assets/ProductPanel-BDCPvJqb.css                 0.10 kB │ gzip:   0.09 kB
+dist/assets/TermPanel-0j9GmLMg.css                    0.10 kB │ gzip:   0.09 kB
+dist/assets/CountView-DoqJtJFF.css                    0.11 kB │ gzip:   0.09 kB
+dist/assets/WeekView-DYYcp7__.css                     0.11 kB │ gzip:   0.10 kB
+dist/assets/StockView-B84PanrD.css                    0.12 kB │ gzip:   0.12 kB
+dist/assets/ReviewNotice-NmwwD_od.css                 0.12 kB │ gzip:   0.12 kB
+dist/assets/GroupsView-Yg9TUafy.css                   0.12 kB │ gzip:   0.12 kB
+dist/assets/PartnerLedgerView-bgfpXG-k.css            0.13 kB │ gzip:   0.12 kB
+dist/assets/LocksView-dsnZzjHZ.css                    0.13 kB │ gzip:   0.13 kB
+dist/assets/DayBookView-wKUSBVWD.css                  0.18 kB │ gzip:   0.14 kB
+dist/assets/ProjectPanel-icMlxxce.css                 0.19 kB │ gzip:   0.16 kB
+dist/assets/VoucherView-C2yS8YX7.css                  0.19 kB │ gzip:   0.14 kB
+dist/assets/ApprovalsView-LMPXdKrM.css                0.19 kB │ gzip:   0.13 kB
+dist/assets/MrpOrderPanel-ZGbut0B9.css                0.20 kB │ gzip:   0.11 kB
+dist/assets/TaxTablesView-wzehczsa.css                0.21 kB │ gzip:   0.17 kB
+dist/assets/LeaveReasonPanel-BVT9qEPh.css             0.26 kB │ gzip:   0.18 kB
+dist/assets/InvoicePanel-D087NFKy.css                 0.26 kB │ gzip:   0.17 kB
+dist/assets/OvertimeView-BGl_ab0K.css                 0.27 kB │ gzip:   0.19 kB
+dist/assets/DocumentsView-BFNBs9wp.css                0.27 kB │ gzip:   0.19 kB
+dist/assets/OrderPanel-BgFXV3YE.css                   0.28 kB │ gzip:   0.20 kB
+dist/assets/VatReturnView-hfpW_UWp.css                0.28 kB │ gzip:   0.16 kB
+dist/assets/OutlookView-OL7SYz0h.css                  0.31 kB │ gzip:   0.21 kB
+dist/assets/DuplicatesView-DQUyGNGG.css               0.31 kB │ gzip:   0.21 kB
+dist/assets/TrialSummaryView-B4UWx8SK.css             0.34 kB │ gzip:   0.20 kB
+dist/assets/WithholdingView-DXKPoWEJ.css              0.36 kB │ gzip:   0.22 kB
+dist/assets/CostStatementView-Csj6diZn.css            0.37 kB │ gzip:   0.19 kB
+dist/assets/RetainedView-dNg23S9y.css                 0.37 kB │ gzip:   0.19 kB
+dist/assets/BudgetsView-C52hwTQj.css                  0.39 kB │ gzip:   0.23 kB
+dist/assets/TaskTimePanel-BPpS2pSS.css                0.40 kB │ gzip:   0.23 kB
+dist/assets/TrendView-C_NWSAMY.css                    0.42 kB │ gzip:   0.26 kB
+dist/assets/EquipmentPanel-BjRwn69z.css               0.44 kB │ gzip:   0.24 kB
+dist/assets/AnalysisView-4NAj-Bcj.css                 0.45 kB │ gzip:   0.25 kB
+dist/assets/SubscriptionPanel-5ZbOWr9m.css            0.45 kB │ gzip:   0.24 kB
+dist/assets/HeadcountView-BEvXocjC.css                0.47 kB │ gzip:   0.27 kB
+dist/assets/MyAttendanceView-DaO9OrS0.css             0.47 kB │ gzip:   0.25 kB
+dist/assets/BudgetPanel-LXgiLMQy.css                  0.48 kB │ gzip:   0.24 kB
+dist/assets/EmployeePrivatePanel-DGer5yfa.css         0.48 kB │ gzip:   0.26 kB
+dist/assets/AnalysisView-oGLJMtQE.css                 0.49 kB │ gzip:   0.26 kB
+dist/assets/BudgetTable-DW3jc3Jz.css                  0.50 kB │ gzip:   0.26 kB
+dist/assets/QuotesView-CcFaRCop.css                   0.52 kB │ gzip:   0.29 kB
+dist/assets/OverviewView-BeNtLF00.css                 0.54 kB │ gzip:   0.28 kB
+dist/assets/PayrollSheetPanel-JDM0EDMY.css            0.55 kB │ gzip:   0.28 kB
+dist/assets/MonthView-Bq2ulzLR.css                    0.56 kB │ gzip:   0.30 kB
+dist/assets/MyPayslipsView-BO6Nw6Oi.css               0.57 kB │ gzip:   0.32 kB
+dist/assets/MrpOutlookView-CCy0vP04.css               0.60 kB │ gzip:   0.29 kB
+dist/assets/OpportunityPanel-DLj3ezPz.css             0.60 kB │ gzip:   0.28 kB
+dist/assets/AnalysisView-Bd-VxRrA.css                 0.62 kB │ gzip:   0.30 kB
+dist/assets/AssetPanel-CnUxEABl.css                   0.66 kB │ gzip:   0.33 kB
+dist/assets/ReportView-DWQbicQi.css                   0.66 kB │ gzip:   0.32 kB
+dist/assets/BankView-BYmYHTp0.css                     0.66 kB │ gzip:   0.31 kB
+dist/assets/OutlookView-DHl0Iocq.css                  0.68 kB │ gzip:   0.32 kB
+dist/assets/TeamCalendarView-CzUdxq-u.css             0.70 kB │ gzip:   0.35 kB
+dist/assets/ReliabilityView-CH18_Uje.css              0.72 kB │ gzip:   0.32 kB
+dist/assets/DashboardView-CVkkirIr.css                0.73 kB │ gzip:   0.36 kB
+dist/assets/BooksView-Wn00qnQh.css                    0.78 kB │ gzip:   0.30 kB
+dist/assets/ClosingView-BwJc33vr.css                  0.79 kB │ gzip:   0.36 kB
+dist/assets/ForecastView-DS1PfaBS.css                 0.81 kB │ gzip:   0.38 kB
+dist/assets/StatsView-C5a9z6Hk.css                    0.82 kB │ gzip:   0.39 kB
+dist/assets/AnalysisView-CtodrSLi.css                 0.90 kB │ gzip:   0.40 kB
+dist/assets/MyLeaveView-BosmbrnU.css                  0.91 kB │ gzip:   0.41 kB
+dist/assets/ReadModelsView-DluJb8-G.css               0.91 kB │ gzip:   0.39 kB
+dist/assets/ExpenseReceiptPanel-BZhBTw_O.css          0.91 kB │ gzip:   0.41 kB
+dist/assets/AnalyticsHome-CjnV9Id6.css                0.92 kB │ gzip:   0.42 kB
+dist/assets/SupportView-CVGI7oh7.css                  1.15 kB │ gzip:   0.47 kB
+dist/assets/TicketPanel-BW8Yz38Y.css                  1.36 kB │ gzip:   0.48 kB
+dist/assets/ProcessLogView-DqFpQV-V.css               1.63 kB │ gzip:   0.62 kB
+dist/assets/PortalView-BesTgY-w.css                   1.73 kB │ gzip:   0.60 kB
+dist/assets/PrintView-CuPHXrq2.css                    2.34 kB │ gzip:   0.90 kB
+dist/assets/ThemeView-3HCGcrwK.css                    2.79 kB │ gzip:   0.85 kB
+dist/assets/AnalysisView-BWzfmDtb.css                 3.05 kB │ gzip:   0.96 kB
+dist/assets/ModelView-Biqtk-iB.css                    5.55 kB │ gzip:   1.19 kB
+dist/assets/index-C5SZCZQY.css                       67.45 kB │ gzip:  13.20 kB
+dist/assets/rolldown-runtime-DK3Fl9T5.js              0.15 kB │ gzip:   0.15 kB
+dist/assets/sla-BkeyPQrw.js                           0.44 kB │ gzip:   0.30 kB
+dist/assets/ValueBar-B-DdE-mj.js                      0.49 kB │ gzip:   0.36 kB
+dist/assets/query-DhR9_qfF.js                         0.53 kB │ gzip:   0.33 kB
+dist/assets/fmt-qEmCQv4E.js                           0.55 kB │ gzip:   0.41 kB
+dist/assets/LoadError-CAkYXN9O.js                     0.61 kB │ gzip:   0.41 kB
+dist/assets/ReviewNotice-BeoK1FF_.js                  0.66 kB │ gzip:   0.51 kB
+dist/assets/fmt-DTe7dHyG.js                           0.83 kB │ gzip:   0.56 kB
+dist/assets/bus-Dflct53I.js                           1.07 kB │ gzip:   0.61 kB
+dist/assets/readModels-DfoAOFw-.js                    1.12 kB │ gzip:   0.70 kB
+dist/assets/payroll-BxCddZK-.js                       1.19 kB │ gzip:   0.85 kB
+dist/assets/zip-CRd1lhAF.js                           1.20 kB │ gzip:   0.57 kB
+dist/assets/ui-Cf--Qee1.js                            1.21 kB │ gzip:   0.74 kB
+dist/assets/AttributePanel-BntyGbPv.js                1.23 kB │ gzip:   0.78 kB
+dist/assets/LawNotice-BebNnvGW.js                     1.41 kB │ gzip:   0.88 kB
+dist/assets/OrderPanel-C9kqcXS7.js                    1.42 kB │ gzip:   0.78 kB
+dist/assets/ProductExtras-C5KPEvGw.js                 1.43 kB │ gzip:   0.71 kB
+dist/assets/commands-DDU43TeG.js                      1.57 kB │ gzip:   0.84 kB
+dist/assets/refs-CfoEjvCH.js                          1.73 kB │ gzip:   0.84 kB
+dist/assets/ThemeView-BjhnF2wI.js                     1.89 kB │ gzip:   1.07 kB
+dist/assets/GapsView-DYwK2s0n.js                      1.95 kB │ gzip:   1.00 kB
+dist/assets/PurchaseExtras-CNpBfoq4.js                2.00 kB │ gzip:   1.07 kB
+dist/assets/format-uaAjH7wH.js                        2.00 kB │ gzip:   0.93 kB
+dist/assets/stockActions-B3E0DuNm.js                  2.02 kB │ gzip:   1.09 kB
+dist/assets/ScrappedView--4H_UlVo.js                  2.15 kB │ gzip:   1.19 kB
+dist/assets/InvoicePanel-DLhXnuVZ.js                  2.21 kB │ gzip:   1.24 kB
+dist/assets/BudgetTable-Dz_hvFK3.js                   2.22 kB │ gzip:   1.12 kB
+dist/assets/SavedSearchBar-btdv6KT9.js                2.32 kB │ gzip:   1.21 kB
+dist/assets/api-1Dyt-tku.js                           2.34 kB │ gzip:   1.25 kB
+dist/assets/ReconcileView-DsCfOw2Y.js                 2.42 kB │ gzip:   1.30 kB
+dist/assets/build-BeRozGFc.js                         2.44 kB │ gzip:   1.23 kB
+dist/assets/LeaveReasonPanel-DAfUICtu.js              2.45 kB │ gzip:   1.30 kB
+dist/assets/GeneralLedgerView-O4MAiNL7.js             2.71 kB │ gzip:   1.45 kB
+dist/assets/TermPanel-QH43X5W7.js                     2.73 kB │ gzip:   1.33 kB
+dist/assets/ProjectPanel-DaQ55a5V.js                  2.74 kB │ gzip:   1.42 kB
+dist/assets/ProductPanel-BlIhCYsj.js                  2.83 kB │ gzip:   1.44 kB
+dist/assets/PrintView-CK_9s3FH.js                     2.98 kB │ gzip:   1.53 kB
+dist/assets/PickingPanel-DR1F5sFw.js                  3.05 kB │ gzip:   1.38 kB
+dist/assets/DocumentsView-ecqsTYPt.js                 3.11 kB │ gzip:   1.68 kB
+dist/assets/spreadsheet-BlE1V1As.js                   3.11 kB │ gzip:   1.49 kB
+dist/assets/AgedView-CIZ3nxjw.js                      3.28 kB │ gzip:   1.62 kB
+dist/assets/VariantsView-CaemwBN_.js                  3.39 kB │ gzip:   1.76 kB
+dist/assets/OrderExtras-BD3Mlkj6.js                   3.48 kB │ gzip:   1.65 kB
+dist/assets/OverviewView-Cg0GOsEP.js                  3.50 kB │ gzip:   1.73 kB
+dist/assets/fields-DuXpmawP.js                        3.51 kB │ gzip:   1.58 kB
+dist/assets/TaskTimePanel-DQevHQYX.js                 3.53 kB │ gzip:   1.70 kB
+dist/assets/GroupsView-dztYK1NI.js                    3.53 kB │ gzip:   1.57 kB
+dist/assets/session-Cj8loYbi.js                       3.56 kB │ gzip:   1.71 kB
+dist/assets/BudgetsView-B9DK2Tir.js                   3.61 kB │ gzip:   1.82 kB
+dist/assets/Icon-Cl7nK00l.js                          3.68 kB │ gzip:   1.83 kB
+dist/assets/InsuranceView-yUYt6RhT.js                 3.75 kB │ gzip:   1.84 kB
+dist/assets/TargetsView-BnIhCZIV.js                   3.75 kB │ gzip:   1.81 kB
+dist/assets/WeekView-CDgg3G9j.js                      3.80 kB │ gzip:   1.91 kB
+dist/assets/OutlookView-K5wmUr6B.js                   3.86 kB │ gzip:   1.69 kB
+dist/assets/DashboardView-D7drso2E.js                 4.00 kB │ gzip:   1.48 kB
+dist/assets/CashBookView-CCO1FhXM.js                  4.01 kB │ gzip:   1.70 kB
+dist/assets/SupportView-_TNEE9Yp.js                   4.02 kB │ gzip:   2.10 kB
+dist/assets/EquipmentPanel-nua2TuVR.js                4.05 kB │ gzip:   1.87 kB
+dist/assets/TeamCalendarView-Ci9jcJzV.js              4.11 kB │ gzip:   2.11 kB
+dist/assets/QuotesView-CcrKH3o7.js                    4.11 kB │ gzip:   2.00 kB
+dist/assets/analytics-CVEfs2DM.js                     4.16 kB │ gzip:   2.06 kB
+dist/assets/TrialSummaryView-1-zsdER2.js              4.34 kB │ gzip:   1.99 kB
+dist/assets/OpeningView-JNgVy8hB.js                   4.56 kB │ gzip:   2.11 kB
+dist/assets/DuplicatesView-Y0Wc_97L.js                4.69 kB │ gzip:   2.30 kB
+dist/assets/PartnerLedgerView-C3K1kjBq.js             4.71 kB │ gzip:   1.91 kB
+dist/assets/OpportunityPanel-CL3u-yD8.js              4.73 kB │ gzip:   2.29 kB
+dist/assets/MyPayslipsView-CXXBEXdm.js                4.77 kB │ gzip:   2.09 kB
+dist/assets/BalancesView-Dt4p2lRM.js                  4.80 kB │ gzip:   2.30 kB
+dist/assets/PickingExtras-ockN27vY.js                 4.81 kB │ gzip:   2.07 kB
+dist/assets/TrendView-DM2Vrq07.js                     5.02 kB │ gzip:   2.24 kB
+dist/assets/OvertimeView-3P8SxBm5.js                  5.04 kB │ gzip:   2.12 kB
+dist/assets/ProfilesView-D2ZS227e.js                  5.24 kB │ gzip:   2.52 kB
+dist/assets/MrpOrderPanel-DFTOZtwG.js                 5.29 kB │ gzip:   2.37 kB
+dist/assets/BudgetPanel-5-_NCqfT.js                   5.37 kB │ gzip:   2.53 kB
+dist/assets/InvoiceExtras-BB8aEQXK.js                 5.38 kB │ gzip:   2.25 kB
+dist/assets/HeadcountView-uu-uCVCR.js                 5.39 kB │ gzip:   2.31 kB
+dist/assets/DayBookView-ekcBUwFV.js                   5.42 kB │ gzip:   2.08 kB
+dist/assets/AnalyticsHome-DK65Cq-H.js                 5.42 kB │ gzip:   2.58 kB
+dist/assets/ApprovalsView-DGnVK6lZ.js                 5.48 kB │ gzip:   2.19 kB
+dist/assets/mode-BShYTPCX.js                          5.49 kB │ gzip:   2.64 kB
+dist/assets/SalesPurchaseBook-C9uPyOad.js             5.50 kB │ gzip:   2.27 kB
+dist/assets/SubscriptionPanel-C82SovmQ.js             5.66 kB │ gzip:   2.59 kB
+dist/assets/AnalysisView-Ctjpjocv.js                  5.78 kB │ gzip:   2.31 kB
+dist/assets/MyAttendanceView-DOyuZWWS.js              5.93 kB │ gzip:   2.57 kB
+dist/assets/ReliabilityView-DkcaU41H.js               6.15 kB │ gzip:   2.77 kB
+dist/assets/RetainedView-CU7liVdV.js                  6.19 kB │ gzip:   2.50 kB
+dist/assets/CostStatementView-q090ruLG.js             6.27 kB │ gzip:   2.40 kB
+dist/assets/EmployeePrivatePanel-iwDwUPJN.js          6.28 kB │ gzip:   2.92 kB
+dist/assets/TaxView-BT9FqxYD.js                       6.46 kB │ gzip:   2.69 kB
+dist/assets/LocksView-Cz-QXLCH.js                     6.47 kB │ gzip:   2.93 kB
+dist/assets/ReplenishView-BQb8p1ei.js                 6.87 kB │ gzip:   3.00 kB
+dist/assets/ExpenseReceiptPanel-CDuupRNT.js           6.95 kB │ gzip:   3.18 kB
+dist/assets/MonthView-Dew1V-wc.js                     6.97 kB │ gzip:   2.95 kB
+dist/assets/AnalysisView-DhfDksAU.js                  7.11 kB │ gzip:   2.88 kB
+dist/assets/DepreciationRunView-Bza0RW-v.js           7.30 kB │ gzip:   3.12 kB
+dist/assets/ForecastView-CZaFPiXZ.js                  7.34 kB │ gzip:   3.12 kB
+dist/assets/BooksView-DkOkeX7L.js                     7.39 kB │ gzip:   3.03 kB
+dist/assets/ReportView-DR74JiD9.js                    7.44 kB │ gzip:   3.27 kB
+dist/assets/OutlookView-rtSKcI4O.js                   7.46 kB │ gzip:   3.05 kB
+dist/assets/StatsView-BN9hRehJ.js                     7.71 kB │ gzip:   3.10 kB
+dist/assets/AssetPanel-BUnRRLUa.js                    7.73 kB │ gzip:   3.22 kB
+dist/assets/AnalysisView-CeFXwYsk.js                  7.75 kB │ gzip:   3.08 kB
+dist/assets/ReadModelsView-CRjcyS5p.js                7.83 kB │ gzip:   3.28 kB
+dist/assets/CatalogView-C8t79qCV.js                   8.06 kB │ gzip:   3.50 kB
+dist/assets/AnalysisView-DEE5T7du.js                  8.11 kB │ gzip:   3.21 kB
+dist/assets/StockView-CsyVjulI.js                     8.16 kB │ gzip:   3.17 kB
+dist/assets/TaxTablesView-DvfLvsdx.js                 9.02 kB │ gzip:   3.50 kB
+dist/assets/MrpOutlookView-DeBcO8nA.js                9.25 kB │ gzip:   3.46 kB
+dist/assets/MovesView-B9SG_Kyr.js                     9.32 kB │ gzip:   3.64 kB
+dist/assets/CountView-s5e7BUjm.js                     9.44 kB │ gzip:   3.71 kB
+dist/assets/DashboardView-DHN9VyDR.js                 9.83 kB │ gzip:   3.54 kB
+dist/assets/WithholdingView-QcwA-IpC.js               9.91 kB │ gzip:   3.73 kB
+dist/assets/runtime-dom.esm-bundler-BzpS7gak.js      10.74 kB │ gzip:   4.64 kB
+dist/assets/AnalysisView-CeGmhZfE.js                 10.85 kB │ gzip:   4.29 kB
+dist/assets/MyLeaveView-CEWYaz5T.js                  10.95 kB │ gzip:   4.13 kB
+dist/assets/ClosingView-Dm8GEe4n.js                  11.00 kB │ gzip:   3.98 kB
+dist/assets/TicketPanel-B1SI3l0M.js                  11.29 kB │ gzip:   4.66 kB
+dist/assets/PortalView-CwZmF1Je.js                   11.51 kB │ gzip:   4.67 kB
+dist/assets/VoucherImportView-BlHVJsVb.js            12.52 kB │ gzip:   4.84 kB
+dist/assets/AnalysisView-DgZki8_G.js                 12.72 kB │ gzip:   4.41 kB
+dist/assets/ImportView-Beh2qBgF.js                   14.42 kB │ gzip:   5.66 kB
+dist/assets/ProcessLogView-LtsC-rd_.js               14.71 kB │ gzip:   6.11 kB
+dist/assets/render-Cas_tGLz.js                       14.76 kB │ gzip:   5.57 kB
+dist/assets/PayrollSheetPanel-BM3B_y9G.js            15.34 kB │ gzip:   5.61 kB
+dist/assets/VoucherView-BBTazGQq.js                  18.58 kB │ gzip:   6.22 kB
+dist/assets/BankView-BlmoBsOl.js                     19.41 kB │ gzip:   6.30 kB
+dist/assets/reactivity.esm-bundler-LOoHfE9E.js       20.22 kB │ gzip:   7.75 kB
+dist/assets/VatReturnView-KASKP_E-.js                21.29 kB │ gzip:   7.08 kB
+dist/assets/generate-DaJBNS-8.js                     24.99 kB │ gzip:   9.47 kB
+dist/assets/runtime-core.esm-bundler-D5S8t5d1.js     43.61 kB │ gzip:  18.00 kB
+dist/assets/ModelView-Sn1xd_Fn.js                    46.18 kB │ gzip:  13.07 kB
+dist/assets/conn-B8AUeiBI.js                        218.74 kB │ gzip:  56.82 kB
+dist/assets/install-2-0S4hd4Bh.js                   227.08 kB │ gzip:  47.93 kB
+dist/assets/index-3LW5fWX-.js                       310.31 kB │ gzip:  97.88 kB
+dist/assets/install-6-DEvuvjrS.js                   343.25 kB │ gzip:  81.92 kB
+dist/assets/install-5-BFPfOP_N.js                   349.52 kB │ gzip:  70.08 kB
+dist/assets/install-4-B1SwGfz1.js                   363.35 kB │ gzip:  80.05 kB
+dist/assets/install-1-B-I6e46N.js                   404.55 kB │ gzip:  92.08 kB
+dist/assets/install-3-IqF3WWMB.js                   417.18 kB │ gzip:  92.09 kB
+dist/assets/install-zsiI3A_B.js                   2,103.53 kB │ gzip: 458.96 kB
+
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 748ms
+
+Running 325 tests using 1 worker
+
+  ✓    1 e2e/tests/analytic.spec.mjs:48:1 › S23-0. 관리회계는 꺼져 있고, 켜면 메뉴와 청구서 줄의 분석 분배 칸이 나타난다 (863ms)
+  ✓    2 e2e/tests/analytic.spec.mjs:65:1 › S23-1. 정회계가 부서 분석 계정 영업부와 개발부를 만든다 (1.2s)
+  ✓    3 e2e/tests/analytic.spec.mjs:81:1 › S23-2. 공급사 청구서 한 줄을 개발부 60, 영업부 40 으로 나눠 게시하면 손익 화면에 비용이 그대로 나뉜다 (3.7s)
+  ✓    4 e2e/tests/analytic.spec.mjs:127:1 › S23-3. 분기 예산을 확정하면 넘친 계정이 보이고, 사유를 적어 바꾸면 누가 언제 왜 바꿨는지 남는다 (2.0s)
+  ✓    5 e2e/tests/analytic.spec.mjs:174:1 › S23-4. 예산을 넘기는 공급사 청구서는 게시 전에 경고만 하고, 그대로 게시할 수 있다 (1.1s)
+  ✓    6 e2e/tests/analytic.spec.mjs:191:1 › S23-5. 조회 역할은 분석 계정은 고를 수 있지만 손익과 예산은 볼 수 없다 (402ms)
+  ✓    7 e2e/tests/attendance.spec.mjs:74:1 › S12-0. 인사가 있어야 켜지고 휴가는 없어도 된다 (911ms)
+  ✓    8 e2e/tests/attendance.spec.mjs:92:1 › S12-1. 직원이 출근과 퇴근을 누른다. 시각은 서버가 정하고 두 번은 안 된다 (815ms)
+  ✓    9 e2e/tests/attendance.spec.mjs:114:1 › S12-2. 다른 직원의 근태는 볼 수 없다 (393ms)
+  ✓   10 e2e/tests/attendance.spec.mjs:124:1 › S12-3. 지난달을 고치고 마감한다. 빠진 퇴근이 있으면 막히고, 정정은 사유와 원래 값을 남기고, 마감 뒤에는 못 고친다 (4.7s)
+  ✓   11 e2e/tests/attendance.spec.mjs:187:1 › S12-4. 직원은 자기 달을 보고, 마감된 달은 마감이라고 나온다 (572ms)
+  ✓   12 e2e/tests/attendance.spec.mjs:197:1 › S12-5. 한 주에 52시간을 넘긴 사람이 맨 위에 나오고, 40시간 초과와 52시간은 따로 본다 (637ms)
+  ✓   13 e2e/tests/attendance.spec.mjs:215:1 › S12-6. 위험과 추이를 분석 화면이 원장에서 답한다 (663ms)
+  ✓   14 e2e/tests/attendance.spec.mjs:226:1 › S12-7. 휴가를 켜면 승인된 날이 결근이 아니라 휴가로 나오고, 사유와 유형은 넘어오지 않는다 (1.7s)
+  ✓   15 e2e/tests/books.spec.mjs:59:1 › 고정자산은 꺼져 있고, 켜면 메뉴가 생기고 전망 모델이 잠김에서 풀린다 (3.6s)
+  ✓   16 e2e/tests/books.spec.mjs:80:1 › 자산을 사람 속도로 등록한다: 적는 대로 계획이 나오고, 세법이 막는 것은 이유를 말하고, 월할이 맞다 (12.8s)
+  ✓   17 e2e/tests/books.spec.mjs:141:1 › 감가상각을 실행한다: 전표를 먼저 보고, 되돌리면 금액도 전표도 돌아가고, 다시 하면 같다 (10.7s)
+  ✓   18 e2e/tests/books.spec.mjs:193:1 › 처분한다: 처분 달 전까지 상각을 함께 잡고 손익을 먼저 보이며, 되돌리면 경고하고 돌아간다 (9.5s)
+  ✓   19 e2e/tests/books.spec.mjs:243:1 › 결산: 단계마다 전표를 보고 실행하며, 넣지 못한 것은 이유를 말하고, 잠그면 멈춘다 (8.4s)
+  ✓   20 e2e/tests/books.spec.mjs:297:1 › 재무제표: 양식의 칸대로 전기와 나란히 보이고, 결산 뒤에도 그해 손익은 그대로다 (3.9s)
+  ✓   21 e2e/tests/books.spec.mjs:350:1 › 장부: 매입매출장, 거래처 원장, 현금출납장, 일·월계표, 합계잔액시산표가 같은 숫자를 말한다 (9.0s)
+  ✓   22 e2e/tests/books.spec.mjs:430:1 › 잠그면: 실행도 처분도 결산 취소도 막히고, 되돌리기도 넘지 못한다 (5.8s)
+  ✓   23 e2e/tests/books.spec.mjs:477:1 › 감가상각비 전망: 이력이 모자라면 일정만 범위로 말하고, 쌓이면 80% 구간과 근거를 낸다 (2.9s)
+  ✓   24 e2e/tests/books.spec.mjs:503:1 › 회계 권한이 없으면 메뉴도 숫자도 없고, 좁은 화면에서도 넘치지 않는다 (664ms)
+  ✓   25 e2e/tests/crm.spec.mjs:55:1 › S14-0. CRM 을 켜기 전에는 메뉴에 없고 모델은 잠겨 있으며, 켜면 다른 모듈 없이 열린다 (771ms)
+  ✓   26 e2e/tests/crm.spec.mjs:73:1 › S14-1. 박영업이 리드를 등록한다. 음수 금액은 칸을 짚어 막히고, 지난 활동일은 목록에 표시되며, 연락처는 원장 밖에 저장된다 (1.9s)
+  ✓   27 e2e/tests/crm.spec.mjs:105:1 › S14-2. 칸반으로 보고 단추 하나로 다음 단계로 옮긴다. 칸마다 건수와 금액이 맞는다 (768ms)
+  ✓   28 e2e/tests/crm.spec.mjs:128:1 › S14-3. 실주는 사유 없이 못 하고, 기타이면 내용을 적어야 하며, 다시 열면 신규로 돌아간다 (716ms)
+  ✓   29 e2e/tests/crm.spec.mjs:151:1 › S14-4. 수주하면 판매 모듈이 이벤트를 듣고 견적 초안을 만든다. CRM 화면에서 그 견적으로 간다 (933ms)
+  ✓   30 e2e/tests/crm.spec.mjs:171:1 › S14-5. 다시 열면 보내지 않은 견적은 취소된다 (533ms)
+  ✓   31 e2e/tests/crm.spec.mjs:181:1 › S14-6. 조회 역할은 등록하지 못하고 연락처도 못 보며, 데이터베이스도 답하지 않는다 (475ms)
+  ✓   32 e2e/tests/crm.spec.mjs:194:1 › S14-7. 끝난 건이 모자라면 범위로만 말하고, 20건이 되면 수치와 구간을 말한다. 재구매 후보에서 바로 영업 기회를 만든다 (1.5s)
+  ✓   33 e2e/tests/demo.spec.mjs:45:1 › 회사를 만들기 전에 가상 회사를 고르면 용량을 알리고, 고르지 않으면 데모 코드를 받지 않는다 (3.2s)
+  ✓   34 e2e/tests/demo.spec.mjs:63:1 › 가상 회사를 만들면 묶음으로 보내며 진행을 보여 주고, 오류와 시간 제한을 스스로 넘긴다 (11.3s)
+  ✓   35 e2e/tests/demo.spec.mjs:103:1 › 고칠 수 없는 오류는 보여 주고 다시 시도할 수 있으며, 탭을 닫았다 와도 이어서 만든다 (12.4s)
+  ✓   36 e2e/tests/demo.spec.mjs:143:1 › 중간에 멈춘 회사는 관리자에게 알리고, 여기까지만 만들고 둘러볼 수 있다 (4.6s)
+  ✓   37 e2e/tests/demo.spec.mjs:171:1 › 실제 회사로 시작하면 가상 회사 표시도 데모 코드도 없고, 일반 쓰기는 같은 오류를 한 번 스스로 넘긴다 (4.3s)
+  ✓   38 e2e/tests/expense.spec.mjs:63:1 › S13-0. 인사 없이는 경비를 켤 수 없고, 메뉴에도 없으며 통계는 잠겨 있다 (1.1s)
+  ✓   39 e2e/tests/expense.spec.mjs:98:1 › S13-1. 박영업이 경비를 만들고, 영수증 없이는 신청이 막히고, 영수증을 올리면 신청된다 (1.6s)
+  ✓   40 e2e/tests/expense.spec.mjs:142:3 › S13-2. 다른 직원에게는 이 경비가 없다: 목록에 없고, 주소로 와도 못 열고, 저장소도 답하지 않는다 (596ms)
+  ✓   41 e2e/tests/expense.spec.mjs:142:3 › S13-2. 아무것도 올리지 않은 인사 담당자에게는 이 경비가 없다: 목록에 없고, 주소로 와도 못 열고, 저장소도 답하지 않는다 (566ms)
+  ✓   42 e2e/tests/expense.spec.mjs:170:1 › S13-3. 김팀장이 파일을 열어 보고 반려하면 박영업이 고쳐서 다시 신청하고, 그다음 승인한다 (952ms)
+  ✓   43 e2e/tests/expense.spec.mjs:193:1 › S13-3b. 박영업이 반려 사유를 보고 금액을 고쳐 다시 신청한다 (787ms)
+  ✓   44 e2e/tests/expense.spec.mjs:207:1 › S13-3c. 김팀장이 회계일을 비운 채 승인하면 지출일로 잡힌다 (741ms)
+  ✓   45 e2e/tests/expense.spec.mjs:220:1 › S13-4. 정회계가 지급을 기록하고, 회계를 나중에 켜도 전표가 그대로 생긴다 (898ms)
+  ✓   46 e2e/tests/expense.spec.mjs:239:1 › S13-5. 회계를 켜면 지난 경비의 전표가 생기고 시산표의 차변과 대변이 맞는다 (909ms)
+  ✓   47 e2e/tests/expense.spec.mjs:256:1 › S13-6. 지급한 경비를 취소하면 전표가 지워지고 원장에는 승인, 지급, 취소가 모두 남는다 (708ms)
+  ✓   48 e2e/tests/expense.spec.mjs:272:1 › S13-7. 부서별 경비 추이: 이력이 짧으면 사실만 보여 주고, 3개월이 쌓이면 근거가 찬다 (955ms)
+  ✓   49 e2e/tests/expense.spec.mjs:298:1 › S13-8. 회계 담당자에게는 회사 전체 추이이고, 관계없는 직원의 추이에는 아무것도 없다 (810ms)
+  ✓   50 e2e/tests/expense.spec.mjs:314:1 › S13-9. 박영업이 적요와 메모를 지우면 되돌릴 수 없고, 원장에는 지웠다는 사실만 남으며, 금액과 전표는 그대로다 (620ms)
+  ✓   51 e2e/tests/growth.spec.mjs:56:1 › S1. 판매만 켜진 회사: 메뉴에는 판매뿐이고, 견적을 보내고 주문으로 확정한다 (3.6s)
+  ✓   52 e2e/tests/growth.spec.mjs:121:1 › S2. 재고를 켠다: 메뉴가 바뀌고, 옛 주문을 가져오고, 기초 재고를 넣는다 (2.3s)
+  ✓   53 e2e/tests/growth.spec.mjs:153:1 › S2. 주문을 확정하면 재고 모듈이 전표를 만들고, 출고하면 재고가 줄고 납품 상태가 바뀐다 (3.6s)
+  ✓   54 e2e/tests/growth.spec.mjs:207:1 › S2. 적게 출고하면 남은 수량을 묻고, 재고가 모자라도 주문은 막히지 않는다 (1.5s)
+  ✓   55 e2e/tests/growth.spec.mjs:242:1 › S4. 구매를 켠다: 재주문 규칙이 요청을 만들고, 구매 주문과 입고로 재고가 는다 (2.5s)
+  ✓   56 e2e/tests/growth.spec.mjs:294:1 › S5. 청구를 켠다: 청구 대상에서 청구서를 만들어 게시하고 입금을 등록한다 (3.1s)
+  ✓   57 e2e/tests/growth.spec.mjs:364:1 › S5. 회계를 켜면 지난 청구서와 입금으로 전표가 만들어지고, 보고서의 차변과 대변이 맞는다 (3.1s)
+  ✓   58 e2e/tests/growth.spec.mjs:433:1 › S6. 시점을 고르면 재고와 미수금도 그날 기준으로 보이고, 구매 입고 입력은 수량을 줄별로 묻는다 (858ms)
+  ✓   59 e2e/tests/growth.spec.mjs:457:1 › 목록은 실제 문서의 열을 보여 준다 (2.0s)
+  ✓   60 e2e/tests/growth.spec.mjs:466:1 › 모듈을 끄면 그 메뉴와 보고서가 사라지고 데이터는 남는다 (1.3s)
+  ✓   61 e2e/tests/helpdesk.spec.mjs:55:1 › S26-0. 헬프데스크를 켜기 전에는 메뉴에 없고 SLA 모델은 잠겨 있으며, 켜면 다른 모듈 없이 열린다 (677ms)
+  ✓   62 e2e/tests/helpdesk.spec.mjs:70:1 › S26-1. 관리자가 상담원 둘이 돌아가며 받는 팀과, 높음 이상 첫 응답 4시간·해결 24시간 정책을 만든다 (1.8s)
+  ✓   63 e2e/tests/helpdesk.spec.mjs:100:1 › S26-2. 상담하나가 높음 티켓을 접수하면 돌아가며 배정되고 SLA 기한이 붙는다. 연락처는 원장 밖에 남는다 (1.5s)
+  ✓   64 e2e/tests/helpdesk.spec.mjs:122:1 › S26-3. 에이전트가 MCP 로 두 번째 티켓을 연다. 다음 차례인 상담둘에게 가고, 에이전트는 SLA 상태를 읽는다 (457ms)
+  ✓   65 e2e/tests/helpdesk.spec.mjs:140:1 › S26-4. 첫 티켓은 기한 안에 답하고 해결한다. 첫 응답과 해결 모두 지킴이다 (1.1s)
+  ✓   66 e2e/tests/helpdesk.spec.mjs:155:1 › S26-5. 둘째 티켓은 묻고 고객 대기로 둔다. 고객이 자기 링크에서 답하면 진행으로 돌아온다. 내부 메모는 고객에게 보이지 않는다 (2.1s)
+  ✓   67 e2e/tests/helpdesk.spec.mjs:188:1 › S26-6. 다섯 시간 전에 들어온 셋째 티켓은 첫 응답 기한이 지났다. 기한을 확인하면 위반이 한 번 남고 이력에 보인다 (875ms)
+  ✓   68 e2e/tests/helpdesk.spec.mjs:211:1 › S26-7. 분석: 판단한 두 건 중 하나를 지켜 준수율 50%, 근거가 모자라 아직 믿을 만하지 않다고 말한다 (724ms)
+  ✓   69 e2e/tests/helpdesk.spec.mjs:225:1 › S26-8. 칸반에서 단추 하나로 진행을 시작하고, 프로세스 마이닝 로그는 티켓을 사례로 묶는다 (771ms)
+  ✓   70 e2e/tests/helpdesk.spec.mjs:239:1 › S26-9. 조회 역할은 접수도 답장도 못 하고 연락처도 못 보며, 데이터베이스도 답하지 않는다 (533ms)
+  ✓   71 e2e/tests/history.spec.mjs:44:1 › 문서 슬라이더는 버전으로 읽어서, 같은 순간의 이벤트도 구분한다 (1.9s)
+  ✓   72 e2e/tests/history.spec.mjs:62:1 › 날짜를 고르면 목록이 그 시점으로 바뀌고 쓰기 버튼이 모두 사라진다 (935ms)
+  ✓   73 e2e/tests/history.spec.mjs:93:1 › 그 시점의 문서는 읽기 전용이고, 그때 없던 문서와 새 문서는 안내한다 (902ms)
+  ✓   74 e2e/tests/history.spec.mjs:142:1 › 입력 중이던 내용은 과거를 보고 돌아와도 남아 있다 (851ms)
+  ✓   75 e2e/tests/history.spec.mjs:156:1 › 원장과 홈도 그 시점까지만 보여 주고, 아무것도 없던 날은 빈 상태로 안내한다 (734ms)
+  ✓   76 e2e/tests/history.spec.mjs:176:1 › 시점 읽기가 실패하면 오류와 다시 시도를 보여 주고, 읽기 권한도 그대로 지킨다 (633ms)
+  ✓   77 e2e/tests/history.spec.mjs:199:1 › 조회 역할도 과거를 볼 수 있지만, 볼 수 없는 유형은 과거에도 볼 수 없다 (349ms)
+  ✓   78 e2e/tests/history.spec.mjs:213:1 › 휴대폰 폭과 어두운 테마에서도 시점 보기가 된다 (774ms)
+  ✓   79 e2e/tests/hr.spec.mjs:85:1 › S10-0. 인사를 켜기 전: 메뉴에 없고 인원 통계는 잠겨 있으며, 켜면 다른 모듈 없이 열린다 (1.9s)
+  ✓   80 e2e/tests/hr.spec.mjs:118:1 › S10-1. 한인사가 부서 셋을 넣고 이름이 겹치면 화면이 그렇게 말한다 (1.3s)
+  ✓   81 e2e/tests/hr.spec.mjs:137:1 › S10-1. 직원을 차례로 등록한다: 상사와 구성원은 목록에서 고르고, 사번은 비우면 매겨지며, 잘못된 값은 칸 위에서 막힌다 (4.8s)
+  ✓   82 e2e/tests/hr.spec.mjs:174:1 › 상사가 순환하거나 자기 자신이면 저장하면서 막히고, 고른 칸이 어디인지 보인다 (757ms)
+  ✓   83 e2e/tests/hr.spec.mjs:185:1 › S10 개인정보: 넣는 자리에 무엇이 남고 무엇이 지워지지 않는지 말하고, 저장해도 원장에는 값이 없다 (2.1s)
+  ✓   84 e2e/tests/hr.spec.mjs:249:1 › S10-2. 퇴사는 지우지 않고 남기며: 날짜 없이는 안 되고, 부하가 있으면 안 되고, 처리하면 새 업무에 고를 수 없다 (2.2s)
+  ✓   85 e2e/tests/hr.spec.mjs:305:1 › S10-2. 직원 목록에서 재직과 퇴사를 누르면 그대로 걸러지고, 검색도 된다 (1.1s)
+  ✓   86 e2e/tests/hr.spec.mjs:326:1 › S10-3. 어느 날의 인원을 고르고 부서별로 보며, 통계 카드에서도 같은 화면으로 간다 (3.4s)
+  ✓   87 e2e/tests/hr.spec.mjs:366:1 › S10 권한: 영업 사원은 이름과 부서를 보되 개인정보 칸도, 등록 단추도 없고, 직접 물어도 답이 없다 (893ms)
+  ✓   88 e2e/tests/hr.spec.mjs:389:1 › 지우기: 사유 없이는 안 되고, 사유에 값을 적어도 안 되며, 지우면 값은 어디에도 없고 지웠다는 기록만 남는다 (1.5s)
+  ✓   89 e2e/tests/hr.spec.mjs:423:1 › 되돌리기: 관리자가 퇴사를 되돌리면 재직으로 돌아오고 인원도 돌아오며, 계정이 켜져 있으면 알려 준다 (2.0s)
+  ✓   90 e2e/tests/hr.spec.mjs:448:1 › 이벤트 계약: 화면으로 등록한 직원의 입사 이벤트에 계약의 사실이 실리고 개인정보 칸은 없다 (52ms)
+  ✓   91 e2e/tests/hr.spec.mjs:456:1 › M7. 끄면 메뉴가 사라지고 직접 들어가도 막히지만, 통계와 이력은 남고 다시 켜면 그대로다 (2.1s)
+  ✓   92 e2e/tests/integration.spec.mjs:22:1 › 연동 키가 없으면 안내하고, 주소와 헤더, REST 자원을 보여 준다 (793ms)
+  ✘   93 e2e/tests/integration.spec.mjs:37:1 › 키를 만들면 한 번만 보여 주고, 고른 구성원의 권한으로 동작하며, 폐기하면 끊긴다 (12.9s)
+  -   94 e2e/tests/integration.spec.mjs:92:1 › 비관리자에게는 메뉴가 없고, 목록을 읽지 못하면 오류를 보여 주며, 휴대폰과 어두운 테마에서도 읽힌다
+  ✓   95 e2e/tests/krtax.spec.mjs:46:1 › 사람 속도로 매입 세금계산서를 넣으면 분개가 먼저 보이고, 저장하면 게시와 지급과 재고 반영까지 간다 (4.7s)
+  ✓   96 e2e/tests/krtax.spec.mjs:94:1 › 같은 승인번호를 다시 넣으면 저장 전에 알려 주고, 저장해도 거부된다 (1.6s)
+  ✓   97 e2e/tests/krtax.spec.mjs:114:1 › 신고서 칸이 전표에서 나오고, 줄을 누르면 그 전표가 나오고, 안 다루는 칸은 그렇다고 말한다 (2.7s)
+  ✓   98 e2e/tests/krtax.spec.mjs:170:1 › 세금계산서를 인쇄하고 승인번호를 적을 수 있다. 앱이 발행하지 않는다고 밝힌다 (1.3s)
+  ✓   99 e2e/tests/krtax.spec.mjs:193:1 › 전표 취소: 대변 메모가 게시되고 지급이 취소되고 물건이 돌아가고 신고서 칸은 올리기 전과 같다 (2.0s)
+  ✓  100 e2e/tests/krtax.spec.mjs:220:1 › 사람이 내려받은 파일이 전표 후보가 된다. 열은 직접 맞춰 저장하고, 중복과 새 거래처를 알려 주고, 고친 계정을 기억한다 (2.9s)
+  ✓  101 e2e/tests/krtax.spec.mjs:266:1 › 신고 마감: 값이 남고 그 기간은 잠기고, 고치려 하면 이유를 듣고, 마감 시점으로 되짚는다 (2.1s)
+  ✓  102 e2e/tests/krtax.spec.mjs:300:1 › 세금 신고는 켜고 끌 수 있고 청구가 있어야 켜진다 (456ms)
+  ✓  103 e2e/tests/ledger.spec.mjs:25:1 › 원장 표와 필터 (1.3s)
+  ✓  104 e2e/tests/ledger.spec.mjs:48:1 › 행을 누르면 원본 JSON 과 인과 사슬 트리가 나온다 (599ms)
+  ✓  105 e2e/tests/ledger.spec.mjs:66:1 › 이력은 출처와 사유를 구분해 보여 준다 (481ms)
+  ✓  106 e2e/tests/ledger.spec.mjs:74:1 › 무결성 검증은 진행률과 결과를 보여 주고, 손상을 찾아낸다 (905ms)
+  ✓  107 e2e/tests/ledger.spec.mjs:91:1 › 사용량은 500MB 대비 막대와 무료 플랜 안내를 보여 준다 (478ms)
+  ✓  108 e2e/tests/ledger.spec.mjs:102:1 › 백업은 묶음으로 받아 NDJSON.gz 파일로 저장한다 (496ms)
+  ✓  109 e2e/tests/ledger.spec.mjs:122:1 › 회사 정보는 저장되고 통화는 읽기 전용이며 표시줄에 바로 반영된다 (550ms)
+  ✓  110 e2e/tests/maintenance.spec.mjs:59:1 › S25-0. 설비 보전을 켜기 전에는 메뉴에 없고 모델은 잠겨 있으며, 켜면 다른 모듈 없이 열린다 (936ms)
+  ✓  111 e2e/tests/maintenance.spec.mjs:87:1 › S25-1. 김보전이 프레스를 작업장에 등록한다. 음수 취득가는 칸을 짚어 막히고, 담당은 분류에서 온다 (2.3s)
+  ✓  112 e2e/tests/maintenance.spec.mjs:112:1 › S25-2. 30일마다 예방 점검 계획을 세우면 예정일 일주일 앞에 요청이 하나 생기고, 다시 눌러도 하나다 (1.7s)
+  ✓  113 e2e/tests/maintenance.spec.mjs:142:1 › S25-3. 고장을 신고하고 작업을 시작하면 작업장이 보전 중이 되고, 끝내면 가동으로 돌아오며 수리 시간이 나온다 (1.8s)
+  ✓  114 e2e/tests/maintenance.spec.mjs:193:1 › S25-4. 설비 신뢰도 화면이 고장 간격, 수리 시간, 다음 고장 예상과 달마다 멈춘 시간을 원장에서 보여 준다 (915ms)
+  ✓  115 e2e/tests/maintenance.spec.mjs:204:1 › S25-5. 조회 역할은 설비와 기록을 읽지만 등록하거나 고장을 신고하지 못한다 (611ms)
+  ✓  116 e2e/tests/master.spec.mjs:13:1 › 기초데이터 메뉴와 시드가 나타난다 (791ms)
+  ✓  117 e2e/tests/master.spec.mjs:27:1 › 연락처를 만들고 태그·담당자·결제 조건을 고른다 (1.6s)
+  ✓  118 e2e/tests/master.spec.mjs:56:1 › 제품을 만들면 서버가 기본 변형을 만들고, 변형은 줄을 추가할 수 없다 (1.1s)
+  ✓  119 e2e/tests/master.spec.mjs:76:1 › 속성의 값은 속성을 고른 뒤에 선택지로 나타난다 (1.7s)
+  ✓  120 e2e/tests/master.spec.mjs:107:1 › 가격표의 변형 참조는 변형 목록에서 고른다 (692ms)
+  ✓  121 e2e/tests/master.spec.mjs:123:1 › 결제 조건의 규칙 위반은 서버 문구로 보여 주고 줄을 고치면 저장된다 (704ms)
+  ✓  122 e2e/tests/master.spec.mjs:144:1 › 연락처 합치기는 대상을 묻고 위험 동작으로 확인한다 (881ms)
+  ✓  123 e2e/tests/meta.spec.mjs:38:1 › 카탈로그에 있는 유형이 메뉴에 나타나고, 없는 유형은 숨는다 (47ms)
+  ✓  124 e2e/tests/meta.spec.mjs:47:1 › 빈 목록은 할 일을 알려 준다 (175ms)
+  ✓  125 e2e/tests/meta.spec.mjs:54:1 › 필수값이 빠지면 서버 문구만 보여 주고 해당 칸을 표시한다 (85ms)
+  ✓  126 e2e/tests/meta.spec.mjs:63:1 › 참조 입력은 키보드만으로 고른다 (359ms)
+  ✓  127 e2e/tests/meta.spec.mjs:82:1 › 줄을 넣으면 서버가 계산한 단가·합계가 300ms 뒤 화면에 나타난다 (1.8s)
+  ✓  128 e2e/tests/meta.spec.mjs:105:1 › 마지막 칸에서 Tab 을 누르면 새 줄이 생기고 구역·메모 줄을 넣고 지울 수 있다 (1.5s)
+  ✓  129 e2e/tests/meta.spec.mjs:130:1 › 저장하면 번호가 붙고 주소가 바뀌며 이력이 시작된다 (216ms)
+  ✓  130 e2e/tests/meta.spec.mjs:144:1 › 값을 바꾸면 이력에 라벨과 이전→이후가 남는다 (827ms)
+  ✓  131 e2e/tests/meta.spec.mjs:161:1 › 전이 버튼은 현재 상태에 맞는 것만 나오고, 대화상자와 확인을 거친다 (662ms)
+  ✓  132 e2e/tests/meta.spec.mjs:187:1 › 서버가 거절한 상태 변경은 사유를 보여 준다 (161ms)
+  ✓  133 e2e/tests/meta.spec.mjs:197:1 › 슬라이더로 과거를 고르면 읽기 전용으로 그 시점을 보여 준다 (582ms)
+  ✓  134 e2e/tests/meta.spec.mjs:218:1 › 이력 항목을 눌러도 그 시점으로 간다 (244ms)
+  ✓  135 e2e/tests/meta.spec.mjs:224:1 › 다른 사람이 먼저 고치면 충돌을 알리고 새로 고침을 제공한다 (898ms)
+  ✓  136 e2e/tests/meta.spec.mjs:241:1 › 입력 중이 아니면 다른 사람의 변경이 자동으로 반영된다 (83ms)
+  ✓  137 e2e/tests/meta.spec.mjs:249:1 › 추가 명령·보관·삭제는 더 보기에 있고 위험 동작은 확인한다 (461ms)
+  ✓  138 e2e/tests/meta.spec.mjs:262:1 › 저장 안 한 변경이 있으면 떠나기 전에 묻는다 (101ms)
+  ✓  139 e2e/tests/meta.spec.mjs:271:1 › 목록: 금액 오른쪽 정렬, 상태 알약, 참조 이름, 보관 포함 (76ms)
+  ✓  140 e2e/tests/meta.spec.mjs:284:1 › 목록: 검색, 정렬, 상태 필터, 쪽 넘김이 조건과 함께 주소에 남는다 (4.7s)
+  ✓  141 e2e/tests/meta.spec.mjs:324:1 › CSV 는 이름으로 내려받고 수식 주입을 막는다 (165ms)
+  ✓  142 e2e/tests/meta.spec.mjs:342:1 › 인쇄는 메뉴와 버튼을 뺀 문서만 남긴다 (220ms)
+  ✓  143 e2e/tests/meta.spec.mjs:357:1 › 이력 패널을 접으면 표가 넓어지고 다시 펼칠 수 있다 (99ms)
+  ✓  144 e2e/tests/meta.spec.mjs:364:1 › 조회 역할은 쓰기 버튼이 없고, 읽기 제한 유형은 빈 상태 문구로 안내한다 (708ms)
+  ✓  145 e2e/tests/meta.spec.mjs:386:1 › 없는 주소는 안내 화면을 보여 준다 (15ms)
+  ✓  146 e2e/tests/modules.spec.mjs:35:1 › 모듈이 하나도 없으면 빈 상태로 안내한다 (652ms)
+  ✓  147 e2e/tests/modules.spec.mjs:47:1 › S1. 판매만 켜져 있으면 메뉴에 판매만 있고, 재고 명령은 거부된다 (589ms)
+  ✓  148 e2e/tests/modules.spec.mjs:69:1 › 켜면 열리는 예측과 what-if 는 erp_models 에서 읽고, 다른 모듈이 더 필요한 것은 말하지 않는다 (533ms)
+  ✓  149 e2e/tests/modules.spec.mjs:79:1 › 옵션을 비워 켜면 과거를 읽지 않고, 메뉴가 바로 바뀌고, 켠 뒤의 이벤트부터 받는다 (1.1s)
+  ✓  150 e2e/tests/modules.spec.mjs:105:1 › 명령이 끝나면 전달을 재촉하고, 실시간이 꺼져 있어도 열린 문서에 다른 모듈의 결과가 나타난다 (1.4s)
+  ✓  151 e2e/tests/modules.spec.mjs:132:1 › 전달 재촉이 실패해도 사용자의 작업은 성공이다 (408ms)
+  ✓  152 e2e/tests/modules.spec.mjs:143:1 › S3. 재고가 고장 나도 주문은 모두 성공하고, 전 화면 배너와 원인이 보이며, 나머지는 정상이다 (1.6s)
+  ✓  153 e2e/tests/modules.spec.mjs:198:1 › 건너뛰기는 사유가 있어야 하고, 원장에 남고, 다음 이벤트로 넘어간다 (996ms)
+  ✓  154 e2e/tests/modules.spec.mjs:227:1 › 끄면 메뉴와 명령이 막히고 데이터는 남으며, 다시 켤 때 밀린 이벤트를 고른다 (1.3s)
+  ✓  155 e2e/tests/modules.spec.mjs:269:1 › 비관리자에게는 모듈 메뉴와 배너가 없고, 주소로 와도 안내만 나오며, 재촉은 그대로 돈다 (725ms)
+  ✓  156 e2e/tests/modules.spec.mjs:302:1 › 모듈 정보를 읽지 못하면 오류와 다시 시도를 보여 주고, 예측 목록이 실패해도 카드는 그려진다 (523ms)
+  ✓  157 e2e/tests/modules.spec.mjs:317:1 › 휴대폰 폭: 메뉴는 서랍으로 열리고 카드와 멈춤 상태가 화면 안에 들어온다 (1.7s)
+  ✓  158 e2e/tests/modules.spec.mjs:349:1 › 어두운 테마: 모듈과 버스 화면, 배너, 오류 문구가 어두운 바탕에서 읽힌다 (1.6s)
+  ✓  159 e2e/tests/modules.spec.mjs:382:1 › DB 가 앱보다 최소 버전을 높이면 쓰기를 막고 새로 고침을 안내한다 (1.4s)
+  ✓  160 e2e/tests/modules.spec.mjs:426:1 › DB 가 앱보다 낮으면 업그레이드 배너에 더해 쓰기 버튼을 막는다 (623ms)
+  ✓  161 e2e/tests/modules.spec.mjs:452:1 › 쓰기는 한 곳에서만 나간다: 화면에 erp_command 호출이 없다 (25ms)
+  ✓  162 e2e/tests/mrp.spec.mjs:69:1 › S15-0. 제조를 켜기 전: 메뉴에 없고 모델은 잠겨 있으며, 재고 없이는 켤 수 없고 재고를 켜면 켜진다 (2.1s)
+  ✓  163 e2e/tests/mrp.spec.mjs:119:1 › S15-1. 오제조가 자재 명세를 만든다. 고를 수 없는 것과 순환은 화면이 그렇게 말한다 (2.3s)
+  ✓  164 e2e/tests/mrp.spec.mjs:151:1 › S15-2. 제조 지시: 제품을 고르면 자재가 나오고 수량을 따라 바뀌며, 부족은 화면에서 먼저 보인다 (2.7s)
+  ✓  165 e2e/tests/mrp.spec.mjs:178:1 › S15-3. 실제 사용량을 적어 완료하면 물어보고, 재고는 재고 모듈이 움직이며, 원가는 자재비로 정해진다 (1.5s)
+  ✓  166 e2e/tests/mrp.spec.mjs:203:1 › S15-3a. 이재고의 재고 화면: 음수가 그대로 보이고, 이동 내역에 재고와 생산 사이의 이동이 나온다 (615ms)
+  ✓  167 e2e/tests/mrp.spec.mjs:214:1 › S15-3b. 계획보다 적게 만들면 남은 수량을 고른다 (2.7s)
+  ✓  168 e2e/tests/mrp.spec.mjs:251:1 › S15-4. 재주문 규칙의 보충 방식을 제조로 정하면 지시 초안이 생기고, 다시 눌러도 두 번 만들지 않는다 (1.6s)
+  ✓  169 e2e/tests/mrp.spec.mjs:279:1 › S15-4a. 오제조가 규칙이 만든 초안을 연다: 자재가 계산되어 있고 출처가 규칙이다 (606ms)
+  ✓  170 e2e/tests/mrp.spec.mjs:292:1 › S15-5. 재고 모듈이 멈춰도 제조 기록은 남고, 고치면 이어 간다 (1.9s)
+  ✓  171 e2e/tests/mrp.spec.mjs:326:1 › S15-6. 되돌리면 재고도 함께 돌아가고, 완제품이 이미 팔렸으면 막는다 (2.3s)
+  ✓  172 e2e/tests/mrp.spec.mjs:371:1 › S15-7. 회계를 나중에 켜도 재공품을 거쳐 전표가 생기고, 재공품은 0 으로 끝난다 (758ms)
+  ✓  173 e2e/tests/mrp.spec.mjs:387:1 › S15-8. 지시가 쌓이면 실측 제조 기간, 자재 소요, 생산량 what-if 가 열리고 원장은 그대로다 (1.6s)
+  ✓  174 e2e/tests/mrp.spec.mjs:418:1 › S15-9. 제조 역할이 없는 사람은 읽기만 한다 (478ms)
+  ✓  175 e2e/tests/mrp.spec.mjs:431:1 › S15-10. 지시 화면은 작은 화면과 어두운 테마에서도 읽힌다 (1.7s)
+  ✓  176 e2e/tests/mrp.spec.mjs:449:1 › S15-11. 제조를 꺼도 기록과 이력은 남고 다시 켜면 돌아온다 (977ms)
+  ✓  177 e2e/tests/pages.spec.mjs:17:1 › 어느 경로에 올려도 동작한다: 모든 자산이 그 경로 아래에서 온다 (140ms)
+  ✓  178 e2e/tests/pages.spec.mjs:34:1 › 글꼴은 자체 제공 Pretendard 로 그려진다 (150ms)
+  ✓  179 e2e/tests/pages.spec.mjs:49:1 › CSP 메타 태그가 정해진 그대로 있고 인라인 스크립트가 없다 (1ms)
+  ✓  180 e2e/tests/pages.spec.mjs:69:1 › 소스와 빌드에 v-html·eval·제3자 주소·키·금지된 제품 이름이 없다 (182ms)
+  ✓  181 e2e/tests/parity-screens.spec.mjs:47:1 › 사람 속도로 주문 줄을 넣어도 제품의 단가와 세금이 채워지고, 고친 단가는 수량을 바꿔도 남는다 (11.4s)
+  ✓  182 e2e/tests/parity-screens.spec.mjs:86:1 › 사람 속도로 구매 줄을 넣어도 공급사 단가가 채워지고, 빈 줄은 오류를 내지 않는다 (8.9s)
+  ✓  183 e2e/tests/parity-screens.spec.mjs:112:1 › 사람 속도로 청구서 줄을 넣으면 설명을 먼저 적어도 제품의 단가와 세금이 채워진다 (7.8s)
+  ✓  184 e2e/tests/parity-screens.spec.mjs:140:1 › M-004, M-258: 없는 태그와 제품은 입력하던 자리에서 만든다 (1.9s)
+  ✓  185 e2e/tests/parity-screens.spec.mjs:167:1 › M-162: 주문 줄은 끌어서, 또는 화살표로 옮긴다 (538ms)
+  ✓  186 e2e/tests/parity-screens.spec.mjs:183:1 › M-190, 판매 미리보기 경고: 함께 살 제품을 제안하고 납기가 어긋나면 알린다 (685ms)
+  ✓  187 e2e/tests/parity-screens.spec.mjs:201:1 › M-161, M-262: 카탈로그에서 제품을 보고 담는다 (1.5s)
+  ✓  188 e2e/tests/parity-screens.spec.mjs:241:1 › M-183, M-191, M-198: 고객은 로그인 없이 토큰으로 그 견적만 보고 담고 서명하며, 담당자는 기록을 본다 (1.6s)
+  ✓  189 e2e/tests/parity-screens.spec.mjs:305:1 › 고객 포털: 거절은 사유와 함께 취소되고, 유효기간이 지나면 서명할 수 없으며, 링크가 틀리면 열리지 않는다 (280ms)
+  ✓  190 e2e/tests/parity-screens.spec.mjs:334:1 › M-181: 같은 목록을 칸반, 달력, 피벗, 그래프로 본다 (932ms)
+  ✓  191 e2e/tests/parity-screens.spec.mjs:356:1 › M-185: 목록에서 골라 한 번에 취소하고, 안 되는 건은 이유를 듣는다 (579ms)
+  ✓  192 e2e/tests/parity-screens.spec.mjs:377:1 › M-322, M-336, M-408: 재고 개요의 숫자는 그 목록을 열고, 대기 전표를 골라 재고를 확인한다 (1.2s)
+  ✓  193 e2e/tests/parity-screens.spec.mjs:411:1 › M-497, M-341: 이동 내역은 출고 필터에 반품을 포함하고, 제품별로 열리며, 묶어 볼 수 있다 (1.3s)
+  ✓  194 e2e/tests/parity-screens.spec.mjs:450:1 › M-501, M-502, M-411, M-399, M-455: 예측에서 수요 초과와 늦는 입고를 보고, 예약과 현재고와 보충을 고친다 (1.3s)
+  ✓  195 e2e/tests/parity-screens.spec.mjs:489:1 › M-450, M-452, M-454: 보충 화면에서 필요 수량을 고쳐 주문하고, 최소 미달이 아니어도 최대까지 일괄 주문한다 (816ms)
+  ✓  196 e2e/tests/parity-screens.spec.mjs:516:1 › M-386, M-388, M-397: 위치별로 실사 수량을 적어 두었다가 골라서 반영하고, 실사표를 인쇄한다 (1.5s)
+  ✓  197 e2e/tests/parity-screens.spec.mjs:559:1 › M-346, M-349, M-410, M-513: 전표에서 바로 폐기하고 내역을 보며, 가용 상태와 납품서를 본다 (1.4s)
+  ✓  198 e2e/tests/parity-screens.spec.mjs:601:1 › M-491, M-447: 재고 현황은 분류로 좁히고 행에서 이력·예측·재주문·위치로 가며, 제품에서 재주문 규칙을 만든다 (1.1s)
+  ✓  199 e2e/tests/parity-screens.spec.mjs:639:1 › M-257, M-259, M-264, M-317: 구매 현황과 지연 표시, 견적 요청서, 주문에서 입고 전표 열기 (895ms)
+  ✓  200 e2e/tests/parity-screens.spec.mjs:664:1 › 구매 분석: 항목별로 묶고 앞 기간과 견주며, 공급사 단가·지출·가격표를 본다 (727ms)
+  ✓  201 e2e/tests/parity-screens.spec.mjs:690:1 › M-537, M-548, M-577, M-653: 청구서 출력에 청구지·배송지, 세금 그룹 합계, 회차별 금액이 나온다 (1.1s)
+  ✓  202 e2e/tests/parity-screens.spec.mjs:724:1 › M-543: 고른 청구서를 파일 하나로 내려받는다 (616ms)
+  ✓  203 e2e/tests/parity-screens.spec.mjs:748:1 › M-590, M-591: 목록에서 골라 한 건으로 묶거나 따로 결제를 등록한다 (1.6s)
+  ✓  204 e2e/tests/parity-screens.spec.mjs:771:1 › M-596, M-598, M-599, M-547: 미결 입금을 문서에서 연결하고, 자동 대사를 돌리고, 번호 공백을 본다 (1.1s)
+  ✓  205 e2e/tests/parity-screens.spec.mjs:809:1 › M-563, change_number: 주문에서 채우고, 지난 문서에서 새 초안을 만들고, 번호 형식을 바꾼다 (1.2s)
+  ✓  206 e2e/tests/parity-screens.spec.mjs:838:1 › M-111, 계정 그룹: 계정과목표에 기초 잔액을 넣어 게시하고, 그룹별 잔액으로 본다 (1.1s)
+  ✓  207 e2e/tests/parity-screens.spec.mjs:869:1 › 세금 신고와 마감 잠금: 기간별 신고 금액을 보고, 잠긴 기간의 문서는 이유를 듣고, 예외를 주고 거둔다 (2.4s)
+  ✓  208 e2e/tests/parity-screens.spec.mjs:920:1 › 은행: 명세서를 넣고, 맞춰 보고, 차이를 확인한다 (2.5s)
+  ✓  209 e2e/tests/parity-screens.spec.mjs:996:1 › 표 파일: 열을 맞추고 시험 실행으로 행별 오류를 본 뒤 쓰고, 다시 올리면 고치며, 되돌린다 (1.2s)
+  ✓  210 e2e/tests/parity-screens.spec.mjs:1040:1 › 표 파일: 1000행을 넘으면 나누어 보내고, XLSX 도 읽는다 (2.3s)
+  ✓  211 e2e/tests/parity-screens.spec.mjs:1064:1 › 표 파일: 은행 파일은 입금·출금 두 열을 금액으로 합치고, 같은 파일을 다시 올려도 두 번 들어가지 않는다 (703ms)
+  ✓  212 e2e/tests/parity-screens.spec.mjs:1091:1 › M-020, M-032, M-065: 중복 연락처 합치기, 전체 변형과 속성별 제품, 결제 조건 미리 보기 (2.1s)
+  ✓  213 e2e/tests/parity-screens.spec.mjs:1142:1 › 되돌린 전표는 원장과 홈에서 번호로 나오고, 참조 패널은 가리키는 곳을 보여 준다 (491ms)
+  ✓  214 e2e/tests/parity-screens.spec.mjs:1161:1 › 새 화면은 휴대폰 폭과 어두운 테마에서도 읽히고, 사용량은 데이터베이스의 판단을 따른다 (751ms)
+  ✓  215 e2e/tests/parity-screens.spec.mjs:1186:1 › M-056: 문서 양식의 로고가 출력물에 들어가고, 외부 주소는 불러오지 않는다 (643ms)
+  ✓  216 e2e/tests/parity-screens.spec.mjs:1207:1 › 모듈이 꺼지면 화면도 숨고, 꺼진 모듈의 유형도 한국어로 나온다 (3.1s)
+  ✓  217 e2e/tests/payroll.spec.mjs:73:1 › S17-0. 인사 없이는 켜지 않고, 켜면 메뉴와 역할이 생긴다. 요율과 세액표는 제품에 들어 있지 않다 (1.6s)
+  ✓  218 e2e/tests/payroll.spec.mjs:106:1 › S17-0. 직원은 인사에서 온다 (512ms)
+  ✓  219 e2e/tests/payroll.spec.mjs:121:1 › S17-1. 지급 항목과 비과세 한도를 정한다 (1.1s)
+  ✓  220 e2e/tests/payroll.spec.mjs:139:1 › S17-2. 요율과 세액표를 출처와 함께 넣는다. 기본값이 없어 회사가 확인해 적는다 (4.0s)
+  ✓  221 e2e/tests/payroll.spec.mjs:184:1 › S17-2. 직원별 금액과 계좌, 가족 수를 넣는다. 받지 않는 값은 막는다 (3.0s)
+  ✓  222 e2e/tests/payroll.spec.mjs:225:1 › S17-3. 대장을 만들면 손으로 계산한 값이 나오고, 어느 자료로 계산했는지 보이며, 고친 칸은 표시된다 (1.9s)
+  ✓  223 e2e/tests/payroll.spec.mjs:276:1 › S17-3. 확정하면 명세서가 나가고 값은 고칠 수 없다 (795ms)
+  ✓  224 e2e/tests/payroll.spec.mjs:289:1 › S17-5. 이체 파일은 사용자가 정한 열 배치로 내려받고, 돈은 앱이 옮기지 않는다. 지급 완료를 누르면 그 사실이 남는다 (2.0s)
+  ✓  225 e2e/tests/payroll.spec.mjs:327:1 › S17-4. 회계를 나중에 켜도 그 전의 대장으로 같은 전표가 만들어진다 (1.1s)
+  ✓  226 e2e/tests/payroll.spec.mjs:345:1 › S17-6. 원천세: 지급 월의 소득 구분별 인원, 총지급액, 소득세와 지방소득세. 줄을 누르면 대장이 나오고, 마감하면 그 사실이 남는다 (1.1s)
+  ✓  227 e2e/tests/payroll.spec.mjs:384:1 › S17-6. 마감을 해제하면 사유가 남고, 정정 대장으로 바로잡으면 다시 마감할 때 앞 회차 값이 곁에 남는다 (1.8s)
+  ✓  228 e2e/tests/payroll.spec.mjs:422:1 › S17-7. 4대보험 자료: 입사와 퇴사 목록을 내려받는다. 전송하지 않고, 주민등록번호 칸은 비어 있다 (638ms)
+  ✓  229 e2e/tests/payroll.spec.mjs:439:1 › S17-8. 직원은 자기 명세서만 본다: 다른 사람의 금액은 화면에도, 직접 물어도 없다 (614ms)
+  ✓  230 e2e/tests/payroll.spec.mjs:469:1 › S17-8. 계정만 있고 직원이 아니면 아무것도 없다고 말한다 (372ms)
+  ✓  231 e2e/tests/payroll.spec.mjs:475:1 › S13. 인건비 전망: 근거가 모자라면 범위만 말하고, 사업주 부담이 없다고 밝힌다 (725ms)
+  ✓  232 e2e/tests/payroll.spec.mjs:490:1 › S17-2. 효력이 있는 자료가 없는 달은 그렇다고 말하고 확정되지 않으며, 초안은 취소할 수 있다 (1.2s)
+  ✓  233 e2e/tests/payroll.spec.mjs:510:1 › S13. 인건비 전망: 3개월이 쌓이면 다음 달 범위와 인원 증감 what-if 가 나온다 (737ms)
+  ✓  234 e2e/tests/process-log.spec.mjs:47:1 › 프로세스 마이닝 로그: 사례 수와 자주 나온 흐름을 보여 준다 (1.0s)
+  ✓  235 e2e/tests/process-log.spec.mjs:77:1 › 세 파일은 형식대로이고, 변형 요약은 쉬운 말로 복사된다 (734ms)
+  ✓  236 e2e/tests/process-log.spec.mjs:121:1 › 영업만 가진 사람에게는 입금이 빠진 사례가 보이고, 좁은 화면에서도 넘치지 않는다 (743ms)
+  ✓  237 e2e/tests/project.spec.mjs:57:1 › S14-P0. 프로젝트를 켜기 전에는 메뉴에 없고 모델은 잠겨 있으며, 켜면 역할을 줄 수 있다 (1.6s)
+  ✓  238 e2e/tests/project.spec.mjs:82:1 › S14-P1. 김프로가 프로젝트와 작업을 만든다. 납기가 시작일보다 빠르면 막히고, 인사가 꺼져 있으니 담당은 구성원이다 (2.0s)
+  ✓  239 e2e/tests/project.spec.mjs:109:1 › S14-P2. 이작업이 칸반에서 작업을 시작하고 시간을 기록한다. 하루 24시간을 넘으면 막히고, 앞날도 막힌다 (1.6s)
+  ✓  240 e2e/tests/project.spec.mjs:145:1 › S14-P3. 담당이 아닌 사람은 단계를 못 옮기고, 프로젝트는 끝나지 않은 작업이 있으면 완료되지 않는다 (662ms)
+  ✓  241 e2e/tests/project.spec.mjs:157:1 › S14-P3b. 김프로가 프로젝트를 완료하려다 막히고, 작업을 끝낸 뒤 완료한다. 합계가 맞다 (942ms)
+  ✓  242 e2e/tests/project.spec.mjs:175:1 › S14-P4. 서비스 제품이 프로젝트를 요청하면 주문 확정으로 프로젝트와 작업이 생긴다. 판매는 프로젝트를 모른다 (1.9s)
+  ✓  243 e2e/tests/project.spec.mjs:224:1 › S14-P5. 인사를 켜면 담당은 직원이다. 구성원 칸은 사라지고, 계정으로 찾아 직원이 적힌다 (1.7s)
+  ✓  244 e2e/tests/project.spec.mjs:253:1 › S14-P6. 분석: 실측이 모자라면 지난 납기만 말하고 나머지는 모른다고 한다. 근태 이벤트가 없으면 대조하지 않는다 (1.4s)
+  ✓  245 e2e/tests/quality.spec.mjs:66:1 › S25-6. 품질을 켜기 전에는 메뉴에 없고 모델은 잠겨 있으며, 켤 때 검사가 아무것도 막지 않는다고 말한다 (873ms)
+  ✓  246 e2e/tests/quality.spec.mjs:81:1 › S25-7. 최품질이 볼트 길이를 입고 때마다 재는 검사 기준을 만든다. 하한이 상한보다 크면 막힌다 (1.5s)
+  ✓  247 e2e/tests/quality.spec.mjs:105:1 › S25-8. 입고가 준비되면 측정 검사가 저절로 생기고, 이재고가 잰 값이 기준을 벗어나면 불합격과 불량 경보가 생긴다. 입고는 막히지 않는다 (1.8s)
+  ✓  248 e2e/tests/quality.spec.mjs:132:1 › S25-9. 최품질이 불량 경보의 조치를 시작하고, 원인과 시정 조치를 적어야 해결로 닫는다 (1.5s)
+  ✓  249 e2e/tests/quality.spec.mjs:150:1 › S25-10. 불량률 화면에 공급사별 불량률이 원장에서 나오고, 근거가 모자라면 그렇다고 말한다 (591ms)
+  ✓  250 e2e/tests/read-models.spec.mjs:39:1 › 현황판은 첫 메뉴이고, 한 번에 읽어 신선도와 읽은 시간을 말한다 (547ms)
+dashboard followed the new order in 0.8 s
+  ✓  251 e2e/tests/read-models.spec.mjs:53:1 › 다른 사람이 주문을 확정하면 몇 초 안에 새로 고침 없이 따라온다 (1.4s)
+  ✓  252 e2e/tests/read-models.spec.mjs:67:1 › 관리자 화면: 모델마다 대기와 행 수, 다시 만들기, 같은 질문을 두 길로 재기 (893ms)
+  ✓  253 e2e/tests/read-models.spec.mjs:97:1 › 역할 없는 구성원: 장부 부분과 관리자 화면은 보이지 않는다 (365ms)
+  ✓  254 e2e/tests/read-models.spec.mjs:111:1 › 과거 시점을 보는 동안에는 지금 기준 화면이라고 알린다 (378ms)
+  ✓  255 e2e/tests/read-models.spec.mjs:122:1 › 휴대폰 폭과 어두운 화면에서도 넘치지 않는다 (477ms)
+  ✓  256 e2e/tests/resilience.spec.mjs:14:1 › 프로젝트가 일시 중지되면 재시도와 재개 안내를 보여 주고, 살아나면 돌아온다 (661ms)
+  ✓  257 e2e/tests/resilience.spec.mjs:31:1 › 일시 중지 응답(540)도 같은 안내로 처리한다 (452ms)
+  ✓  258 e2e/tests/resilience.spec.mjs:39:1 › 쓰는 중에 연결이 끊겨도 입력은 그대로 있고, 재시도할 수 있다 (752ms)
+  ✓  259 e2e/tests/resilience.spec.mjs:56:1 › DB 스키마가 앱보다 낮으면 업그레이드를 안내하고, 같은 SQL 을 다시 돌리면 데이터는 그대로다 (1.8s)
+  ✓  260 e2e/tests/resilience.spec.mjs:98:1 › 설치 SQL 이 바뀐 빌드의 앱이면 버전을 올리지 않아도 업그레이드를 안내하고, 낡은 탭이면 새로 고침을 안내한다 (636ms)
+  ✓  261 e2e/tests/resilience.spec.mjs:120:1 › 초대 링크는 주소를 확인시키고 접속 정보를 넘긴다 (예전 anon 키도 허용) (439ms)
+  ✓  262 e2e/tests/resilience.spec.mjs:137:1 › 비밀 키가 든 초대 링크는 거부하고 주소에서 지운다 (93ms)
+  ✓  263 e2e/tests/resilience.spec.mjs:148:1 › 실시간: 다른 사람이 만든 문서가 내 목록과 원장에 바로 나타난다 (1.9s)
+  ✓  264 e2e/tests/resilience.spec.mjs:162:1 › 실시간 연결이 막혀도 앱은 그대로 돌아간다 (446ms)
+  ✓  265 e2e/tests/resilience.spec.mjs:174:1 › 다른 브라우저에서 설치했으면 설치 코드를 다시 발급한다 (3.4s)
+  ✓  266 e2e/tests/rollback.spec.mjs:34:1 › S6. 잘못 확정한 주문을 되돌린다: 미리보기가 모듈을 넘어 보여 주고, 사유를 받고, 원장에 남긴다 (4.6s)
+  ✓  267 e2e/tests/rollback.spec.mjs:78:1 › 뒤따른 작업이 있으면 범위를 보여 주고, 동의해야 실행한다 (5.0s)
+  ✓  268 e2e/tests/rollback.spec.mjs:105:1 › 이 버전으로 되돌리기: 이력과 슬라이더 양쪽에서 고른 모습으로 돌아간다 (769ms)
+  ✓  269 e2e/tests/rollback.spec.mjs:135:1 › 원장 화면에서도 되돌리고, 되돌리기 자체를 다시 되돌린다 (973ms)
+  ✓  270 e2e/tests/rollback.spec.mjs:169:1 › 이미 되돌린 작업은 되돌릴 내용이 없다고 말한다 (793ms)
+  ✓  271 e2e/tests/rollback.spec.mjs:192:1 › 미리보기 뒤에 문서가 바뀌면 거부하고 다시 보여 준다 (908ms)
+  ✓  272 e2e/tests/rollback.spec.mjs:215:1 › 미리보기를 읽지 못하면 오류와 다시 시도를 보여 준다 (589ms)
+  ✓  273 e2e/tests/rollback.spec.mjs:233:1 › 회사 전체 되돌리기: 날짜를 고른 뒤 관리자만, 사유를 적어야 실행한다 (786ms)
+  ✓  274 e2e/tests/rollback.spec.mjs:268:1 › 게시된 청구서가 얽히면 막고 대변 메모를 안내한다 (577ms)
+  ✓  275 e2e/tests/rollback.spec.mjs:284:1 › 고객에게 이미 보낸 견적은 경고한다 (558ms)
+  ✓  276 e2e/tests/rollback.spec.mjs:296:1 › 되돌릴 수 없는 유형과 비관리자에게는 되돌리기 버튼이 없다 (1.1s)
+  ✓  277 e2e/tests/rollback.spec.mjs:331:1 › 회사가 생기기 전으로는 되돌릴 수 없다고 말한다 (602ms)
+  ✓  278 e2e/tests/rollback.spec.mjs:341:1 › 휴대폰 폭과 어두운 테마에서도 미리보기가 읽힌다 (3.4s)
+  ✓  279 e2e/tests/setup.spec.mjs:22:1 › 처음 접속하면 연결 화면이 나오고 찾는 곳을 안내한다 (200ms)
+  ✓  280 e2e/tests/setup.spec.mjs:30:1 › 비밀 키는 네트워크로 보내지도 저장하지도 않고 거부한다 (232ms)
+  ✓  281 e2e/tests/setup.spec.mjs:51:1 › 잘못된 주소와 키 형식을 알려 준다 (36ms)
+  ✓  282 e2e/tests/setup.spec.mjs:59:1 › 함수가 없으면 설치 단계로 가고, 복사한 SQL 을 실행하면 자동으로 다음 단계로 넘어간다 (18.1s)
+  ✓  283 e2e/tests/setup.spec.mjs:100:1 › 회사를 만들면 통화 자릿수가 정해지고 자동으로 로그인한다 (584ms)
+  ✓  284 e2e/tests/setup.spec.mjs:128:1 › 직원을 추가하면 메일 없이 바로 그 계정으로 로그인한다 (1.2s)
+  ✓  285 e2e/tests/setup.spec.mjs:160:1 › 직원에게는 관리자 동작이 보이지 않는다 (84ms)
+  ✓  286 e2e/tests/setup.spec.mjs:173:1 › 비활성화한 직원은 더 로그인하지 못한다 (609ms)
+  ✓  287 e2e/tests/setup.spec.mjs:191:1 › 회사가 생긴 뒤에는 공개 키로 가입도, 조회도 되지 않는다 (97ms)
+  ✓  288 e2e/tests/setup.spec.mjs:205:1 › 접속 해제하면 이 브라우저에서 토큰과 접속 정보가 사라진다 (518ms)
+  ✓  289 e2e/tests/subscription.spec.mjs:45:1 › S24-0. 구독은 청구가 켜져 있어야 켜지고, 켜면 메뉴와 주기 세 가지가 생긴다 (615ms)
+  ✓  290 e2e/tests/subscription.spec.mjs:59:1 › S24-1. 제품에 정기 청구 주기를 고르고, 그 제품의 주문을 확정하면 구독이 생긴다. 첫 달은 주문으로 청구한다 (1.0s)
+  ✓  291 e2e/tests/subscription.spec.mjs:89:1 › S24-2. 다음 기간부터 바꾸려면 품목을 고쳐 저장하고, 지금 바꾸면 남은 날만큼 차액이 청구된다 (775ms)
+  ✓  292 e2e/tests/subscription.spec.mjs:112:1 › S24-3. 한 달 뒤 매일 도는 청구가 그 기간을 청구하고, 청구 모듈이 청구서를 만든다. 다시 돌려도 하나다 (746ms)
+  ✓  293 e2e/tests/subscription.spec.mjs:131:1 › S24-4. 다른 고객의 구독을 사유와 함께 해지한다. 사유가 기타이면 내용을 적어야 한다 (550ms)
+  ✓  294 e2e/tests/subscription.spec.mjs:153:1 › S24-5. MRR 분석: 신규·확장·해지가 그래프와 표에 나오고 더하면 맞는다 (701ms)
+  ✓  295 e2e/tests/subscription.spec.mjs:170:1 › S24-6. 조회 역할은 구독을 만들거나 해지하지 못한다 (437ms)
+  ✓  296 e2e/tests/themes.spec.mjs:31:1 › 기본은 표시가 없고, 고른 테마는 이 브라우저에 남는다 (727ms)
+  ✓  297 e2e/tests/themes.spec.mjs:56:1 › 대화: 같은 메뉴로 다니고, 문서는 지금 상태와 다음 일을 말해 준다 (1.1s)
+  ✓  298 e2e/tests/themes.spec.mjs:88:1 › 관제: 모듈 탭과 원장 띠, 문서 옆의 연결 지도 (1.9s)
+  ✓  299 e2e/tests/themes.spec.mjs:131:1 › 휴대폰 폭에서는 어느 테마든 같은 서랍 메뉴이고 화면 밖으로 나가지 않는다 (1.4s)
+  ✓  300 e2e/tests/timeoff.spec.mjs:72:1 › S11-0. 인사가 꺼져 있으면 켤 수 없고, 켜면 유형과 정책이 바로 생기며, 휴가가 켜진 동안 인사를 끌 수 없다 (1.0s)
+  ✓  301 e2e/tests/timeoff.spec.mjs:103:1 › S11-1. 직원이 들어오면 정책대로 계산되고, 근태가 없으면 출근율을 확인하지 못했다고 말하며, 법보다 적게 줄 수 없다 (2.0s)
+  ✓  302 e2e/tests/timeoff.spec.mjs:152:1 › S11-2. 박영업이 잔여를 보고 신청한다. 공휴일과 주말은 빠지고, 잔여를 넘으면 막힌다 (2.0s)
+  ✓  303 e2e/tests/timeoff.spec.mjs:194:1 › S11-3. 상사의 승인함에 사유와 함께 오고, 승인하면 잔여가 줄고 팀 달력에 이름과 날짜만 보인다 (679ms)
+  ✓  304 e2e/tests/timeoff.spec.mjs:214:1 › S11-4. 동료는 이름과 날짜만 본다. 사유와 유형은 어떤 길로도 보이지 않는다 (726ms)
+  ✓  305 e2e/tests/timeoff.spec.mjs:244:1 › S11-5. 반려하면 사유가 신청자에게 보이고, 신청자가 지울 수 있으며, 지운 사실만 남는다 (2.0s)
+  ✓  306 e2e/tests/timeoff.spec.mjs:283:1 › S11-6. 잘못 승인한 건을 관리자가 되돌리면 대기로 돌아가고, 취소하면 일수가 돌아온다 (1.3s)
+  ✓  307 e2e/tests/timeoff.spec.mjs:306:1 › S11-6b. 시작한 휴가는 본인이 취소할 수 없고 상사가 승인함에서 취소한다. 인사 담당자는 양식으로 대신 신청한다 (1.4s)
+  ✓  308 e2e/tests/timeoff.spec.mjs:343:1 › S11-7. 에이전트가 MCP로 신청해도 같은 규칙을 지나고, 사가로 통째로 돌아간다 (592ms)
+  ✓  309 e2e/tests/timeoff.spec.mjs:370:1 › S11-8. 소진 전망과 부여 정책 what-if는 범위로 말하고, 원장을 바꾸지 않는다 (1.1s)
+  ✓  310 e2e/tests/timeoff.spec.mjs:395:1 › S11-9. 끄면 메뉴가 사라지고 이력은 남으며, 인사도 그때부터 끌 수 있다 (983ms)
+  ✓  311 e2e/tests/whatif.spec.mjs:56:1 › 첫 화면은 모델을 세 상태로 보여 주고, 각자 무엇을 기다리는지 말한다 (1.2s)
+  ✓  312 e2e/tests/whatif.spec.mjs:83:1 › 잠긴 모델은 계산하지 않고 어떤 모듈을 켜면 되는지 안내한다 (573ms)
+  ✓  313 e2e/tests/whatif.spec.mjs:97:1 › 근거가 모자라면 숫자 대신 무엇이 얼마나 더 필요한지와 범위만 보여 준다 (1.0s)
+  ✓  314 e2e/tests/whatif.spec.mjs:122:1 › 회사 전체는 되어도 그 제품·공급사의 근거가 모자라면 함수의 답을 따른다 (2.4s)
+  ✓  315 e2e/tests/whatif.spec.mjs:138:1 › 예측은 결과와 80% 구간, 근거, 경고를 그대로 보여 준다 (3.7s)
+  ✓  316 e2e/tests/whatif.spec.mjs:179:1 › what-if: 입력 폼에서 기준 대비 변화를 P10·P50·P90 으로 보여 주고, 원장은 그대로다 (2.1s)
+  ✓  317 e2e/tests/whatif.spec.mjs:205:1 › 구간이 0 을 포함하면 숫자보다 먼저 효과를 구분할 수 없다고 말한다 (2.8s)
+  ✓  318 e2e/tests/whatif.spec.mjs:232:1 › 단종·납기·결제 조건도 같은 틀로 답하고, 납기와 대체율을 함께 보여 준다 (2.9s)
+  ✓  319 e2e/tests/whatif.spec.mjs:259:1 › 구매 기록이 없는 단계에서는 기준 매출을 믿지 말라고 하고, 그 시점으로 계산한다 (1.2s)
+  ✘  320 e2e/tests/whatif.spec.mjs:277:1 › 계산은 별도 스레드에서 돌고, 읽는 동안 진행을 보여 주며 화면을 막지 않는다 (12.5s)
+  -  321 e2e/tests/whatif.spec.mjs:295:1 › 읽지 못하면 오류와 다시 시도를 보여 주고, 다른 시점으로 옮기면 다시 읽는다
+  -  322 e2e/tests/whatif.spec.mjs:322:1 › 통계는 지역·제품·기간 매출을 SVG 로 그리고, 고르면 좁혀지고, 없으면 빈 상태로 말한다
+  -  323 e2e/tests/whatif.spec.mjs:348:1 › 견적 전환율은 근거가 모자라면 범위로만 말한다
+  -  324 e2e/tests/whatif.spec.mjs:363:1 › 문서를 읽을 권한이 없는 역할에는 그 문서로 계산하는 모델이 잠긴다
+  -  325 e2e/tests/whatif.spec.mjs:376:1 › 휴대폰 폭과 어두운 테마에서도 읽힌다
+
+
+  1) e2e/tests/integration.spec.mjs:37:1 › 키를 만들면 한 번만 보여 주고, 고른 구성원의 권한으로 동작하며, 폐기하면 끊긴다 ──────────
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('dialog').getByLabel('이 구성원의 권한으로 동작').locator('option')
+    Expected: 4
+    Received: 1
+    Timeout:  12000ms
+
+    Call log:
+      - Expect "toHaveCount" getByRole('dialog').getByLabel('이 구성원의 권한으로 동작').locator('option') with timeout 12000ms
+      - waiting for getByRole('dialog').getByLabel('이 구성원의 권한으로 동작').locator('option')
+        28 × locator resolved to 1 element
+           - unexpected value "1"
+
+
+      44 |   await dialog.getByLabel('이름').fill('회계 에이전트')
+      45 |   const select = dialog.getByLabel('이 구성원의 권한으로 동작')
+    > 46 |   await expect(select.locator('option')).toHaveCount(4)
+         |                                          ^
+      47 |   await select.selectOption({ label: `${CLERK.name} (${CLERK.email})` })
+      48 |   await shot(page, '192-integration-create')
+      49 |   await page.getByTestId('dlg-confirm').click()
+        at e2e/tests/integration.spec.mjs:46:42
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/integration-키를-만들면-한-번만-보여-주고-고른-구성원의-권한으로-동작하며-폐기하면-끊긴다/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/integration-키를-만들면-한-번만-보여-주고-고른-구성원의-권한으로-동작하며-폐기하면-끊긴다/error-context.md
+
+  2) e2e/tests/whatif.spec.mjs:277:1 › 계산은 별도 스레드에서 돌고, 읽는 동안 진행을 보여 주며 화면을 막지 않는다 ─────────────────
+
+    Error: expect(locator).toHaveText(expected) failed
+
+    Locator: getByTestId('ledger-progress-count')
+    Expected pattern: /\d+ \/ \d+/
+    Timeout: 12000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toHaveText" getByTestId('ledger-progress-count') with timeout 12000ms
+      - waiting for getByTestId('ledger-progress-count')
+        5 × locator resolved to <span class="nowrap" data-v-f3be1291="" data-testid="ledger-progress-count">준비 중</span>
+          - unexpected value "준비 중"
+
+
+      282 |   await openModel(page, 'demand_true')
+      283 |   await expect(page.getByTestId('ledger-progress')).toBeVisible()
+    > 284 |   await expect(page.getByTestId('ledger-progress-count')).toHaveText(/\d+ \/ \d+/)
+          |                                                           ^
+      285 |   await shot(page, '180-ledger-progress')
+      286 |   // The page still answers while it reads: the menu opens right away.
+      287 |   await page.locator('[data-module="events"]').hover()
+        at e2e/tests/whatif.spec.mjs:284:59
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/whatif-계산은-별도-스레드에서-돌고-읽는-동안-진행을-보여-주며-화면을-막지-않는다/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/whatif-계산은-별도-스레드에서-돌고-읽는-동안-진행을-보여-주며-화면을-막지-않는다/error-context.md
+
+  2 failed
+    e2e/tests/integration.spec.mjs:37:1 › 키를 만들면 한 번만 보여 주고, 고른 구성원의 권한으로 동작하며, 폐기하면 끊긴다 ───────────
+    e2e/tests/whatif.spec.mjs:277:1 › 계산은 별도 스레드에서 돌고, 읽는 동안 진행을 보여 주며 화면을 막지 않는다 ──────────────────
+  6 did not run
+  317 passed (10.6m)
